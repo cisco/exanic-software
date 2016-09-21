@@ -1225,6 +1225,7 @@ static struct ethtool_ops exanic_ethtool_ops = {
 #if defined(ETHTOOL_GET_TS_INFO) && LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 /* RedHat 2.6.x backports place get_ts_info in ethtool_ops_ext */
 static struct ethtool_ops_ext exanic_ethtool_ops_ext = {
+    .size                   = sizeof(struct ethtool_ops_ext),
     .get_ts_info            = exanic_netdev_get_ts_info
 };
 #define SET_ETHTOOL_OPS_EXT(ndev, ops) set_ethtool_ops_ext(ndev, ops)
