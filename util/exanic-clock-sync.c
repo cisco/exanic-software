@@ -61,6 +61,7 @@ void log_printf(int priority, const char *fmt, ...)
     {
         vprintf(fmt, ap);
         printf("\n");
+        fflush(stdout);
     }
     va_end(ap);
 }
