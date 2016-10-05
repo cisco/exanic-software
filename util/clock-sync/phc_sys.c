@@ -217,9 +217,10 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
     expected_offset_ns = state->offset_ns +
         (drift + state->adj) * (sys_time_ns - state->time_ns);
 
-    /* If measurement is more than 10us from the expected value,
+    /* If measurement is more than 10ppm from the expected value,
      * start polling at a faster rate until things stabilise */
-    if (fabs(offset_ns - expected_offset_ns) > 10000)
+    if (fabs(offset_ns - expected_offset_ns) >
+            (hw_time_ns - state->time_ns) * 0.000010)
     {
         fast_poll = 1;
         state->log_next = 1;
@@ -230,7 +231,8 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
             (sys_time_ns - state->time_ns));
 
     /* Set adjustment to compensate for drift and to correct offset */
-    adj = - drift - offset_ns / (1000000000.0 * POLL_INTERVAL);
+    adj = - drift - offset_ns /
+        (1000000000 * (fast_poll ? SHORT_POLL_INTERVAL : POLL_INTERVAL));
     if (set_clock_adj(state->clkfd, adj) == -1)
     {
         if (!state->error_mode)
