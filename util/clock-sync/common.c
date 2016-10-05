@@ -51,35 +51,42 @@ void reset_drift(struct drift *d)
 
 int calc_drift(struct drift *d, double *val)
 {
-    double drift;
+    double drift, weight;
     int i;
 
     if (d->startup)
     {
-        drift = 0;
+        drift = weight = 0;
         for (i = 0; i < d->n; i++)
-            drift += d->drift[i];
-        if (d->n > 0)
-            drift /= d->n;
+        {
+            drift += d->drift[i] * d->weight[i];
+            weight += d->weight[i];
+        }
     }
     else
     {
-        drift = 0;
+        drift = weight = 0;
         for (i = 0; i < DRIFT_LEN; i++)
-            drift += d->drift[i];
-        drift /= DRIFT_LEN;
+        {
+            drift += d->drift[i] * d->weight[i];
+            weight += d->weight[i];
+        }
     }
 
-    *val = drift;
-
-    /* Return nonzero if there is at least one measurement */
-    return !d->startup || d->n > 0;
+    if (weight > 0)
+    {
+        *val = drift / weight;
+        return 1;
+    }
+    else
+        return 0;
 }
 
 
-void record_drift(struct drift *d, double val)
+void record_drift(struct drift *d, double val, double weight)
 {
     d->drift[d->n] = val;
+    d->weight[d->n] = weight;
     if (++d->n >= DRIFT_LEN)
         d->n = d->startup = 0;
 }

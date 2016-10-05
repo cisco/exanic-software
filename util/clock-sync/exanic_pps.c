@@ -287,7 +287,7 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
                 /* Record drift measurement */
                 record_drift(&state->drift, drift +
                         (tick_diff - expected_tick_diff) /
-                        (seconds * state->tick_hz));
+                        (seconds * state->tick_hz), seconds);
 
                 /* Update estimate of clock drift */
                 drift_known = calc_drift(&state->drift, &drift);

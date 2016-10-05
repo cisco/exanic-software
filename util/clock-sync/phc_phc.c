@@ -110,7 +110,7 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
     /* Use current adjustment as our initial estimate of drift */
     state->adj = adj;
     reset_drift(&state->drift);
-    record_drift(&state->drift, -adj);
+    record_drift(&state->drift, -adj, 1000000000 * POLL_INTERVAL);
 
     return state;
 }
@@ -193,7 +193,7 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
     /* Update drift with data from new measurement */
     record_drift(&state->drift, drift +
             (double)(offset_ns - expected_offset_ns) /
-            (src_time_ns - state->time_ns));
+            (src_time_ns - state->time_ns), src_time_ns - state->time_ns);
 
     /* Set adjustment to compensate for drift and to correct offset */
     adj = - drift - offset_ns /

@@ -37,13 +37,14 @@ int get_exanic_gps_tai_offset(exanic_t *exanic, int *offset);
 struct drift
 {
     double drift[DRIFT_LEN];
+    double weight[DRIFT_LEN];
     int n;
     int startup;
 };
 
 void reset_drift(struct drift *d);
 int calc_drift(struct drift *d, double *val);
-void record_drift(struct drift *d, double val);
+void record_drift(struct drift *d, double val, double weight);
 
 void log_printf(int priority, const char *fmt, ...);
 
