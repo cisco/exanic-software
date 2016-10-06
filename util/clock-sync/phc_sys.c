@@ -184,7 +184,7 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
         return SYNC_FAST_POLL;
     }
 
-    /* Reset hardware clock if offset is too large (more than 1ms) */
+    /* Reset hardware clock if error is too large (more than 1ms) */
     if (fabs(error_ns) > 1000000)
     {
         if (state->log_reset)
@@ -220,9 +220,9 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
     /* Get underlying clock drift */
     calc_drift(&state->drift, &drift);
 
-    /* Calculate expected change in hardware clock error based on
-     * the current adjustment and estimated drift */
-    correction_ns = (drift + state->adj) * (sys_time_ns - state->time_ns);
+    /* Calculate expected change in hardware clock error since last
+     * measurement, based on the current adjustment and estimated drift */
+    correction_ns = (drift + state->adj) * interval_ns;
 
     /* Difference between the measured error and expected error */
     delta_ns = error_ns - (state->error_ns + correction_ns);
@@ -272,7 +272,7 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
                 error_ns * 0.001, drift * 1000000);
         state->last_log_ns = sys_time_ns;
 
-        /* Log again if offset is more than 10us */
+        /* Log again if error is more than 10us */
         state->log_next = (fabs(error_ns) > 10000);
     }
 
@@ -285,6 +285,7 @@ clock_error:
     state->log_next = 1;
     state->last_log_ns = 0;
     reset_drift(&state->drift);
+    reset_error(&state->error);
     return SYNC_FAILED;
 }
 

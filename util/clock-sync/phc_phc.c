@@ -22,10 +22,11 @@ struct phc_phc_sync_state
     char name_src[16];
     int clkfd_src;
     uint64_t time_ns;   /* Time of last measurement (ns since epoch) */
-    int64_t offset_ns;  /* Last measured offset of clock (ns) */
+    double error_ns;    /* Last measured clock error (ns) */
     int invalid;        /* Nonzero if last measurement is not valid */
     double adj;         /* Currently applied adjustment value */
     struct drift drift; /* Estimated drift of the underlying clock */
+    struct error error; /* Clock error history */
     int error_mode;     /* Nonzero if there was an error adjusting the clock */
     int log_next;       /* Make sure next measurement is logged */
     int log_reset;      /* Log if clock is reset */
@@ -100,8 +101,7 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
 
     /* Set up state struct with current time */
     state->time_ns = src_time_ns;
-    state->offset_ns = (int64_t)(target_time_ns - src_time_ns);
-    state->invalid = 0;
+    state->invalid = 1;
     state->error_mode = 0;
     state->log_next = 1;
     state->log_reset = 0;
@@ -112,6 +112,9 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
     reset_drift(&state->drift);
     record_drift(&state->drift, -adj, 1000000000 * POLL_INTERVAL);
 
+    /* Record current error measurement in error history */
+    reset_error(&state->error);
+
     return state;
 }
 
@@ -119,8 +122,8 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
 enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
 {
     uint64_t src_time_ns, target_time_ns;
-    int64_t offset_ns, expected_offset_ns;
     time_t current_time = 0;
+    double error_ns, interval_ns, correction_ns, delta_ns, med_error_ns;
     double drift, adj;
     int fast_poll = 0;
 
@@ -133,25 +136,25 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
                 state->name, strerror(errno));
         goto clock_error;
     }
-    offset_ns = (int64_t)target_time_ns - (int64_t)src_time_ns;
+    error_ns = (int64_t)target_time_ns - (int64_t)src_time_ns;
     current_time = src_time_ns / 1000000000;
 
     /* If there was no previous measurement, update and try again later */
     if (state->invalid)
     {
         state->time_ns = src_time_ns;
-        state->offset_ns = offset_ns;
+        state->error_ns = error_ns;
         state->invalid = 0;
         return SYNC_FAST_POLL;
     }
 
-    /* Reset clock if offset is more than 1ms */
-    if (offset_ns > 1000000 || offset_ns < -1000000)
+    /* Reset clock if error is more than 1ms */
+    if (fabs(error_ns) > 1000000)
     {
         if (state->log_reset)
             log_printf(LOG_WARNING, "%s: Clock error exceeds limits, "
                     "resetting clock: %ld ns",
-                    state->name, offset_ns);
+                    state->name, error_ns);
 
         if (set_clock_adj(state->clkfd, 0) == -1 ||
                 set_clock_time(state->clkfd, src_time_ns) == -1)
@@ -173,30 +176,36 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
 
     state->log_reset = 1;
 
+    /* Interval between this measurement and last measurement */
+    interval_ns = src_time_ns - state->time_ns;
+
     /* Get underlying clock drift */
     calc_drift(&state->drift, &drift);
 
-    /* Calculate expected offset based on the current adjustment and
-     * estimated drift */
-    expected_offset_ns = state->offset_ns +
-        (drift + state->adj) * (src_time_ns - state->time_ns);
+    /* Calculate expected change in clock error since last measurement,
+     * based on the current adjustment and estimated drift */
+    correction_ns = (drift + state->adj) * interval_ns;
+
+    /* Difference between the measured error and expected error */
+    delta_ns = error_ns - (state->error_ns + correction_ns);
 
     /* If measurement is more than 10ppm from the expected value,
      * start polling at a faster rate until things stabilise */
-    if (llabs(expected_offset_ns - offset_ns) >
-            (src_time_ns - state->time_ns) / 100000)
+    if (fabs(delta_ns) > interval_ns * 0.000010)
     {
         fast_poll = 1;
         state->log_next = 1;
     }
 
-    /* Update drift with data from new measurement */
-    record_drift(&state->drift, drift +
-            (double)(offset_ns - expected_offset_ns) /
-            (src_time_ns - state->time_ns), src_time_ns - state->time_ns);
+    /* Update drift and error with data from new measurement */
+    record_drift(&state->drift, drift + delta_ns / interval_ns, interval_ns);
+    record_error(&state->error, correction_ns, error_ns);
+
+    /* Get clock error to correct */
+    calc_error(&state->error, &med_error_ns);
 
     /* Set adjustment to compensate for drift and to correct offset */
-    adj = - drift - offset_ns /
+    adj = - drift - med_error_ns /
         (1000000000 * (fast_poll ? SHORT_POLL_INTERVAL : POLL_INTERVAL));
     if (set_clock_adj(state->clkfd, adj) == -1)
     {
@@ -208,7 +217,7 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
 
     /* Store measurements and current adjustment */
     state->time_ns = src_time_ns;
-    state->offset_ns = offset_ns;
+    state->error_ns = error_ns;
     state->adj = adj;
 
     /* Print status */
@@ -222,11 +231,11 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
     {
         log_printf(LOG_INFO, "%s: Clock offset from %s: %.3f us "
                 " drift: %.3f ppm", state->name, state->name_src,
-                offset_ns * 0.001, drift * 1000000);
+                error_ns * 0.001, drift * 1000000);
         state->last_log = current_time;
 
-        /* Log again if offset is more than 2us */
-        state->log_next = (offset_ns < -2000 || offset_ns > 2000);
+        /* Log again if error is more than 2us */
+        state->log_next = (fabs(error_ns) > 2000);
     }
 
     return fast_poll ? SYNC_FAST_POLL : SYNC_OK;
