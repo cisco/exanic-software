@@ -171,6 +171,7 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
         state->log_reset = 1;
         state->last_log = 0;
         reset_drift(&state->drift);
+        reset_error(&state->error);
         return SYNC_FAST_POLL;
     }
 
@@ -204,7 +205,7 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
     /* Get clock error to correct */
     calc_error(&state->error, &med_error_ns);
 
-    /* Set adjustment to compensate for drift and to correct offset */
+    /* Set adjustment to compensate for drift and to correct error */
     adj = - drift - med_error_ns /
         (1000000000 * (fast_poll ? SHORT_POLL_INTERVAL : POLL_INTERVAL));
     if (set_clock_adj(state->clkfd, adj) == -1)
@@ -248,6 +249,7 @@ clock_error:
     state->log_reset = 1;
     state->last_log = 0;
     reset_drift(&state->drift);
+    reset_error(&state->error);
     return SYNC_FAILED;
 }
 

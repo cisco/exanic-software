@@ -356,7 +356,7 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
     /* Get clock error to correct */
     calc_error(&state->error, &med_error_ns);
 
-    /* Set adjustment to compensate for drift and to correct offset */
+    /* Set adjustment to compensate for drift and to correct error */
     adj = - drift - med_error_ns /
         (1000000000 * (fast_poll ? SHORT_POLL_INTERVAL : POLL_INTERVAL));
     if (set_sys_adj(adj) == -1)
