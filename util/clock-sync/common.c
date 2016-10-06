@@ -52,25 +52,18 @@ void reset_drift(struct drift *d)
 int calc_drift(struct drift *d, double *val)
 {
     double drift, weight;
-    int i;
+    int i, c;
 
     if (d->startup)
-    {
-        drift = weight = 0;
-        for (i = 0; i < d->n; i++)
-        {
-            drift += d->drift[i] * d->weight[i];
-            weight += d->weight[i];
-        }
-    }
+        c = d->n;
     else
+        c = DRIFT_LEN;
+
+    drift = weight = 0;
+    for (i = 0; i < c; i++)
     {
-        drift = weight = 0;
-        for (i = 0; i < DRIFT_LEN; i++)
-        {
-            drift += d->drift[i] * d->weight[i];
-            weight += d->weight[i];
-        }
+        drift += d->drift[i] * d->weight[i];
+        weight += d->weight[i];
     }
 
     if (weight > 0)
@@ -89,6 +82,55 @@ void record_drift(struct drift *d, double val, double weight)
     d->weight[d->n] = weight;
     if (++d->n >= DRIFT_LEN)
         d->n = d->startup = 0;
+}
+
+
+void reset_error(struct error *e)
+{
+    e->n = 0;
+    e->startup = 1;
+}
+
+
+int calc_error(struct error *e, double *val)
+{
+    double error;
+    int i, c;
+
+    if (e->startup)
+        c = e->n;
+    else
+        c = ERROR_LEN;
+
+    error = 0;
+    for (i = 0; i < c; i++)
+        error += e->error[i];
+
+    if (c > 0)
+    {
+        *val = error / c;
+        return 1;
+    }
+    else
+        return 0;
+}
+
+
+void record_error(struct error *e, double correction, double val)
+{
+    int i, c;
+
+    if (e->startup)
+        c = e->n;
+    else
+        c = ERROR_LEN;
+
+    for (i = 0; i < c; i++)
+        e->error[i] += correction;
+
+    e->error[e->n] = val;
+    if (++e->n >= ERROR_LEN)
+        e->n = e->startup = 0;
 }
 
 

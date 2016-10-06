@@ -46,6 +46,19 @@ void reset_drift(struct drift *d);
 int calc_drift(struct drift *d, double *val);
 void record_drift(struct drift *d, double val, double weight);
 
+#define ERROR_LEN 8
+
+struct error
+{
+    double error[ERROR_LEN];
+    int n;
+    int startup;
+};
+
+void reset_error(struct error *e);
+int calc_error(struct error *e, double *val);
+void record_error(struct error *e, double correction, double val);
+
 void log_printf(int priority, const char *fmt, ...);
 
 extern int verbose;
