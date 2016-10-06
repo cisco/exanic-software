@@ -49,6 +49,7 @@ void reset_drift(struct drift *d)
 }
 
 
+/* weighted average of the drift history */
 int calc_drift(struct drift *d, double *val)
 {
     double drift, weight;
@@ -92,9 +93,17 @@ void reset_error(struct error *e)
 }
 
 
+static int cmp_double(const void *a, const void *b)
+{
+    double d = *(double *)a - *(double *)b;
+    return d < 0 ? -1 : d > 0 ? 1 : 0;
+}
+
+
+/* median of the error history */
 int calc_error(struct error *e, double *val)
 {
-    double error;
+    double error[ERROR_LEN];
     int i, c;
 
     if (e->startup)
@@ -102,17 +111,19 @@ int calc_error(struct error *e, double *val)
     else
         c = ERROR_LEN;
 
-    error = 0;
-    for (i = 0; i < c; i++)
-        error += e->error[i];
-
-    if (c > 0)
-    {
-        *val = error / c;
-        return 1;
-    }
-    else
+    if (c == 0)
         return 0;
+
+    for (i = 0; i < c; i++)
+        error[i] = e->error[i];
+    qsort(error, c, sizeof(double), cmp_double);
+
+    if ((c % 2) == 0)
+        *val = (error[c / 2 - 1] + error[c / 2]) / 2;
+    else
+        *val = error[c / 2];
+
+    return 1;
 }
 
 

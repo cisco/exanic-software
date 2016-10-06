@@ -145,7 +145,7 @@ struct phc_sys_sync_state *init_phc_sys_sync(const char *name, int fd,
 enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
 {
     uint64_t sys_time_ns, hw_time_ns;
-    double error_ns, interval_ns, correction_ns, delta_ns, avg_error_ns;
+    double error_ns, interval_ns, correction_ns, delta_ns, med_error_ns;
     double drift, adj;
     int64_t clock_offset_ns;
     int fast_poll = 0;
@@ -240,10 +240,10 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
     record_error(&state->error, correction_ns, error_ns);
 
     /* Get clock error to correct */
-    calc_error(&state->error, &avg_error_ns);
+    calc_error(&state->error, &med_error_ns);
 
     /* Set adjustment to compensate for drift and to correct error */
-    adj = - drift - avg_error_ns /
+    adj = - drift - med_error_ns /
         (1000000000 * (fast_poll ? SHORT_POLL_INTERVAL : POLL_INTERVAL));
     if (set_clock_adj(state->clkfd, adj) == -1)
     {
