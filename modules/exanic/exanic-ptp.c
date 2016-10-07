@@ -29,6 +29,9 @@
 #define PER_OUT_DELAY_NS 100000
 #define PER_OUT_WIDTH_NS 20000
 
+/* Log an error if the rollover counter update is out by this many ticks */
+#define MAX_ERROR_TICKS 0x1000000
+
 #ifdef PTP_1588_CLOCK_USES_TIMESPEC64
 typedef struct timespec64 ptp_timespec_t;
 #define ktime_to_ptp_timespec_t(ktime) ktime_to_timespec64(ktime)
@@ -54,26 +57,59 @@ static enum hrtimer_restart exanic_ptp_hrtimer_callback(struct hrtimer *timer)
         container_of(timer, struct exanic, ptp_clock_hrtimer);
     uint32_t hw_time =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME));
+    int32_t error;
     uint32_t ticks;
 
     if ((exanic->tick_rollover_counter & 1) == 0)
     {
-        /* Timer should have fired near halfway point
-         * Set timer to fire again at rollover time */
+        /* Timer should have fired near halfway point */
+        error = hw_time - 0x80000000;
+        /* Set timer to fire again at rollover time */
         ticks = -hw_time;
     }
     else
     {
-        /* Timer should have fired around rollover time
-         * Set timer to fire again near halfway point */
+        /* Timer should have fired around rollover time */
+        error = hw_time;
+        /* Set timer to fire again near halfway point */
         ticks = 0x80000000 - hw_time;
     }
+
+    if (error < -MAX_ERROR_TICKS || error > MAX_ERROR_TICKS)
+        dev_err(exanic_dev(exanic),
+            "Rollover timer fired at an unexpected time: "
+            "counter 0x%llx hwtime 0x%08x\n", exanic->tick_rollover_counter,
+            hw_time);
+
     hrtimer_forward_now(&exanic->ptp_clock_hrtimer,
             ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz));
     exanic->tick_rollover_counter++;
     exanic_ptp_update_info_page(exanic);
 
     return HRTIMER_RESTART;
+}
+
+/* Output error message if counter and hardware time are not in sync */
+static void exanic_ptp_rollover_check(struct exanic *exanic, uint32_t hw_time)
+{
+    uint64_t tick_rollover_counter = exanic->tick_rollover_counter;
+    uint32_t error;
+
+    if (((hw_time >> 31) & 1) == (tick_rollover_counter & 1))
+        return;
+
+    if (hw_time < 0x40000000)
+        error = hw_time;
+    else if (hw_time < 0x80000000)
+        error = 0x80000000 - hw_time;
+    else if (hw_time < 0xC0000000)
+        error = hw_time - 0x80000000;
+    else
+        error = -hw_time;
+
+    if (error > MAX_ERROR_TICKS)
+        dev_err(exanic_dev(exanic), "Rollover counter out of sync: "
+            "counter 0x%llx hwtime 0x%08x\n", tick_rollover_counter, hw_time);
 }
 
 /* Extend hardware time to 64 bits using tick_rollover_counter */
@@ -145,6 +181,7 @@ static ktime_t exanic_ptp_ktime_get(struct exanic *exanic)
     {
         hw_time_reg = readl(exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME));
+        exanic_ptp_rollover_check(exanic, hw_time_reg);
         time_ticks = exanic_ptp_soft_extend_hw_time(exanic, hw_time_reg);
     }
 
