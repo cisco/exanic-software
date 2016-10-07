@@ -178,7 +178,7 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
     /* If there was no previous measurement, update and try again later */
     if (state->invalid)
     {
-        state->time_ns = hw_time_ns;
+        state->time_ns = sys_time_ns;
         state->error_ns = error_ns;
         state->invalid = 0;
         return SYNC_FAST_POLL;
