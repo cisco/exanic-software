@@ -33,6 +33,7 @@ struct sys_phc_sync_state
     int auto_tai_offset; /* Get TAI offset automatically */
     int tai_offset_wait; /* Nonzero if waiting for valid TAI-UTC offset */
     uint64_t time_ns;   /* Time of last measurement (ns since epoch) */
+    uint64_t lat_ns;    /* Measurement latency (ns) */
     double error_ns;    /* Last measured clock error (ns) */
     int invalid;        /* Nonzero if last measurement is not valid */
     double adj;         /* Currently applied adjustment value */
@@ -47,7 +48,7 @@ struct sys_phc_sync_state
 
 
 static int ptp_sys_offset(int fd, uint64_t *sys_time_ns,
-        uint64_t *hw_time_ns)
+        uint64_t *hw_time_ns, uint64_t *lat_ns)
 {
     struct ptp_sys_offset sysoff;
     uint64_t t1, t2, th;
@@ -78,6 +79,8 @@ static int ptp_sys_offset(int fd, uint64_t *sys_time_ns,
             *hw_time_ns = th;
         }
     }
+
+    *lat_ns = d;
 
     return 0;
 }
@@ -124,13 +127,13 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
         exanic_t *exanic, int tai_offset, int auto_tai_offset, int64_t offset)
 {
     struct sys_phc_sync_state *state;
-    uint64_t sys_time_ns, hw_time_ns;
+    uint64_t sys_time_ns, hw_time_ns, lat_ns;
     int sys_tai_offset;
     double adj;
     enum phc_source phc_source;
 
     /* First check that the ioctl works */
-    if (ptp_sys_offset(fd, &sys_time_ns, &hw_time_ns) == -1)
+    if (ptp_sys_offset(fd, &sys_time_ns, &hw_time_ns, &lat_ns) == -1)
     {
         log_printf(LOG_ERR,
                 "%s: Error reading time from PTP hardware clock: %s",
@@ -213,7 +216,7 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
 
 enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
 {
-    uint64_t sys_time_ns, hw_time_ns;
+    uint64_t sys_time_ns, hw_time_ns, lat_ns;
     double error_ns, interval_ns, correction_ns, delta_ns, med_error_ns;
     double drift, adj;
     int64_t clock_offset_ns;
@@ -276,7 +279,7 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
     }
 
     /* Get current system time and hardware time */
-    if (ptp_sys_offset(state->clkfd, &sys_time_ns, &hw_time_ns) == -1)
+    if (ptp_sys_offset(state->clkfd, &sys_time_ns, &hw_time_ns, &lat_ns) == -1)
     {
         log_printf(LOG_ERR,
                 "%s: Error reading time from PTP hardware clock: %s",
@@ -294,9 +297,17 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
     if (state->invalid)
     {
         state->time_ns = hw_time_ns;
+        state->lat_ns = lat_ns;
         state->error_ns = error_ns;
         state->invalid = 0;
         return SYNC_FAST_POLL;
+    }
+
+    /* Log a warning if the measurement took an unusually long time */
+    if (state->lat_ns != 0 && lat_ns > state->lat_ns * 4)
+    {
+        log_printf(LOG_WARNING, "%s: Clock reading is unusually slow: "
+                "%ld ns (was %ld ns)", state->name, lat_ns, state->lat_ns);
     }
 
     /* Reset system clock if error is too large (more than 1ms) */
@@ -369,6 +380,7 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
 
     /* Store measurements and current adjustment */
     state->time_ns = hw_time_ns;
+    state->lat_ns = lat_ns;
     state->error_ns = error_ns;
     state->adj = adj;
 
