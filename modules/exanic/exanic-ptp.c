@@ -89,29 +89,6 @@ static enum hrtimer_restart exanic_ptp_hrtimer_callback(struct hrtimer *timer)
     return HRTIMER_RESTART;
 }
 
-/* Output error message if counter and hardware time are not in sync */
-static void exanic_ptp_rollover_check(struct exanic *exanic, uint32_t hw_time)
-{
-    uint64_t tick_rollover_counter = exanic->tick_rollover_counter;
-    uint32_t error;
-
-    if (((hw_time >> 31) & 1) == (tick_rollover_counter & 1))
-        return;
-
-    if (hw_time < 0x40000000)
-        error = hw_time;
-    else if (hw_time < 0x80000000)
-        error = 0x80000000 - hw_time;
-    else if (hw_time < 0xC0000000)
-        error = hw_time - 0x80000000;
-    else
-        error = -hw_time;
-
-    if (error > MAX_ERROR_TICKS)
-        dev_err(exanic_dev(exanic), "Rollover counter out of sync: "
-            "counter 0x%llx hwtime 0x%08x\n", tick_rollover_counter, hw_time);
-}
-
 /* Extend hardware time to 64 bits using tick_rollover_counter */
 static uint64_t exanic_ptp_soft_extend_hw_time(struct exanic *exanic,
         uint32_t hw_time)
@@ -181,7 +158,6 @@ static ktime_t exanic_ptp_ktime_get(struct exanic *exanic)
     {
         hw_time_reg = readl(exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME));
-        exanic_ptp_rollover_check(exanic, hw_time_reg);
         time_ticks = exanic_ptp_soft_extend_hw_time(exanic, hw_time_reg);
     }
 
