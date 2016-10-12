@@ -241,6 +241,15 @@ exa_tcp_ack_pending(struct exa_tcp_conn * restrict ctx)
     return state->ack_pending;
 }
 
+/* Update state after an ACK is sent */
+static inline void
+exa_tcp_clear_ack_pending(struct exa_tcp_conn * restrict ctx)
+{
+    struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
+
+    state->ack_pending = false;
+}
+
 /* Calculate the value of the window field in the TCP header */
 static inline uint16_t
 __exa_tcp_calc_window(struct exa_socket_state * restrict state)
@@ -285,9 +294,6 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         *hdr_len += 8;
         optlen = 8;
     }
-
-    /* Clear ack_pending flag because an ACK is about to be sent */
-    state->ack_pending = false;
 
     h = (struct tcphdr *)(*hdr - sizeof(struct tcphdr));
     *h = ctx->hdr;
@@ -440,9 +446,6 @@ exa_tcp_build_hdr(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
            state->state == EXA_TCP_FIN_WAIT_1 ||
            state->state == EXA_TCP_CLOSING ||
            state->state == EXA_TCP_LAST_ACK);
-
-    /* Clear ack_pending flag because an ACK is about to be sent */
-    state->ack_pending = false;
 
     *h = ctx->hdr;
 

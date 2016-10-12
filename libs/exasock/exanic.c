@@ -1295,6 +1295,9 @@ exanic_tcp_send_ctrl(struct exa_socket * restrict sock)
 
     assert(ctx != NULL);
 
+    /* Clear ack_pending flag because an ACK is about to be sent */
+    exa_tcp_clear_ack_pending(&ctx->tcp);
+
     if (exa_tcp_build_ctrl(&ctx->tcp, &hdr_ptr, &hdr_len))
     {
         /* Send packet */
@@ -1485,6 +1488,9 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
         return 0;
 
     send_len = data_len < max_len ? data_len : max_len;
+
+    /* Clear ack_pending flag because an ACK is about to be sent */
+    exa_tcp_clear_ack_pending(&ctx->tcp);
 
     /* Build TCP header */
     exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq,
