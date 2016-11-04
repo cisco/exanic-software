@@ -221,6 +221,21 @@ int ethtool_get_phc_index(int fd, char *ifname, int *phc_index)
     return 0;
 }
 
+int get_x2_x4_phy_local_loopback(const char * device, int port_number)
+{
+    char buf;
+    uint8_t reg_addr = 0x0A;
+    exanic_t *exanic = acquire_handle(device);
+    if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+    {
+        fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
+        release_handle(exanic);
+        return -1;
+    }
+    release_handle(exanic);
+    return (buf & 0x40) ? 0 : 1;
+}
+
 void show_device_info(const char *device, int port_number)
 {
     int i, first_port, last_port, port_status;
@@ -456,6 +471,15 @@ void show_device_info(const char *device, int port_number)
                                       REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
                 printf("    MAC filters: %d", mac_rules);
                 printf("  IP filters: %d\n", ip_rules);
+
+                int loopback;
+                if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 )
+                    loopback = get_x2_x4_phy_local_loopback(device, i);
+                else
+                    loopback = exanic_register_read(exanic,
+                                    REG_PORT_INDEX(i,
+                                      REG_PORT_FLAGS));
+                printf("    Loopback mode: %s\n", loopback ? "on" : "off");
             }
             printf("    Promiscuous mode: %s\n",
                     exanic_get_promiscuous_mode(exanic, i) ? "on" : "off");
@@ -900,36 +924,43 @@ void set_firewall_state(const char *device, exanic_firewall_state_t state)
     release_handle(exanic);
 }
 
-int set_phy_local_loopback(const char * device, int port_number, int enable)
+int set_local_loopback(const char * device, int port_number, int enable)
 {
     exanic_t *exanic = acquire_handle(device);
-    exanic_hardware_id_t hw_type;
-    char buf;
-    uint8_t reg_addr;
-
-    hw_type = exanic_get_hw_type(exanic);
-    if ((hw_type != EXANIC_HW_X4) && (hw_type != EXANIC_HW_X2))
+    exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
+    if ((hw_type == EXANIC_HW_X4) || (hw_type == EXANIC_HW_X2))
     {
-        fprintf(stderr, "%s:%d: local-loopback not supported on this hardware\n", device, port_number);
-        goto out;
+        char buf;
+        uint8_t reg_addr = 0x0A;
+        if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+        {
+            fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
+            goto out;
+        }
+
+        buf = enable ? buf & (~0x40) : buf | 0x40;
+        if (exanic_x4_i2c_phy_write(exanic, port_number, reg_addr, &buf, 1) != 0)
+        {
+            fprintf(stderr, "%s:%d: error writing to PHY\n", device, port_number);
+            goto out;
+        }
     }
-
-    reg_addr = 0x0A;
-
-    if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+    else if ((hw_type == EXANIC_HW_X10) || (hw_type == EXANIC_HW_X40))
     {
-        fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
-        goto out;
-    }
+        uint32_t flags;
+        flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number,
+                                     REG_PORT_FLAGS));
+        if (enable)
+            flags = flags | EXANIC_PORT_FLAG_LOOPBACK;
+        else
+            flags = flags & (~EXANIC_PORT_FLAG_LOOPBACK);
 
-    if (enable)
-        buf = buf & (~0x40);
+        exanic_register_write(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS), flags);
+    }
     else
-        buf = buf | 0x40;
-
-    if (exanic_x4_i2c_phy_write(exanic, port_number, reg_addr, &buf, 1) != 0)
     {
-        fprintf(stderr, "%s:%d: error writing to PHY\n", device, port_number);
+        fprintf(stderr, "%s:%d: local-loopback not supported on this hardware\n",
+                device, port_number);
         goto out;
     }
 
@@ -2014,7 +2045,7 @@ int main(int argc, char *argv[])
     {
         if ((mode = parse_on_off(argv[3])) == -1)
             goto usage_error;
-        return set_phy_local_loopback(device, port_number, mode);
+        return set_local_loopback(device, port_number, mode);
     }
     /* below commands for firewall firmware only */
     else if (argc == 4 && strcmp(argv[2], "firewall") == 0

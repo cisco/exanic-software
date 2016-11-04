@@ -1214,6 +1214,12 @@ typedef enum
      * Availability: X4, X2
      */
     EXANIC_PORT_FLAG_AUTONEG_ENABLE     = 0x08,
+
+    /**
+     * If enabled, then local loopback will be enabled from
+     * Tx to RX of that port
+     */
+    EXANIC_PORT_FLAG_LOOPBACK           = 0x10,
 } exanic_port_flags_t;
 
 /**
