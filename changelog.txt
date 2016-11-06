@@ -1,0 +1,148 @@
+1.8.0 [2016-09-06]
+* Support for ExaNIC X10-GM
+* utils: support PPS out on ExaNIC X10/X10-GM/X40
+* utils: support PPS with termination off on ExaNIC X10/X10-GM/X40
+* driver: support hardware timestamping through Linux APIs
+* driver: expose hardware clock via Linux PTP infrastructure to allow
+  use of unmodified ptpd
+* exasock: support SO_TIMESTAMPING to receive hardware timestamps
+
+1.7.3 [2016-04-18]
+* Support for ExaNIC X40
+* driver: compile fixes on certain kernels
+* driver: avoid livelock when receiving bad CRC packets at line rate
+* driver: address issue when bringing port down/up with apps still attached
+* exasock: support SO_BINDTODEVICE socket option for receive
+* exasock: support struct ip_mreq/ip_mreqn to IP_MULTICAST_IF socket option
+* exasock: support FIONBIO ioctl
+* exasock: respect /proc/sys/net/ipv4/tcp_slow_start_after_idle
+* exasock: fix logic choosing source interface for multicast UDP send
+* exasock: fix hang removing signal handler
+* exasock: fix hang in socket shutdown
+* utils: show customer version in exanic-config (for devkit firmware)
+* utils: support single-ended PPS on X2
+* utils: timing calibration improvements in perf-test utils
+
+1.7.2 [2015-10-12]
+* Support for ExaNIC X10
+* Implement 'Link detected' status in ethtool (also fixes issue with
+  NetworkManager attempting to bring up unconnected interfaces)
+
+1.7.1 [2015-09-06]
+* exasock: Fix for issue where extension API would sometimes produce
+  bad IP checksums due to a gcc optimization
+
+1.7.0 [2015-08-07]
+* exasock: Add exasock extension API for TCP acceleration
+* exanic-capture: Add snap length option to limit captured payload
+
+1.6.0 [2015-07-17]
+* exasock: Support for accelerating VLAN and alias interfaces
+* exasock: epoll optimizations to reduce calls to kernel epoll
+* exasock: Fix for connections going AWOL with certain 3.x kernels -
+  in some cases TCP ACKs could stop being sent on a connection
+* exanic-capture: Support filtering (hardware-based)
+* exanic-capture: Set interface to promiscuous mode
+* exanic-capture: Include CRC errored frames in capture
+* Compile fix for recent kernels 3.10+ (rt_genid function)
+* Add support for Avago SFP modules in 100Mbit mode.
+
+1.5.0 [2015-03-27]
+* Add 100Mbit support (requires firmware 2015-03-27 or later; currently
+  supported with Finisar FCLF-8520-3/8521-3/FCMJ-8520-3/8521-3).
+* Improved analog parameters for passive cables.
+* Add interrupt coalescing to kernel driver to reduce interrupt rate
+  (can be disabled with ethtool -C rx-usecs 0)
+* Add support for local loopback of ports in exanic-config (can be used
+  for testing or in conjunction with mirroring to obtain local mirroring)
+* exasock: fix rare TCP bug with out of order packets
+
+1.4.2 [2014-10-22]
+* exasock: Fix for certain 3.0.x kernels (e.g. SLES11): would compile
+  but fail to work.
+* exasock: Minor bug fixes
+
+1.4.1 [2014-09-25]
+* exasock: Fix overflow in IP header checksum calculation which would
+  cause connections to certain IP address ranges to fail.
+
+1.4.0 [2014-09-16]
+* exasock: Implement epoll and readv/writev
+* exasock: Improved multithreading (now using reader-writer locks)
+* exasock: Tracing support for debugging
+* exasock: Allow kernel to receive a copy of multicast frames
+* exasock: Miscellaneous bug fixes and compatibility improvements
+
+1.3.1 [2014-06-13]
+* exasock: Fix for segmentation fault
+* exasock: Compatibility improvements to setsockopt/getsockopt
+* Compile fixes for various kernel versions and compilers
+* Experimental support for POWER8 systems
+* Report permanent hardware address in ethtool -P
+* Redhat/CentOS and Debian/Ubuntu packaging
+
+1.3.0 [2014-05-09]
+* exasock: Bug fixes and improvements to TCP support
+* Include exasock as part of normal make flow, and load automatically
+* Signal quality tweaks for interoperability with third party NICs
+* Support upcoming FPGA development kit
+* Allocate memory on device's NUMA node rather than forcing node 0
+* Measure CPU clock speed in perf-test utils rather than relying on /proc
+
+1.3.0beta1 [2014-04-14]
+* exasock: Beta TCP support
+* exasock: Improved locking for multi-threaded applications
+* Beta flow steering and flow hashing support (requires firmware
+  2014-04-14 or later)
+* Beta version of ptpd for ExaNIC
+
+1.2.2 [2014-03-31]
+* New exanic-capture utility which can write pcap files (replaces
+  exanic-rx-raw)
+* Improved receive-side settings for twinax direct attach cables
+* Compile fix for kernel 3.8+
+
+1.2.1 [2014-02-28]
+* Further improved signal quality for twinax direct attach cables
+* Port speed and autonegotiation settings now persist across a reboot
+* Performance test utilities now print statistics by default
+
+1.2.0 [2014-02-11]
+* Improved signal quality for twinax direct attach cables
+* Beta release of ExaNIC sockets acceleration library (exasock)
+* Add support for ExaNIC X2
+* Add support for 1GbE (requires firmware 2014-02-06 or later)
+* exanic-config now shows all cards when run with no arguments
+* Add filtering API to libexanic (hardware filtering not yet available)
+
+1.1.2 [2013-12-16]
+* Add some commands back to exanic-config as an alternative to using
+  ifconfig/ethtool
+* exanic-config now shows status of bypass only flag
+* Kernel driver now uses interrupt mode if available
+* Releasing under GPL
+
+1.1.1 [2013-12-03]
+* Fix memory leak in driver
+* Compile fixes for recent kernels
+
+1.1.0 [2013-12-02]
+* Add support for ExaNIC X4
+* ExaNICs now show up as standard Linux network interfaces
+* Network configuration is now done via standard Linux network mechanisms
+  instead of exanic-config or exanic.conf
+* Removed "friendly name" for ports. Ports can now be looked up by their
+  Linux network interface name
+* Runtime configuration is no longer stored in /dev/shm/exanic
+* Add exanic_receive_chunk() and exanic_receive_abort() API functions
+  to allow applications to read frames one chunk at a time
+* Relax TX region allocation so that non-power-of-2 region sizes are allowed
+* Change ioctl numbers to conform to Linux standard
+
+1.0.5 [2013-09-06]
+* Initial release of ZIP
+
+1.0.4 [2013-08-12]
+* Set MAC address commands and API functions now take full 6 octets
+  (in anticipation of new firmware that can set all 6 octets)
+* Fixes to exanic-load-config

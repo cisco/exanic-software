@@ -1,0 +1,7 @@
+.*
+exanic-*.tar.gz
+doc/*.odt
+doc/*.pdf
+src/docs/*
+!.gitignore
+*~

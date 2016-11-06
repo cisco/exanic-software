@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# chkconfig:   2345 91 09
+# description: Synchronise exanic clocks to the host clock
+
+. /etc/rc.d/init.d/functions
+
+prog="exanic-clock-sync"
+pidfile=/var/run/$prog.pid
+
+[ -f /etc/sysconfig/exanic ] && . /etc/sysconfig/exanic
+
+start()
+{
+    [ -n "$EXANIC_CLOCK_SYNC" ] || exit 6
+    echo -n $"Starting $prog: "
+    daemon --pidfile $pidfile $prog $EXANIC_CLOCK_SYNC --daemon --syslog --pidfile $pidfile
+    retval=$?
+    echo
+    return $retval
+}
+
+stop()
+{
+    echo -n $"Stopping $prog: "
+    killproc -p $pidfile $prog -TERM
+    echo
+    return $retval
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    status)
+        status $prog
+        ;;
+    restart)
+        stop
+        start
+        ;;
+    condrestart)
+        if status $prog > /dev/null ; then
+            stop
+            start
+        fi
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart}"
+        exit 2
+esac
+exit $?

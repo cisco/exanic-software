@@ -1,0 +1,64 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+#
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+#
+# Modified to make a template file for a multi-binary package with separated
+# build-arch and build-indep targets  by Bill Allombert 2001
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+VERSION=$(shell dpkg-parsechangelog |grep ^Version:|cut -d ' ' -f 2|sed 's/-[0-9.a-z]*$$//')
+
+.PHONY: build build-arch build-indep binary binary-arch binary-indep
+
+build: build-stamp
+
+build-stamp:
+	dh_testdir
+	make bin
+	touch build-stamp
+
+clean:
+	dh_testdir
+	rm -f build-stamp
+	-$(MAKE) clean-bin
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_prep
+	make install-bin PREFIX=/usr DESTDIR=$(CURDIR)/debian/exanic-utils INCDIR=$(CURDIR)/debian/exanic-dev/usr/include DEVLIBDIR=$(CURDIR)/debian/exanic-dev/usr/lib
+	mkdir -p $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exanic $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exasock/kernel
+	cp -r modules $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)
+	cp libs/exanic/ioctl.h libs/exanic/pcie_if.h libs/exanic/fifo_if.h libs/exanic/const.h $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exanic
+	cp libs/exasock/kernel/api.h libs/exasock/kernel/structs.h libs/exasock/kernel/consts.h $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exasock/kernel
+	dh_install
+
+# Build architecture-independent files here. 
+binary-indep: build install
+	dh_testdir
+	dh_dkms -V
+
+# Build architecture-dependent files here. 
+binary-arch: build install
+	dh_testdir
+	dh_strip 
+
+binary: binary-indep binary-arch
+	dh_testdir
+	dh_fixperms
+	dh_installdeb
+	dh_gencontrol
+	dh_builddeb
+
+.PHONY: build clean binary-indep binary-arch binary install
+

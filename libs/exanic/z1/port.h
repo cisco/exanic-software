@@ -1,0 +1,6 @@
+#ifndef Z1_PORT_H_88935925A2659273350FF0296DE0A453
+#define Z1_PORT_H_88935925A2659273350FF0296DE0A453
+
+int z1_set_port_speed(exanic_t *exanic, int port_number, unsigned speed);
+
+#endif /* Z1_PORT_H_88935925A2659273350FF0296DE0A453 */

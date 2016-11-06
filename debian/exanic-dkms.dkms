@@ -1,0 +1,11 @@
+PACKAGE_NAME="exanic"
+PACKAGE_VERSION="#MODULE_VERSION#"
+CLEAN="make -C modules clean KDIR=$kernel_source_dir"
+MAKE[0]="make -C modules KDIR=$kernel_source_dir"
+DEST_MODULE_LOCATION[0]=/extra
+DEST_MODULE_LOCATION[1]=/extra
+BUILT_MODULE_NAME[0]="exanic"
+BUILT_MODULE_LOCATION[0]="modules/exanic/"
+BUILT_MODULE_NAME[1]="exasock"
+BUILT_MODULE_LOCATION[1]="modules/exasock/"
+AUTOINSTALL="yes"

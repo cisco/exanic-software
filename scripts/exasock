@@ -1,0 +1,79 @@
+#!/bin/sh
+
+show_usage() {
+    echo "Usage:"                               >&2
+    echo "  $0 [options] <command>"             >&2
+    echo                                        >&2
+    echo "Options:"                             >&2
+    echo "  --debug       Use debug version"    >&2
+    echo "  --trace       Trace library calls"  >&2
+    exit 1
+}
+
+setup_preload() {
+    local preload preload_lib exasock_prefix path
+
+    # Get location where Exasock is installed from script location
+    exasock_prefix="$(dirname $(dirname $(readlink -f $0)))"
+
+    # Decide on which library to use depending on flags
+    if $debug ; then
+        preload_lib="libexasock_preload_debug.so"
+    else
+        preload_lib="libexasock_preload.so"
+    fi
+
+    # Search in some default paths for the library
+    if [ -n "$EXASOCK_PATH" ] ; then
+        preload="$EXASOCK_PATH/$preload_lib"
+    else
+        for path in "$exasock_prefix/lib/exasock" \
+                    "$exasock_prefix/lib64/exasock"
+        do
+            if [ -e "$path/$preload_lib" ] ; then
+                preload="$path/$preload_lib"
+                break
+            fi
+        done
+    fi
+
+    if [ ! -e "$preload" ] ; then
+        echo "Error: could not find $preload_lib"                                       >&2
+        echo "Please set EXASOCK_PATH to the directory where the library is located."   >&2
+        exit 1
+    fi
+
+    # Set up LD_PRELOAD
+    if [ -z "$LD_PRELOAD" ] ; then
+        LD_PRELOAD="$preload"
+    else
+        LD_PRELOAD="$preload:$LD_PRELOAD"
+    fi
+    export LD_PRELOAD
+}
+
+debug=false
+
+while [ $# -gt 0 ]
+do
+    case "$1" in
+    --debug)
+        debug=true
+        ;;
+    --trace)
+        debug=true
+        EXASOCK_TRACE=1
+        export EXASOCK_TRACE
+        ;;
+    -*)
+        show_usage
+        ;;
+    *)
+        break
+        ;;
+    esac
+    shift
+done
+
+setup_preload
+exec "$@"
