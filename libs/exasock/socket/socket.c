@@ -665,12 +665,17 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         return ret;
     }
 
-    exa_write_lock(&sock->lock);
-
-    if (in_addr->sin_family == AF_INET && sock->domain == AF_INET &&
-        sock->type == SOCK_DGRAM)
+    if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
     {
-        /* UDP connect */
+        if (in_addr->sin_family != AF_INET)
+        {
+            errno = EINVAL;
+            TRACE_RETURN(INT, -1);
+            return -1;
+        }
+
+        exa_write_lock(&sock->lock);
+
         if (!sock->bypass)
         {
             struct sockaddr_in sa;
@@ -730,10 +735,17 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
             return ret;
         }
     }
-    else if (in_addr->sin_family == AF_INET && sock->domain == AF_INET &&
-             sock->type == SOCK_STREAM)
+    else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
     {
-        /* TCP connect */
+        if (in_addr->sin_family != AF_INET)
+        {
+            errno = EINVAL;
+            TRACE_RETURN(INT, -1);
+            return -1;
+        }
+
+        exa_write_lock(&sock->lock);
+
         if (!sock->bypass && !sock->disable_bypass)
         {
             /* If the route is via an ExaNIC interface, put the socket into
@@ -778,10 +790,9 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     }
     else
     {
-        exa_write_unlock(&sock->lock);
-        errno = EINVAL;
-        TRACE_RETURN(INT, -1);
-        return -1;
+        ret = libc_connect(sockfd, addr, addrlen);
+        TRACE_RETURN(INT, ret);
+        return ret;
     }
 }
 
