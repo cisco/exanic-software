@@ -415,6 +415,9 @@ static int __exanic_transmit_frame(struct exanic_netdev_tx *tx,
     return 0;
 }
 
+/**
+ * This is the polling function used when interrupts are not available.
+ */
 static void exanic_timer_callback(unsigned long data)
 {
     struct exanic_netdev_priv *priv = (struct exanic_netdev_priv *)data;
@@ -427,15 +430,21 @@ static void exanic_timer_callback(unsigned long data)
     }
 }
 
+/**
+ * This timer is used to delay interrupt re-arming when coalescing is enabled.
+ */
 static enum hrtimer_restart exanic_hrtimer_callback(struct hrtimer *timer)
 {
     struct exanic_netdev_priv *priv =
         container_of(timer, struct exanic_netdev_priv, rx_hrtimer);
     if (priv->rx_enabled)
     {
-        /* HR timer is started again in poll if necessary - not here! */
-        napi_schedule(&priv->napi);
+        if (exanic_rx_ready(&priv->rx))
+            napi_schedule(&priv->napi);
+        else
+            exanic_rx_set_irq(&priv->rx);
     }
+    /* HR timer is started again in poll if necessary - not here! */
     return HRTIMER_NORESTART;
 }
 
@@ -1370,10 +1379,9 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             /* Poll again as soon as possible */
             napi_reschedule(napi);
         }
-        else if (received > 0 && priv->rx_coalesce_timeout_ns)
+        else if (priv->rx_coalesce_timeout_ns > 0)
         {
-            /* Likely more packets soon, but we can sleep a little
-             * before handling them. */
+            /* Sleep a little before re-arming interrupt */
             interval = ktime_set(0, priv->rx_coalesce_timeout_ns);
             hrtimer_start(&priv->rx_hrtimer, interval, HRTIMER_MODE_REL);
         }
