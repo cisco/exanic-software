@@ -99,6 +99,10 @@ struct exanic_netdev_priv
     struct exanic_netdev_rx rx;
     struct exanic_netdev_tx tx;
 
+    struct sk_buff      *skb;
+    uint32_t            hdr_chunk_id;
+    bool                length_error;
+
     spinlock_t          tx_lock;
 
     uint32_t            rx_coalesce_timeout_ns;
@@ -168,9 +172,10 @@ static void exanic_rx_set_irq(struct exanic_netdev_rx *rx)
            &priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_IRQ_CONFIG)]);
 }
 
-static ssize_t exanic_receive_frame(struct exanic_netdev_rx *rx,
-                                    char *rx_buf, size_t rx_buf_size,
-                                    uint32_t *timestamp)
+static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
+                                            char **rx_buf_ptr,
+                                            uint32_t *chunk_id,
+                                            int *more_chunks)
 {
     union {
         struct rx_chunk_info info;
@@ -181,65 +186,39 @@ static ssize_t exanic_receive_frame(struct exanic_netdev_rx *rx,
 
     if (u.info.generation == rx->generation)
     {
-        size_t size = 0;
+        /* Data is available */
+        *rx_buf_ptr = (char *)rx->buffer[rx->next_chunk].payload;
 
-        /* Next expected packet */
-        while (1)
+        if (chunk_id != NULL)
+            *chunk_id = rx->generation * EXANIC_RX_NUM_CHUNKS + rx->next_chunk;
+
+        /* Advance next_chunk to next chunk */
+        rx->next_chunk++;
+        if (rx->next_chunk == EXANIC_RX_NUM_CHUNKS)
         {
-            const char *payload = (char *)rx->buffer[rx->next_chunk].payload;
+            rx->next_chunk = 0;
+            rx->generation++;
+        }
 
-            /* Advance next_chunk to next chunk */
-            rx->next_chunk++;
-            if (rx->next_chunk == EXANIC_RX_NUM_CHUNKS)
-            {
-                rx->next_chunk = 0;
-                rx->generation++;
-            }
+        if (u.info.length != 0)
+        {
+            /* Last chunk */
+            if (u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK)
+                return -(u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK);
 
-            /* Process current chunk */
-            if (u.info.length != 0)
-            {
-                /* Last chunk */
-                if (size + u.info.length > rx_buf_size)
-                    return -EXANIC_RX_FRAME_TRUNCATED;
-
-                memcpy(rx_buf + size, payload, u.info.length);
-                size += u.info.length;
-
-                /* TODO: Recheck that we haven't been lapped */
-
-                *timestamp = u.info.timestamp;
-
-                if (u.info.frame_status != EXANIC_RX_FRAME_OK)
-                    return -u.info.frame_status;
-
-                return size;
-            }
-            else
-            {
-                /* More chunks to come */
-                if (size + EXANIC_RX_CHUNK_PAYLOAD_SIZE <= rx_buf_size)
-                    memcpy(rx_buf + size, payload,
-                            EXANIC_RX_CHUNK_PAYLOAD_SIZE);
-                size += EXANIC_RX_CHUNK_PAYLOAD_SIZE;
-
-                /* Spin on next chunk */
-                do
-                    u.data = rx->buffer[rx->next_chunk].u.data;
-                while (u.info.generation == (uint8_t)(rx->generation - 1));
-
-                if (u.info.generation != rx->generation)
-                {
-                    /* Got lapped? */
-                    exanic_rx_catchup(rx);
-                    return -EXANIC_RX_FRAME_SWOVFL;
-                }
-            }
+            *more_chunks = 0;
+            return u.info.length;
+        }
+        else
+        {
+            /* More chunks to come */
+            *more_chunks = 1;
+            return EXANIC_RX_CHUNK_PAYLOAD_SIZE;
         }
     }
     else if (u.info.generation == (uint8_t)(rx->generation - 1))
     {
-        /* No new packet */
+        /* No new data */
         return 0;
     }
     else
@@ -248,6 +227,23 @@ static ssize_t exanic_receive_frame(struct exanic_netdev_rx *rx,
         exanic_rx_catchup(rx);
         return -EXANIC_RX_FRAME_SWOVFL;
     }
+}
+
+static int exanic_receive_chunk_recheck(struct exanic_netdev_rx *rx,
+                                        uint32_t chunk_id)
+{
+    uint32_t chunk = chunk_id % EXANIC_RX_NUM_CHUNKS;
+    uint8_t generation = chunk_id / EXANIC_RX_NUM_CHUNKS;
+
+    return rx->buffer[chunk].u.info.generation == generation;
+}
+
+static uint32_t exanic_receive_chunk_timestamp(struct exanic_netdev_rx *rx,
+                                               uint32_t chunk_id)
+{
+    uint32_t chunk = chunk_id % EXANIC_RX_NUM_CHUNKS;
+
+    return rx->buffer[chunk].u.info.timestamp;
 }
 
 static int exanic_update_tx_feedback(struct exanic_netdev_tx *tx)
@@ -566,6 +562,11 @@ static void exanic_netdev_kernel_stop(struct net_device *ndev)
 
     napi_disable(&priv->napi);
     netif_stop_queue(ndev);
+
+    /* Discard partially received packet */
+    if (priv->skb != NULL)
+        dev_kfree_skb(priv->skb);
+    priv->skb = NULL;
 
     /* Free TX resources */
     spin_lock_irqsave(&priv->tx_lock, flags);
@@ -1233,6 +1234,19 @@ static struct ethtool_ops_ext exanic_ethtool_ops_ext = {
 #define SET_ETHTOOL_OPS_EXT(ndev, ops)
 #endif
 
+static void exanic_deliver_skb(struct sk_buff *skb)
+{
+    struct exanic_netdev_intercept *i;
+
+    /* Send packet to packet intercept functions */
+    list_for_each_entry(i, &intercept_funcs, list)
+        if (i->func(skb))
+            return;
+
+    /* Packet was not intercepted, send packet to kernel stack */
+    netif_receive_skb(skb);
+}
+
 /**
  * Poll for new packets on an ExaNIC interface.
  */
@@ -1243,74 +1257,119 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
     struct exanic_netdev_rx *rx = &priv->rx;
     struct net_device *ndev = priv->ndev;
     int received = 0;
-    struct sk_buff *skb;
     ssize_t len;
+    uint32_t chunk_id, tstamp;
+    char *ptr;
+    int more_chunks;
     ktime_t interval;
-    uint32_t tstamp;
 
     while (received < budget)
     {
-        skb = netdev_alloc_skb(ndev, MAX_RX_PACKET_SIZE + 2);
-        if (skb == NULL)
-            break;
-        skb_reserve(skb, 2);
-
-        len = exanic_receive_frame(rx, skb->data, MAX_RX_PACKET_SIZE, &tstamp);
-        if (len > 0)
+        if (priv->skb == NULL)
         {
-            struct exanic_netdev_intercept *i;
+            /* New packet */
+            priv->skb = netdev_alloc_skb(ndev, MAX_RX_PACKET_SIZE + 2);
+            if (priv->skb == NULL)
+                break;
+            skb_reserve(priv->skb, NET_IP_ALIGN);
+            priv->length_error = false;
+        }
 
-            /* Received a packet */
-            skb_put(skb, len);
-            skb->protocol = eth_type_trans(skb, ndev);
+        len = exanic_receive_chunk_inplace(rx, &ptr, &chunk_id, &more_chunks);
+        if (len == 0)
+            break;
+        else if (len < 0)
+        {
+            /* Receive error */
+            ndev->stats.rx_errors++;
+            if (len == -EXANIC_RX_FRAME_SWOVFL)
+                ndev->stats.rx_missed_errors++;
+            else if (len == -EXANIC_RX_FRAME_CORRUPT)
+                ndev->stats.rx_crc_errors++;
+            dev_kfree_skb(priv->skb);
+            priv->skb = NULL;
+            received++;
+            continue;
+        }
+        else if (len > skb_tailroom(priv->skb))
+        {
+            /* Packet too large */
+            len = skb_tailroom(priv->skb);
+            priv->length_error = true;
+        }
 
-            /* Send packet to packet intercept functions */
-            list_for_each_entry(i, &intercept_funcs, list)
-                if (i->func(skb))
-                    goto packet_consumed;
+        /* Record chunk id of first chunk */
+        if (priv->skb->len == 0)
+            priv->hdr_chunk_id = chunk_id;
+
+        /* Copy chunk data */
+        memcpy(skb_put(priv->skb, len), ptr, len);
+
+        if (!more_chunks)
+        {
+            if (priv->length_error)
+            {
+                /* Packet was truncated because it was too large */
+                ndev->stats.rx_errors++;
+                ndev->stats.rx_length_errors++;
+                dev_kfree_skb(priv->skb);
+                priv->skb = NULL;
+                received++;
+                continue;
+            }
+
+            tstamp = exanic_receive_chunk_timestamp(rx, priv->hdr_chunk_id);
+
+            if (!exanic_receive_chunk_recheck(rx, priv->hdr_chunk_id))
+            {
+                /* Chunk was overwritten while we were reading */
+                ndev->stats.rx_errors++;
+                dev_kfree_skb(priv->skb);
+                priv->skb = NULL;
+                received++;
+                continue;
+            }
+
+            priv->skb->protocol = eth_type_trans(priv->skb, ndev);
 
             /* Calculate hardware timestamp if enabled */
             if (priv->rx_hw_tstamp)
             {
-                skb_hwtstamps(skb)->hwtstamp =
+                skb_hwtstamps(priv->skb)->hwtstamp =
                     exanic_ptp_time_to_ktime(priv->exanic, tstamp);
             }
 
-            /* Send packet to kernel stack */
-            netif_receive_skb(skb);
             ndev->stats.rx_packets++;
-            ndev->stats.rx_bytes += len;
+            ndev->stats.rx_bytes += priv->skb->len;
+
+            /* Deliver packet to intercept functions or kernel stack */
+            exanic_deliver_skb(priv->skb);
+            priv->skb = NULL;
             received++;
+        }
+    }
+
+    if (priv->skb != NULL && priv->skb->len == 0)
+    {
+        /* Discard zero length skb */
+        dev_kfree_skb(priv->skb);
+        priv->skb = NULL;
+    }
+
+    if (received < budget)
+    {
+        napi_complete(napi);
+
+        if (received > 0 && priv->rx_coalesce_timeout_ns)
+        {
+            /* Likely more packets soon, but we can sleep a little
+             * before handling them. */
+            interval = ktime_set(0, priv->rx_coalesce_timeout_ns);
+            hrtimer_start(&priv->rx_hrtimer, interval, HRTIMER_MODE_REL);
         }
         else
         {
-            /* No packet available or received bad packet */
-            dev_kfree_skb(skb);
-            if (len < 0)
-            {
-                ndev->stats.rx_dropped++;
-                received++;
-            }
-        }
-
-    packet_consumed:
-        if (received < budget && !exanic_rx_ready(rx))
-        {
-            /* No more packets to receive */
-            napi_complete(napi);
-
-            if (received > 0 && priv->rx_coalesce_timeout_ns)
-            {
-                /* Likely more packets soon, but we can sleep a little 
-                  before handling them. */
-                interval = ktime_set(0, priv->rx_coalesce_timeout_ns);
-                hrtimer_start(&priv->rx_hrtimer, interval, HRTIMER_MODE_REL);
-            }
-            else
-            {
-                exanic_rx_set_irq(rx);
-            }
-            break;
+            exanic_rx_set_irq(rx);
         }
     }
 
@@ -1344,6 +1403,7 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     priv->ctx = NULL;
     priv->port = port;
     priv->registers = exanic_registers(exanic);
+    priv->skb = NULL;
 
     spin_lock_init(&priv->tx_lock);
 
