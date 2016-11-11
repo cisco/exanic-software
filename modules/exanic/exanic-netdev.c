@@ -52,8 +52,12 @@ MODULE_PARM_DESC(disable_exasock, "Disable loading of exasock module");
 
 /* Loop timeout when waiting for feedback. */
 #define FEEDBACK_TIMEOUT                10000
+
 #define DEFAULT_RX_COALESCE_US          10
 #define MAX_RX_COALESCE_US              100000
+
+/* Maximum number of chunks to be processed in exanic_netdev_poll() */
+#define POLL_MAX_CHUNKS                 1024
 
 struct exanic_netdev_tx
 {
@@ -1256,14 +1260,14 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         container_of(napi, struct exanic_netdev_priv, napi);
     struct exanic_netdev_rx *rx = &priv->rx;
     struct net_device *ndev = priv->ndev;
-    int received = 0;
+    int received = 0, chunk_count = 0;
     ssize_t len;
     uint32_t chunk_id, tstamp;
     char *ptr;
     int more_chunks;
     ktime_t interval;
 
-    while (received < budget)
+    while (received < budget && chunk_count < POLL_MAX_CHUNKS)
     {
         if (priv->skb == NULL)
         {
@@ -1275,6 +1279,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             priv->length_error = false;
         }
 
+        chunk_count++;
         len = exanic_receive_chunk_inplace(rx, &ptr, &chunk_id, &more_chunks);
         if (len == 0)
             break;
@@ -1360,7 +1365,12 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
     {
         napi_complete(napi);
 
-        if (received > 0 && priv->rx_coalesce_timeout_ns)
+        if (exanic_rx_ready(rx))
+        {
+            /* Poll again as soon as possible */
+            napi_reschedule(napi);
+        }
+        else if (received > 0 && priv->rx_coalesce_timeout_ns)
         {
             /* Likely more packets soon, but we can sleep a little
              * before handling them. */
