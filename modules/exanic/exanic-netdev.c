@@ -1297,7 +1297,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             /* Receive error */
             ndev->stats.rx_errors++;
             if (len == -EXANIC_RX_FRAME_SWOVFL)
-                ndev->stats.rx_missed_errors++;
+                ndev->stats.rx_fifo_errors++;
             else if (len == -EXANIC_RX_FRAME_CORRUPT)
                 ndev->stats.rx_crc_errors++;
             dev_kfree_skb(priv->skb);
@@ -1324,7 +1324,6 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             if (priv->length_error)
             {
                 /* Packet was truncated because it was too large */
-                ndev->stats.rx_errors++;
                 ndev->stats.rx_length_errors++;
                 dev_kfree_skb(priv->skb);
                 priv->skb = NULL;
@@ -1338,6 +1337,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             {
                 /* Chunk was overwritten while we were reading */
                 ndev->stats.rx_errors++;
+                ndev->stats.rx_fifo_errors++;
                 dev_kfree_skb(priv->skb);
                 priv->skb = NULL;
                 received++;
