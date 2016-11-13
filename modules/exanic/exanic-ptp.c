@@ -646,7 +646,9 @@ void exanic_ptp_init(struct exanic *exanic)
         return;
     }
 
-    dev_info(&exanic->pci_dev->dev, "PTP hardware clock registered");
+    dev_info(&exanic->pci_dev->dev,
+            "PTP hardware clock registered (ptp%i)",
+            ptp_clock_index(exanic->ptp_clock));
 
     if (exanic_ptp_adj_allowed(exanic))
     {
