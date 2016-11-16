@@ -628,7 +628,7 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         return;
     }
 
-    if (len > 0)
+    if (data_seq != state->recv_seq)
         state->ack_pending = true;
 
     switch (state->state)

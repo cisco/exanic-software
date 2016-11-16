@@ -978,8 +978,13 @@ exanic_poll(void)
                 if (exa_tcp_rx_buffer_alloc(sock, tcp_flags, data_seq, data_len,
                                             &skip_len, &buf1, &buf1_len,
                                             &buf2, &buf2_len) == -1)
-                    goto abort_tcp_rx;
-                /* FIXME: Send RST packet when appropriate */
+                {
+                    /* Sequence number is out of range
+                     * Skip over entire packet and continue packet processing */
+                    skip_len = data_len;
+                    buf1 = buf2 = NULL;
+                    buf1_len = buf2_len = 0;
+                }
 
                 /* Finish receiving chunks into receive buffer */
                 if (exanic_poll_recv_body(ctx->exanic_rx, skip_len,

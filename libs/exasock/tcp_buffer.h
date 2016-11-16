@@ -64,6 +64,7 @@ exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint8_t flags,
     return 0;
 }
 
+/* This function is safe to call with a bogus sequence number if len == 0 */
 static inline void
 exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
                          uint32_t seq, size_t len)
@@ -99,7 +100,7 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
 
         tcp->recv_seq = recv_seq;
     }
-    else
+    else if (len > 0)
     {
         /* Find place to insert into out of order segment list */
         for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
