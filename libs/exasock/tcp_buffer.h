@@ -219,6 +219,12 @@ exa_tcp_rx_buffer_read_end(struct exa_socket * restrict sock, size_t len)
     struct exa_tcp_state * restrict tcp = &state->p.tcp;
 
     tcp->read_seq += len;
+
+    if (len > 0)
+    {
+        /* Window update is needed */
+        tcp->ack_pending = true;
+    }
 }
 
 static inline int
