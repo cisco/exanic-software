@@ -275,7 +275,8 @@ static int exanic_x4_x2_i2c_eeprom_read(struct exanic *exanic, uint8_t regaddr,
                 buffer, size);
     else if (exanic->hw_id == EXANIC_HW_X10 || 
                 exanic->hw_id == EXANIC_HW_X10_GM ||
-                exanic->hw_id == EXANIC_HW_X40)
+                exanic->hw_id == EXANIC_HW_X40 ||
+                exanic->hw_id == EXANIC_HW_X10_HPT)
         return i2c_read(exanic, X10_EEPROM_I2C_BUS, X10_EEPROM_I2C_ADDR, regaddr,
                 buffer, size);
     else

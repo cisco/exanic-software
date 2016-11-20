@@ -14,6 +14,7 @@
 #define PCI_DEVICE_ID_EXANIC_X10        0x0003
 #define PCI_DEVICE_ID_EXANIC_X10_GM     0x0004
 #define PCI_DEVICE_ID_EXANIC_X40        0x0005
+#define PCI_DEVICE_ID_EXANIC_X10_HPT    0x0006
 
 /* Interface to exanic_(get|set)_feature_cfg */
 enum exanic_feature

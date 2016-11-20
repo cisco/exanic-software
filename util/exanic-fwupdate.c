@@ -684,6 +684,8 @@ int check_target_hardware(char *header, exanic_t *regs)
     return 0;
   if ((strncmp(header, ";exanic_x10_gm,", 15) == 0) && (hw_id == EXANIC_HW_X10_GM))
     return 0;
+  if ((strncmp(header, ";exanic_x10_hpt,", 16) == 0) && (hw_id == EXANIC_HW_X10_HPT))
+    return 0;
   if ((strncmp(header, ";exanic_x40,", 12) == 0) && (hw_id == EXANIC_HW_X40))
     return 0;
   printf("ERROR: firmware image does not match target hardware\n");

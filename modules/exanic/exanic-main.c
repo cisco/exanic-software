@@ -41,6 +41,7 @@ static struct pci_device_id exanic_pci_ids[] = {
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10_GM) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X40) },
+    { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10_HPT) },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, exanic_pci_ids);
@@ -403,7 +404,8 @@ static bool exanic_port_needs_power(struct exanic *exanic, unsigned port_num)
     uint32_t cfg = readl(exanic->regs_virt +
                      REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
     if (exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X10 ||
-          exanic->hw_id == EXANIC_HW_X10_GM || exanic->hw_id == EXANIC_HW_X40)
+          exanic->hw_id == EXANIC_HW_X10_GM || exanic->hw_id == EXANIC_HW_X40 ||
+          exanic->hw_id == EXANIC_HW_X10_HPT)
     {
         /* 2 port card */
         if (cfg & port_feature_bits_2port[port_num])
@@ -435,8 +437,9 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         /* Power off */
         if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
                 exanic->hw_id == EXANIC_HW_X10 || 
-                    exanic->hw_id == EXANIC_HW_X10_GM ||
-                    exanic->hw_id == EXANIC_HW_X40)
+                exanic->hw_id == EXANIC_HW_X10_GM ||
+                exanic->hw_id == EXANIC_HW_X40 ||
+                exanic->hw_id == EXANIC_HW_X10_HPT)
             err = exanic_x4_x2_poweroff_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweroff_port(exanic, port_num);
@@ -463,8 +466,9 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         /* Power on */
         if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
                 exanic->hw_id == EXANIC_HW_X10 ||
-                    exanic->hw_id == EXANIC_HW_X10_GM ||
-                    exanic->hw_id == EXANIC_HW_X40)
+                exanic->hw_id == EXANIC_HW_X10_GM ||
+                exanic->hw_id == EXANIC_HW_X40 ||
+                exanic->hw_id == EXANIC_HW_X10_HPT)
             err = exanic_x4_x2_poweron_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweron_port(exanic, port_num);
@@ -473,8 +477,9 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
                                     REG_PORT_OFFSET(port_num, REG_PORT_SPEED));
         if ((exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
                 exanic->hw_id == EXANIC_HW_X10 ||
-                    exanic->hw_id == EXANIC_HW_X10_GM ||
-                    exanic->hw_id == EXANIC_HW_X40)
+                exanic->hw_id == EXANIC_HW_X10_GM ||
+                exanic->hw_id == EXANIC_HW_X40 ||
+                exanic->hw_id == EXANIC_HW_X10_HPT)
               && (speed_reg == SPEED_100))
         {
             msleep(100); /* Wait for PHY to power up. */
@@ -771,8 +776,9 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
         /* Save new state */
         if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
                 exanic->hw_id == EXANIC_HW_X10 || 
-                    exanic->hw_id == EXANIC_HW_X10_GM ||
-                    exanic->hw_id == EXANIC_HW_X40)
+                exanic->hw_id == EXANIC_HW_X10_GM ||
+                exanic->hw_id == EXANIC_HW_X40 ||
+                exanic->hw_id == EXANIC_HW_X10_HPT)
             exanic_x4_x2_save_feature_cfg(exanic);
     }
 
@@ -922,6 +928,7 @@ static int exanic_probe(struct pci_dev *dev,
         case EXANIC_HW_X2:
         case EXANIC_HW_X10:
         case EXANIC_HW_X10_GM:
+        case EXANIC_HW_X10_HPT:
             exanic->num_ports = 2;
             break;
         case EXANIC_HW_Z1:
@@ -1243,9 +1250,10 @@ static int exanic_probe(struct pci_dev *dev,
 
     /* Initial configuration */
     if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-            exanic->hw_id == EXANIC_HW_X10 || 
-                    exanic->hw_id == EXANIC_HW_X10_GM ||
-                    exanic->hw_id == EXANIC_HW_X40)
+            exanic->hw_id == EXANIC_HW_X10 ||
+            exanic->hw_id == EXANIC_HW_X10_GM ||
+            exanic->hw_id == EXANIC_HW_X40 ||
+            exanic->hw_id == EXANIC_HW_X10_HPT)
     {
         /* Get serial number in EEPROM to use as MAC address */
         if (exanic_x4_x2_get_serial(exanic, mac_addr) == 0)

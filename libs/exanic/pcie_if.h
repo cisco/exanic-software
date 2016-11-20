@@ -944,6 +944,7 @@ typedef enum
     EXANIC_HW_X10           = 4, /**< ExaNIC X10 */
     EXANIC_HW_X10_GM        = 5, /**< ExaNIC X10-GM */
     EXANIC_HW_X40           = 6, /**< ExaNIC X40 */
+    EXANIC_HW_X10_HPT       = 7, /**< ExaNIC X10-HPT */
 } exanic_hardware_id_t;
 
 /**
@@ -973,6 +974,8 @@ static inline const char * exanic_hardware_id_str(exanic_hardware_id_t id)
             return "ExaNIC X10-GM";
         case EXANIC_HW_X40:
             return "ExaNIC X40";
+        case EXANIC_HW_X10_HPT:
+            return "ExaNIC X10-HPT";
         default:
             return NULL;
     }
@@ -1124,6 +1127,8 @@ typedef enum
     EXANIC_PORT_STATUS_SIGNAL   = 0x04, /**< A signal is detected by the SFP */
     EXANIC_PORT_STATUS_LINK     = 0x08, /**< The link is active */
     EXANIC_PORT_STATUS_AUTONEG_DONE = 0x10, /**< Auto-negotiation is complete */
+    EXANIC_PORT_STATUS_RX_TIME_BAD = 0x20, /**< RX timestamping is not ready */
+    EXANIC_PORT_STATUS_TX_TIME_BAD = 0x40, /**< TX timestamping is not ready */
     EXANIC_PORT_RX_UNSUPPORTED  = 0x01000000, /**< RX is not available */
     EXANIC_PORT_TX_UNSUPPORTED  = 0x02000000, /**< TX is not available */
     EXANIC_PORT_NOT_IMPLEMENTED = 0x80000000, /**< Port is not implemented */
