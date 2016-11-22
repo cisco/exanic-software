@@ -544,8 +544,10 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
             else
                 return -EINVAL;
 
-            /* 100ns period is only supported on X10-GM */
-            if (per_out_mode == PER_OUT_10M && exanic->hw_id != EXANIC_HW_X10_GM)
+            /* 100ns period is only supported on X10-GM/X10-HPT */
+            if (per_out_mode == PER_OUT_10M &&
+                    exanic->hw_id != EXANIC_HW_X10_GM &&
+                    exanic->hw_id != EXANIC_HW_X10_HPT)
                 return -EINVAL;
         }
 
@@ -622,9 +624,10 @@ void exanic_ptp_init(struct exanic *exanic)
         exanic->ptp_clock_info.max_adj = 1953124;
     else
         exanic->ptp_clock_info.max_adj = 100000000;
-    /* Periodic output is only available on X10/X40/X10-GM */
+    /* Periodic output is only available on X10/X40/X10-GM/X10-HPT */
     if (exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_X10_GM)
+            exanic->hw_id == EXANIC_HW_X10_GM ||
+            exanic->hw_id == EXANIC_HW_X10_HPT)
         exanic->ptp_clock_info.n_per_out = 1;
     else
         exanic->ptp_clock_info.n_per_out = 0;
