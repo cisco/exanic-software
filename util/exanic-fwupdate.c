@@ -193,6 +193,7 @@ static inline int get_upper_offset(void)
     {
         case EXANIC_HW_X10:
         case EXANIC_HW_X10_GM:
+        case EXANIC_HW_X10_HPT:
         case EXANIC_HW_X40:
             return EXANIC_X10_UPPER_LOC_OFFSET;
         default:
@@ -206,6 +207,7 @@ static inline int get_num_blocks(void)
     {
         case EXANIC_HW_X10:
         case EXANIC_HW_X10_GM:
+        case EXANIC_HW_X10_HPT:
         case EXANIC_HW_X40:
             return 63;
         default:
