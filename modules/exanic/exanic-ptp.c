@@ -29,6 +29,9 @@
 #define PER_OUT_DELAY_NS 100000
 #define PER_OUT_WIDTH_NS 20000
 
+#define CLK_10M_PERIOD_NS 100
+#define CLK_10M_WIDTH_NS 50
+
 /* Log an error if the rollover counter update is out by this many ticks */
 #define MAX_ERROR_TICKS 0x1000000
 
@@ -255,6 +258,7 @@ static void exanic_ptp_per_out_update(struct exanic *exanic)
     uint64_t ticks, n;
     uint32_t width;
     ktime_t time_next = ns_to_ktime(0);
+    uint32_t width_ns = 0;
     uint32_t config = 0;
 
     /* Current hardware time with a small delay added */
@@ -279,11 +283,16 @@ static void exanic_ptp_per_out_update(struct exanic *exanic)
             time_next = ktime_sub_ns(exanic->per_out_start, NSEC_PER_SEC * n);
         }
 
+        width_ns = PER_OUT_WIDTH_NS;
         config = EXANIC_HW_PER_OUT_CONFIG_PPS;
     }
     else if (exanic->per_out_mode == PER_OUT_10M)
     {
-        /* Start time is ignored in this mode */
+        /* The provided start time is ignored in this mode.
+         * Start time is next 100ns boundary after current time */
+        n = ktime_divns(time_hw, CLK_10M_PERIOD_NS);
+        time_next = ns_to_ktime((n + 1) * CLK_10M_PERIOD_NS);
+        width_ns = CLK_10M_WIDTH_NS;
         config = EXANIC_HW_PER_OUT_CONFIG_10M;
     }
 
@@ -292,8 +301,8 @@ static void exanic_ptp_per_out_update(struct exanic *exanic)
     ticks = (ts.tv_sec * exanic->tick_hz) +
         ((uint64_t)ts.tv_nsec * exanic->tick_hz / NSEC_PER_SEC);
 
-    /* Output pulse width in ticks (ignored in 10M mode) */
-    width = (uint64_t)PER_OUT_WIDTH_NS * exanic->tick_hz / NSEC_PER_SEC;
+    /* Output pulse width in ticks */
+    width = (uint64_t)width_ns * exanic->tick_hz / NSEC_PER_SEC;
 
     /* Program the hardware */
     writel(width, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
