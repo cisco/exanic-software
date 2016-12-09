@@ -3,7 +3,7 @@
  * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
  */
 
-#define DRV_VERSION "1.8.0"
+#define DRV_VERSION "1.8.1-git"
 #define DRV_NAME    "exanic"
 
 #define PCI_DEVICE_ID_EXANIC_OLD        0x2B00
