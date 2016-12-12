@@ -132,10 +132,14 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
         }
         else
         {
+            /* Assert that the new data can be merged into current segment */
+            assert(seq_compare(seq, tcp->recv_seg[i].end) <= 0);
+            assert(seq_compare(tcp->recv_seg[i].begin, seq + len) <= 0);
+
             /* Expand current segment */
             if (seq_compare(seq, tcp->recv_seg[i].begin) < 0)
                 tcp->recv_seg[i].begin = seq;
-            if (seq_compare(seq + len, tcp->recv_seg[i].end) < 0)
+            if (seq_compare(tcp->recv_seg[i].end, seq + len) < 0)
                 tcp->recv_seg[i].end = seq + len;
 
             /* Merge segments into current segment */
@@ -143,7 +147,9 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
                  tcp->recv_seg[j].end - tcp->recv_seg[j].begin != 0 &&
                  seq_compare(tcp->recv_seg[j].begin,
                              tcp->recv_seg[i].end) <= 0; j++)
-                tcp->recv_seg[i].end = tcp->recv_seg[j].end;
+                ;
+            if (seq_compare(tcp->recv_seg[i].end, tcp->recv_seg[j - 1].end) < 0)
+                tcp->recv_seg[i].end = tcp->recv_seg[j - 1].end;
 
             /* Move remaining segments */
             for (k = i + 1; j < EXA_TCP_MAX_RX_SEGMENTS; j++, k++)
