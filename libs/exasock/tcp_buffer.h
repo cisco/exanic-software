@@ -83,11 +83,14 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
             seq_compare(tcp->recv_seg[0].begin, recv_seq) <= 0)
         {
             /* Merge in segments from out of order segment list */
-            recv_seq = tcp->recv_seg[0].end;
             for (i = 1; i < EXA_TCP_MAX_RX_SEGMENTS &&
                  tcp->recv_seg[i].end - tcp->recv_seg[i].begin > 0 &&
                  seq_compare(tcp->recv_seg[i].begin, recv_seq) <= 0; i++)
-                recv_seq = tcp->recv_seg[i].end;
+                ;
+            if (seq_compare(recv_seq, tcp->recv_seg[i - 1].end) < 0)
+                recv_seq = tcp->recv_seg[i - 1].end;
+
+            /* Move remaining segments */
             for (j = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++, j++)
                 tcp->recv_seg[j] = tcp->recv_seg[i];
             for (; j < EXA_TCP_MAX_RX_SEGMENTS; j++)
