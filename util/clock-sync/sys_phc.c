@@ -153,7 +153,7 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
     if (phc_source == PHC_SOURCE_NONE && auto_tai_offset)
     {
         log_printf(LOG_ERR, "%s: Unable to get TAI offset, "
-                "--tai-offset argument must be provided");
+                "--tai-offset argument must be provided", name);
         return NULL;
     }
 
