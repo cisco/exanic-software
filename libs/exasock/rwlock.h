@@ -72,7 +72,7 @@ exa_write_unlock(struct exa_rwlock *lock)
 
     __asm__("" ::: "memory");
 
-    *(uint16_t *)lock = (uint8_t)(wr + 1) << 8 | (uint8_t)(rd + 1);
+    *(uint16_t *)lock = (uint8_t)(rd + 1) << 8 | (uint8_t)(wr + 1);
 }
 
 /* Atomically release the write lock and acquire the read lock */
