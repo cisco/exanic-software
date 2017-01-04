@@ -1271,9 +1271,9 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
     struct net_device *ndev = priv->ndev;
     int received = 0, chunk_count = 0;
     ssize_t len;
-    uint32_t chunk_id, tstamp;
-    char *ptr;
-    int more_chunks;
+    uint32_t chunk_id = 0, tstamp;
+    char *ptr = NULL;
+    int more_chunks = 0;
     ktime_t interval;
 
     while (received < budget && chunk_count < POLL_MAX_CHUNKS)
