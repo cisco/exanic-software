@@ -1,5 +1,18 @@
+1.8.1 [2017-01-04]
+* Support for ExaNIC X10-HPT (X10 variant with sub-ns timestamp resolution)
+* exasock: fix connect() for UNIX domain sockets
+* exasock: respond to TCP keep-alive requests
+* exasock: improve logic for handling out of order segments
+* exasock: avoid incorrectly clearing pending ACK on exasock_tcp_build_header
+* driver: fix for hardware timestamping on CentOS 6
+* driver: avoid lock up if hardware stops transferring data mid-frame (the
+  root cause, occuring on flapping 1G links, is fixed in firmware 20170104)
+* utils: improved synchronisation algorithm in exanic-clock-sync
+* utils: support for enabling port local-loopback in exanic-config on X10/X40
+  (requires X10 firmware 20160825 or later / X40 firmware 20161019 or later)
+
 1.8.0 [2016-09-06]
-* Support for ExaNIC X10-GM
+* Support for ExaNIC X10-GM (X10 variant with hardware PTP Grandmaster)
 * utils: support PPS out on ExaNIC X10/X10-GM/X40
 * utils: support PPS with termination off on ExaNIC X10/X10-GM/X40
 * driver: support hardware timestamping through Linux APIs
