@@ -7,7 +7,7 @@ Group:          System Environment/Kernel
 License:        GPLv2
 URL:            http://exablaze.com/support
 Source:         %{name}-%{version}.tar.gz
-Buildroot:      %_tmppath/%{name}-%{version}
+Buildroot:      %_tmppath/%{name}-%{version}-%{release}
 Requires:       exanic-dkms = %{version}-%{release}, exanic-utils = %{version}-%{release}, exanic-devel = %{version}-%{release}
 Prefix:         /usr
 %description
@@ -64,15 +64,15 @@ test "%{buildroot}" != "/" && rm -rf %{buildroot}
 make install-bin BINDIR=%{buildroot}%{_bindir} LIBDIR=%{buildroot}%{_libdir} INCDIR=%{buildroot}%{_includedir}
 
 # Package up required files to build modules
-mkdir -p %{buildroot}/usr/src/%{name}-%{version}/libs/exanic %{buildroot}/usr/src/%{name}-%{version}/libs/exasock/kernel
-cp -r modules %{buildroot}/usr/src/%{name}-%{version}/
-cp libs/exanic/{ioctl.h,pcie_if.h,fifo_if.h,const.h} %{buildroot}/usr/src/%{name}-%{version}/libs/exanic
-cp libs/exasock/kernel/{api.h,structs.h,consts.h} %{buildroot}/usr/src/%{name}-%{version}/libs/exasock/kernel
+mkdir -p %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
+cp -r modules %{buildroot}/usr/src/%{name}-%{version}-%{release}/
+cp libs/exanic/{ioctl.h,pcie_if.h,fifo_if.h,const.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic
+cp libs/exasock/kernel/{api.h,structs.h,consts.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
 
 # Create a dkms.conf
-cat >%{buildroot}/usr/src/%{name}-%{version}/dkms.conf <<EOF
+cat >%{buildroot}/usr/src/%{name}-%{version}-%{release}/dkms.conf <<EOF
 PACKAGE_NAME="%{name}"
-PACKAGE_VERSION="%{version}"
+PACKAGE_VERSION="%{version}-%{release}"
 CLEAN="make -C modules clean KDIR=\$kernel_source_dir"
 MAKE[0]="make -C modules KDIR=\$kernel_source_dir"
 DEST_MODULE_LOCATION[0]=/extra
@@ -89,14 +89,14 @@ EOF
 test "%{buildroot}" != "/" && rm -rf %{buildroot}
 
 %post dkms
-dkms add -m %{name} -v %{version} --rpm_safe_upgrade
-dkms build -m %{name} -v %{version}
-dkms install -m %{name} -v %{version}
+dkms add -m %{name} -v %{version}-%{release} --rpm_safe_upgrade
+dkms build -m %{name} -v %{version}-%{release} --rpm_safe_upgrade
+dkms install -m %{name} -v %{version}-%{release} --rpm_safe_upgrade
 
 %preun dkms
 echo -e
 echo -e "Uninstall of %{name} module (version %{version}) beginning:"
-dkms remove -m %{name} -v %{version} --all --rpm_safe_upgrade
+dkms remove -m %{name} -v %{version}-%{release} --all --rpm_safe_upgrade
 
 
 %files
@@ -105,7 +105,7 @@ dkms remove -m %{name} -v %{version} --all --rpm_safe_upgrade
 
 %files dkms
 %defattr(-,root,root,-)
-/usr/src/%{name}-%{version}/
+/usr/src/%{name}-%{version}-%{release}/
 
 %files utils
 %defattr(-,root,root,-)
