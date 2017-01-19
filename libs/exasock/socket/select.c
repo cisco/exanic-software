@@ -502,9 +502,9 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
         }
 
         if (sock->rx_ready)
-            revents |= POLLIN;
+            revents |= POLLIN | POLLRDNORM;
         if (sock->tx_ready)
-            revents |= POLLOUT;
+            revents |= POLLOUT | POLLWRNORM;
         if (sock->eof_ready)
             revents |= POLLHUP;
 
@@ -584,9 +584,9 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
                     exa_read_lock(&sock->lock);
 
                     if (sock->rx_ready)
-                        revents |= POLLIN;
+                        revents |= POLLIN | POLLRDNORM;
                     if (sock->tx_ready)
-                        revents |= POLLOUT;
+                        revents |= POLLOUT | POLLWRNORM;
                     if (sock->eof_ready)
                         revents |= POLLHUP;
 
@@ -638,9 +638,9 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
                 }
 
                 if (sock->rx_ready)
-                    revents |= POLLIN;
+                    revents |= POLLIN | POLLRDNORM;
                 if (sock->tx_ready)
-                    revents |= POLLOUT;
+                    revents |= POLLOUT | POLLWRNORM;
                 if (sock->eof_ready)
                     revents |= POLLHUP;
 
