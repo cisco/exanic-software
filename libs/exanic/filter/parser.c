@@ -142,6 +142,8 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
     {
         iphdr_pat->protocol = IPPROTO_IGMP;
         iphdr_mask->protocol = 0xFF;
+        iphdr_pat->ihl = 0;
+        iphdr_mask->ihl = 0x0;
     }
 
     /* Loop over remaining tokens */
