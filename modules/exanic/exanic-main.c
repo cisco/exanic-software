@@ -42,6 +42,7 @@ static struct pci_device_id exanic_pci_ids[] = {
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10_GM) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X40) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10_HPT) },
+    { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X40_40G) },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, exanic_pci_ids);
@@ -825,6 +826,23 @@ static void inc_mac_addr(u8 addr[ETH_ALEN], int n)
     addr[5] = nic & 0xFF;
 }
 
+int exanic_get_num_ports(struct exanic *exanic)
+{
+    int port_idx;
+    int port_status;
+
+    for(port_idx = 0; port_idx < 8; port_idx++)
+    {
+        port_status = readl(exanic->regs_virt +
+                      REG_PORT_OFFSET(port_idx, REG_PORT_STATUS));
+        if (port_status & EXANIC_PORT_NOT_IMPLEMENTED)
+        {
+            return port_idx;
+        }
+    }
+    return 8;
+}
+
 /**
  * Device initialisation
  *
@@ -937,12 +955,11 @@ static int exanic_probe(struct pci_dev *dev,
             exanic->num_ports = 4;
             break;
         case EXANIC_HW_X40:
-            exanic->num_ports = 8;
+            exanic->num_ports = exanic_get_num_ports(exanic);
             break;
         default:
             exanic->num_ports = 0;
     }
-
 
     if (exanic->hw_id == EXANIC_HW_Z1 || exanic->hw_id == EXANIC_HW_Z10)
     {
