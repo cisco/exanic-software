@@ -476,9 +476,12 @@ void show_device_info(const char *device, int port_number)
                 if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 )
                     loopback = get_x2_x4_phy_local_loopback(device, i);
                 else
-                    loopback = exanic_register_read(exanic,
-                                    REG_PORT_INDEX(i,
-                                      REG_PORT_FLAGS));
+                {
+                    uint32_t flags = exanic_register_read(exanic,
+                                         REG_PORT_INDEX(i,
+                                           REG_PORT_FLAGS));
+                    loopback = (flags & EXANIC_PORT_FLAG_LOOPBACK) ? 1 : 0;
+                }
                 printf("    Loopback mode: %s\n", loopback ? "on" : "off");
             }
             printf("    Promiscuous mode: %s\n",
