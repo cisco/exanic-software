@@ -10,6 +10,21 @@
 #define EXA_NOTIFY_HUP  0x00000010
 #define EXA_NOTIFY_ET   0x80000000
 
+struct exa_notify_kern_epoll
+{
+    uint32_t lock;
+
+    /* File descriptor of this epoll if exasock kernel instance exists */
+    int fd;
+
+    /* Number of exasock file descriptors added to this exasock kernel instance
+     * of epoll */
+    int ref_cnt;
+
+    /* State of epoll shared between kernel and user */
+    struct exasock_epoll_state *state;
+};
+
 struct exa_notify_fd
 {
     /* True iff file descriptor is in this exa_notify set */
@@ -48,8 +63,13 @@ struct exa_notify
 
     /* Does this epoll have any native file descriptors? */
     bool have_native;
+
+    /* State of exasock kernel instance of epoll */
+    struct exa_notify_kern_epoll ep;
 };
 
+int exa_notify_kern_epoll_add(struct exa_notify * restrict no,
+                              struct exa_socket * restrict sock);
 struct exa_notify *exa_notify_alloc(void);
 void exa_notify_free(struct exa_notify *no);
 int exa_notify_insert_sock(struct exa_notify *no, struct exa_socket *sock,

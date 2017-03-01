@@ -1,12 +1,38 @@
 /**
  * Kernel support for the ExaSock library
- * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
+ * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
-struct exasock_common
+enum exasock_type
+{
+    EXASOCK_TYPE_SOCKET,
+    EXASOCK_TYPE_EPOLL
+};
+
+struct exasock_hdr_socket
 {
     int domain;
     int type;
+};
+
+struct exasock_hdr
+{
+    enum exasock_type type;
+    struct exasock_hdr_socket socket;
+};
+
+struct exasock_epoll
+{
+    enum exasock_type type;
+    struct exasock_epoll_state *user_page;
+    struct list_head fd_ready_backlog_list;
+};
+
+struct exasock_epoll_notify
+{
+    struct exasock_epoll *epoll;
+    int fd;
+    struct list_head node;
 };
 
 /* Return 1 if lock successful, 0 if unsuccessful */
@@ -73,3 +99,16 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int optlen);
 int exasock_tcp_getsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int *optlen);
+int exasock_tcp_notify_add(uint32_t local_addr, uint16_t local_port,
+                           struct exasock_epoll_notify *notify);
+int exasock_tcp_notify_del(uint32_t local_addr, uint16_t local_port,
+                           struct exasock_epoll_notify **notify);
+
+/* exasock-epoll.c */
+struct exasock_epoll *exasock_epoll_alloc(void);
+int exasock_epoll_ctl(struct exasock_epoll *epoll, bool add,
+                      uint32_t local_addr, uint16_t local_port, int fd);
+void exasock_epoll_free(struct exasock_epoll *epoll);
+int exasock_epoll_state_mmap(struct exasock_epoll *epoll,
+                             struct vm_area_struct *vma);
+void exasock_epoll_update(struct exasock_epoll_notify *notify);

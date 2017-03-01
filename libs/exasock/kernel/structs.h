@@ -203,4 +203,28 @@ struct exa_tcp_new_connection
     uint32_t __reserved[2];
 };
 
+#define EXASOCK_EPOLL_FD_READY_RING_SIZE 512    /* Must be a power of 2 */
+#define EXASOCK_EPOLL_FD_READY_IDX_MASK \
+                            (EXASOCK_EPOLL_FD_READY_RING_SIZE - 1)
+#define EXASOCK_EPOLL_FD_READY_IDX_NEXT(idx) \
+                            (((idx) + 1) & EXASOCK_EPOLL_FD_READY_IDX_MASK)
+#define EXASOCK_EPOLL_FD_READY_IDX_INC(idx) \
+                            ((idx) = EXASOCK_EPOLL_FD_READY_IDX_NEXT(idx))
+#define EXASOCK_EPOLL_FD_READY_RING_FULL(n_rd, n_wr) \
+                            (EXASOCK_EPOLL_FD_READY_IDX_NEXT(n_wr) == n_rd)
+
+struct exasock_epoll_state
+{
+    /* Index of a next entry in fd_ready ring to be read by user.
+     * This index is updated by user. */
+    int next_read;
+
+    /* Index of a next entry in fd_ready ring to be written by kernel.
+     * This index is updated by kernel.  */
+    int next_write;
+
+    /* Ring to notify user about listening sockets got ready for reading */
+    int fd_ready[EXASOCK_EPOLL_FD_READY_RING_SIZE];
+};
+
 #endif /* EXASOCK_KERNEL_STRUCTS_H_3184709AEFC64CF680494E0D75134908 */

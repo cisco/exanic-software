@@ -1,6 +1,6 @@
 /**
  * Kernel support for the ExaSock library
- * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
+ * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -27,7 +27,7 @@
 
 struct exasock_udp
 {
-    struct exasock_common       hdr;
+    struct exasock_hdr          hdr;
 
     uint32_t                    local_addr;
     uint32_t                    peer_addr;
@@ -96,8 +96,9 @@ struct exasock_udp *exasock_udp_alloc(struct socket *sock)
         goto err_alloc;
     }
 
-    udp->hdr.domain = AF_INET;
-    udp->hdr.type = SOCK_DGRAM;
+    udp->hdr.type = EXASOCK_TYPE_SOCKET;
+    udp->hdr.socket.domain = AF_INET;
+    udp->hdr.socket.type = SOCK_DGRAM;
     udp->local_addr = local.sin_addr.s_addr;
     udp->local_port = local.sin_port;
     udp->peer_addr = peer.sin_addr.s_addr;
@@ -142,8 +143,9 @@ int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
     unsigned long flags;
     unsigned hash;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     /* Bind to the requested address on native socket */
     sa.sin_family = AF_INET;
@@ -185,8 +187,9 @@ int exasock_udp_connect(struct exasock_udp *udp, uint32_t *local_addr,
     unsigned long flags;
     unsigned hash;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     /* Connect to the requested address on native socket */
     sa.sin_family = AF_INET;
@@ -226,8 +229,9 @@ void exasock_udp_free(struct exasock_udp *udp)
 {
     unsigned long flags;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     spin_lock_irqsave(&udp_bucket_lock, flags);
     hlist_del_rcu(&udp->hash_node);
@@ -353,8 +357,9 @@ int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
 {
     int ret;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     ret = udp->sock->ops->setsockopt(udp->sock, level, optname, optval, optlen);
 
@@ -367,8 +372,9 @@ int exasock_udp_getsockopt(struct exasock_udp *udp, int level, int optname,
     int ret;
     mm_segment_t old_fs;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     old_fs = get_fs();
     set_fs(KERNEL_DS);

@@ -423,6 +423,31 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
     if (have_poll_lock)
         exanic_poll();
 
+    /* Check if there are any listening sockets ready and if so, add them
+     * to the maybe-ready queue
+     */
+    if (exa_trylock(&no->ep.lock))
+    {
+        if (no->ep.ref_cnt)
+        {
+            volatile struct exasock_epoll_state *s = no->ep.state;
+            struct exa_socket * restrict sock;
+            int next_rd = s->next_read;
+
+            while (next_rd != s->next_write)
+            {
+                sock = exa_socket_get(s->fd_ready[next_rd]);
+                if (!exa_trylock(&sock->state->rx_lock))
+                    break;
+                exa_notify_tcp_read_update(sock);
+                exa_unlock(&sock->state->rx_lock);
+                EXASOCK_EPOLL_FD_READY_IDX_INC(next_rd);
+            }
+            s->next_read = next_rd;
+        }
+        exa_unlock(&no->ep.lock);
+    }
+
     /* Initial check for sockets that are ready */
     {
         int queue[EXA_NOTIFY_MAX_QUEUE];

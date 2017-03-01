@@ -1,6 +1,6 @@
 /**
  * Kernel support for the ExaSock library
- * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
+ * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -116,24 +116,45 @@ static int exasock_dev_open(struct inode *inode, struct file *filp)
     return 0;
 }
 
-static int exasock_dev_release(struct inode *inode, struct file *filp)
+static void exasock_socket_free(struct exasock_hdr *common)
 {
-    struct exasock_common *priv = filp->private_data;
+    struct exasock_hdr_socket *socket = &common->socket;
 
-    if (priv == NULL)
-        return 0;
-    else if (priv->domain == AF_INET && priv->type == SOCK_DGRAM)
+    if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
     {
-        exasock_udp_free((struct exasock_udp *)priv);
-        return 0;
+        exasock_udp_free((struct exasock_udp *)common);
+        return;
     }
-    else if (priv->domain == AF_INET && priv->type == SOCK_STREAM)
+    else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
     {
-        exasock_tcp_free((struct exasock_tcp *)priv);
-        return 0;
+        exasock_tcp_free((struct exasock_tcp *)common);
+        return;
     }
 
     BUG();
+}
+
+static int exasock_dev_release(struct inode *inode, struct file *filp)
+{
+    void *priv = filp->private_data;
+    enum exasock_type type;
+
+    if (priv == NULL)
+        return 0;
+
+    type = *((enum exasock_type *)priv);
+
+    switch (type)
+    {
+    case EXASOCK_TYPE_SOCKET:
+        exasock_socket_free((struct exasock_hdr *)priv);
+        return 0;
+    case EXASOCK_TYPE_EPOLL:
+        exasock_epoll_free((struct exasock_epoll *)priv);
+        return 0;
+    default:
+        BUG();
+    }
 }
 
 static int exasock_info_page_mmap(struct vm_area_struct *vma)
@@ -144,42 +165,74 @@ static int exasock_info_page_mmap(struct vm_area_struct *vma)
     return remap_vmalloc_range(vma, exasock_info_page, vma->vm_pgoff);
 }
 
-static int exasock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
+static int exasock_socket_mmap(struct exasock_hdr *common,
+                               struct vm_area_struct *vma)
 {
-    struct exasock_common *priv = filp->private_data;
+    struct exasock_hdr_socket *socket;
+
+    if (common == NULL)
+        return -EINVAL;
+
+    if (common->type != EXASOCK_TYPE_SOCKET)
+        return -EINVAL;
+
+    socket = &common->socket;
+
+    if (socket->domain != AF_INET)
+        return -EINVAL;
 
     if (vma->vm_pgoff >= (EXASOCK_OFFSET_TX_BUFFER / PAGE_SIZE))
     {
-        if (priv != NULL && priv->domain == AF_INET &&
-            priv->type == SOCK_STREAM)
-            return exasock_tcp_tx_mmap((struct exasock_tcp *)priv, vma);
-        else
+        switch (socket->type)
+        {
+        case SOCK_STREAM:
+            return exasock_tcp_tx_mmap((struct exasock_tcp *)common, vma);
+        default:
             return -EINVAL;
+        }
     }
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_RX_BUFFER / PAGE_SIZE))
     {
-        if (priv != NULL && priv->domain == AF_INET && priv->type == SOCK_DGRAM)
-            return exasock_udp_rx_mmap((struct exasock_udp *)priv, vma);
-        else if (priv != NULL && priv->domain == AF_INET &&
-                 priv->type == SOCK_STREAM)
-            return exasock_tcp_rx_mmap((struct exasock_tcp *)priv, vma);
-        else
+        switch (socket->type)
+        {
+        case SOCK_DGRAM:
+            return exasock_udp_rx_mmap((struct exasock_udp *)common, vma);
+        case SOCK_STREAM:
+            return exasock_tcp_rx_mmap((struct exasock_tcp *)common, vma);
+        default:
             return -EINVAL;
+        }
     }
+    else
+    {
+        switch (socket->type)
+        {
+        case SOCK_DGRAM:
+            return exasock_udp_state_mmap((struct exasock_udp *)common, vma);
+        case SOCK_STREAM:
+            return exasock_tcp_state_mmap((struct exasock_tcp *)common, vma);
+        default:
+            return -EINVAL;
+        }
+    }
+}
+
+static int exasock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    void *priv = filp->private_data;
+
+    if (vma->vm_pgoff >= (EXASOCK_OFFSET_EPOLL_STATE / PAGE_SIZE))
+        return exasock_epoll_state_mmap((struct exasock_epoll *)priv, vma);
+    else if (vma->vm_pgoff >= (EXASOCK_OFFSET_TX_BUFFER / PAGE_SIZE))
+        return exasock_socket_mmap((struct exasock_hdr *)priv, vma);
+    else if (vma->vm_pgoff >= (EXASOCK_OFFSET_RX_BUFFER / PAGE_SIZE))
+        return exasock_socket_mmap((struct exasock_hdr *)priv, vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_DST_USED_FLAGS / PAGE_SIZE))
         return exasock_dst_used_flags_mmap(vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_DST_TABLE / PAGE_SIZE))
         return exasock_dst_table_mmap(vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_SOCKET_STATE / PAGE_SIZE))
-    {
-        if (priv != NULL && priv->domain == AF_INET && priv->type == SOCK_DGRAM)
-            return exasock_udp_state_mmap((struct exasock_udp *)priv, vma);
-        else if (priv != NULL && priv->domain == AF_INET &&
-                 priv->type == SOCK_STREAM)
-            return exasock_tcp_state_mmap((struct exasock_tcp *)priv, vma);
-        else
-            return -EINVAL;
-    }
+        return exasock_socket_mmap((struct exasock_hdr *)priv, vma);
     else
         return exasock_info_page_mmap(vma);
 }
@@ -245,7 +298,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
     case EXASOCK_IOCTL_BIND:
         {
-            struct exasock_common *priv = filp->private_data;
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
             struct exasock_endpoint req;
             int err;
 
@@ -254,7 +308,12 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             if (priv == NULL)
                 return -EINVAL;
-            else if (priv->domain == AF_INET && priv->type == SOCK_DGRAM)
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
             {
                 err = exasock_udp_bind((struct exasock_udp *)priv,
                                        req.local_addr, &req.local_port);
@@ -264,7 +323,7 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
                 req.peer_addr = 0;
                 req.peer_port = 0;
             }
-            else if (priv->domain == AF_INET && priv->type == SOCK_STREAM)
+            else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
             {
                 err = exasock_tcp_bind((struct exasock_tcp *)priv,
                                        req.local_addr, &req.local_port);
@@ -285,7 +344,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
     case EXASOCK_IOCTL_CONNECT:
         {
-            struct exasock_common *priv = filp->private_data;
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
             struct exasock_endpoint req;
             int err;
 
@@ -294,7 +354,12 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             if (priv == NULL)
                 return -EINVAL;
-            else if (priv->domain == AF_INET && priv->type == SOCK_DGRAM)
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
             {
                 err = exasock_udp_connect((struct exasock_udp *)priv,
                                           &req.local_addr, &req.local_port,
@@ -332,7 +397,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
     case EXASOCK_IOCTL_UPDATE:
         {
-            struct exasock_common *priv = filp->private_data;
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
             struct exasock_endpoint req;
             int err;
 
@@ -341,7 +407,12 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             if (priv == NULL)
                 return -EINVAL;
-            else if (priv->domain == AF_INET && priv->type == SOCK_STREAM)
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
             {
                 err = exasock_tcp_update((struct exasock_tcp *)priv,
                                          req.local_addr, req.local_port,
@@ -357,7 +428,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
     case EXASOCK_IOCTL_SETSOCKOPT:
         {
-            struct exasock_common *priv = filp->private_data;
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
             struct exasock_opt_request req;
 
             if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
@@ -365,13 +437,18 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             if (priv == NULL)
                 return -EINVAL;
-            else if (priv->domain == AF_INET && priv->type == SOCK_DGRAM)
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
             {
                 return exasock_udp_setsockopt((struct exasock_udp *)priv,
                                               req.level, req.optname,
                                               req.optval, req.optlen);
             }
-            else if (priv->domain == AF_INET && priv->type == SOCK_STREAM)
+            else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
             {
                 return exasock_tcp_setsockopt((struct exasock_tcp *)priv,
                                               req.level, req.optname,
@@ -383,7 +460,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
     case EXASOCK_IOCTL_GETSOCKOPT:
         {
-            struct exasock_common *priv = filp->private_data;
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
             struct exasock_opt_request req;
             int err;
 
@@ -392,11 +470,16 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             if (priv == NULL)
                 return -EINVAL;
-            else if (priv->domain == AF_INET && priv->type == SOCK_DGRAM)
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
                 err = exasock_udp_getsockopt((struct exasock_udp *)priv,
                                              req.level, req.optname,
                                              req.optval, &req.optlen);
-            else if (priv->domain == AF_INET && priv->type == SOCK_STREAM)
+            else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
                 err = exasock_tcp_getsockopt((struct exasock_tcp *)priv,
                                              req.level, req.optname,
                                              req.optval, &req.optlen);
@@ -411,6 +494,46 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             return 0;
 
+        }
+
+    case EXASOCK_IOCTL_EPOLL_CREATE:
+        {
+            struct exasock_epoll *epoll;
+
+            if (filp->private_data)
+                return -EINVAL;
+
+            epoll = exasock_epoll_alloc();
+            if (IS_ERR(epoll))
+            {
+                return PTR_ERR(epoll);
+            }
+            else
+            {
+                filp->private_data = epoll;
+                return 0;
+            }
+        }
+
+    case EXASOCK_IOCTL_EPOLL_CTL:
+        {
+            struct exasock_epoll_ctl_request req;
+            void *priv = filp->private_data;
+            enum exasock_type type;
+
+            if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
+                return -EFAULT;
+
+            if (priv == NULL)
+                return -EINVAL;
+
+            type = *((enum exasock_type *)priv);
+            if (type != EXASOCK_TYPE_EPOLL)
+                return -EINVAL;
+
+            return exasock_epoll_ctl((struct exasock_epoll *)priv,
+                                    (req.op == EXASOCK_EPOLL_CTL_ADD),
+                                    req.local_addr, req.local_port, req.fd);
         }
 
     default:

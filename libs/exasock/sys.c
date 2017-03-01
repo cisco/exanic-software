@@ -400,3 +400,83 @@ exa_sys_getsockopt(int fd, int level, int optname, void *optval,
     *optlen = req.optlen;
     return ret;
 }
+
+int
+exa_sys_epoll_create(void)
+{
+    int fd;
+
+    exasock_override_off();
+    fd = open(EXASOCK_DEVICE, O_RDWR);
+    if (fd == -1)
+        goto err_open;
+
+    if (ioctl(fd, EXASOCK_IOCTL_EPOLL_CREATE, NULL) != 0)
+        goto err_ioctl;
+
+    exasock_override_on();
+    return fd;
+
+err_ioctl:
+    close(fd);
+err_open:
+    exasock_override_on();
+    return -1;
+}
+
+int
+exa_sys_epoll_close(int fd)
+{
+    int ret;
+
+    exasock_override_off();
+    ret = close(fd);
+    exasock_override_on();
+    return ret;
+}
+
+/* Map the kernel allocated epoll state */
+int
+exa_sys_epoll_mmap(int fd, struct exasock_epoll_state **state)
+{
+    struct exasock_epoll_state *s;
+
+    s = mmap(NULL, EXASOCK_EPOLL_STATE_SIZE, PROT_READ | PROT_WRITE,
+            MAP_SHARED, fd, EXASOCK_OFFSET_EPOLL_STATE);
+    if (s == MAP_FAILED)
+        return -1;
+
+    *state = s;
+    return 0;
+}
+
+/* Unmap the kernel allocated epoll state */
+void
+exa_sys_epoll_munmap(int fd, struct exasock_epoll_state **state)
+{
+    struct exasock_epoll_state *s = *state;
+
+    munmap(s, EXASOCK_EPOLL_STATE_SIZE);
+
+    *state = NULL;
+}
+
+int
+exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd,
+                  struct exa_endpoint * restrict endpoint)
+{
+    struct exasock_epoll_ctl_request req;
+    int ret;
+
+    memset(&req, 0, sizeof(req));
+    req.op = op;
+    req.fd = fd;
+    req.local_addr = endpoint->addr.local;
+    req.local_port = endpoint->port.local;
+
+    exasock_override_off();
+    ret = ioctl(epfd, EXASOCK_IOCTL_EPOLL_CTL, &req);
+    exasock_override_on();
+
+    return ret;
+}

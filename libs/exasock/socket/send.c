@@ -18,6 +18,7 @@
 #include <sched.h>
 #include <poll.h>
 
+#include "../kernel/api.h"
 #include "../kernel/structs.h"
 #include "../lock.h"
 #include "../rwlock.h"

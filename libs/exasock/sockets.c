@@ -22,6 +22,7 @@
 #include "net_tstamp_compat.h"
 #endif
 
+#include "kernel/api.h"
 #include "kernel/consts.h"
 #include "kernel/structs.h"
 #include "override.h"
@@ -591,6 +592,12 @@ exa_socket_tcp_listen(struct exa_socket * restrict sock, int backlog)
 
     /* The kernel writes to the rx buffer, so we need to poll for updates */
     sock->need_ready_poll = true;
+
+    /* If member of exa_notify, a listening socket needs to be also added
+     * to exasock kernel epoll instance
+     */
+    if (sock->notify_parent)
+        return exa_notify_kern_epoll_add(sock->notify_parent, sock);
 
     return 0;
 }

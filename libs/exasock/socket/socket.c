@@ -26,6 +26,7 @@
 
 #include <linux/sockios.h>
 
+#include "../kernel/api.h"
 #include "../kernel/consts.h"
 #include "../kernel/structs.h"
 #include "../lock.h"

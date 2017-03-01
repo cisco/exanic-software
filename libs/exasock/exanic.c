@@ -35,6 +35,7 @@
 #include <exanic/port.h>
 #include <exanic/time.h>
 
+#include "kernel/api.h"
 #include "kernel/consts.h"
 #include "kernel/structs.h"
 #include "override.h"

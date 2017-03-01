@@ -12,6 +12,7 @@
 #include <sched.h>
 #include <time.h>
 
+#include "kernel/api.h"
 #include "kernel/consts.h"
 #include "kernel/structs.h"
 #include "lock.h"
@@ -22,7 +23,70 @@
 #include "tcp_buffer.h"
 #include "tcp.h"
 #include "udp_queue.h"
+#include "sys.h"
 #include "notify.h"
+
+int
+exa_notify_kern_epoll_add(struct exa_notify * restrict no,
+                          struct exa_socket * restrict sock)
+{
+    int fd = exa_socket_fd(sock);
+
+    exa_lock(&no->ep.lock);
+    if (no->ep.ref_cnt++ == 0)
+    {
+        no->ep.fd = exa_sys_epoll_create();
+        if (no->ep.fd == -1)
+            goto err_create;
+        if (exa_sys_epoll_mmap(no->ep.fd, &no->ep.state) == -1)
+            goto err_mmap;
+    }
+    exa_unlock(&no->ep.lock);
+
+    return exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_ADD, fd,
+                             &sock->bind.ip);
+
+err_mmap:
+    exa_sys_epoll_close(no->ep.fd);
+err_create:
+    no->ep.ref_cnt = 0;
+    exa_unlock(&no->ep.lock);
+    return -1;
+}
+
+static int
+exa_notify_kern_epoll_del(struct exa_notify * restrict no,
+                          struct exa_socket * restrict sock, int fd)
+{
+    int ret;
+
+    ret = exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_DEL, fd,
+                            &sock->bind.ip);
+    if (ret != 0)
+        return ret;
+
+    exa_lock(&no->ep.lock);
+
+    no->ep.ref_cnt--;
+
+    /* Kernel epoll instance is kept for an exa_notify instance as long
+     * as there is at least one exasock file descriptor registered. */
+    if (no->ep.ref_cnt == 0)
+    {
+        exa_sys_epoll_munmap(no->ep.fd, &no->ep.state);
+        ret = exa_sys_epoll_close(no->ep.fd);
+        if (ret != 0)
+        {
+            exa_unlock(&no->ep.lock);
+            return ret;
+        }
+        no->ep.fd = -1;
+    }
+
+    exa_unlock(&no->ep.lock);
+
+    return 0;
+}
 
 struct exa_notify *
 exa_notify_alloc(void)
@@ -43,6 +107,7 @@ exa_notify_alloc(void)
     memset(no, 0, sizeof(*no));
     no->fd_table = table;
     no->list_head = -1;
+    no->ep.fd = -1;
 
     return no;
 
@@ -128,6 +193,16 @@ exa_notify_insert_sock(struct exa_notify * restrict no,
         /* Socket already belongs to an exa_notify instance */
         errno = EEXIST;
         return -1;
+    }
+
+    /* Check if exasock kernel epoll instance needs to be created
+     * and/or updated */
+    if (sock->bypass && sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+        exanic_tcp_listening(sock))
+    {
+        int ret = exa_notify_kern_epoll_add(no, sock);
+        if (ret != 0)
+            return ret;
     }
 
     sock->notify_parent = no;
@@ -249,6 +324,11 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
 
     /* Socket will be lazily removed from the maybe-ready queue */
     /* Does not currently recalculate no->have_native */
+
+    /* Check if exasock kernel epoll instance needs to be updated/closed */
+    if (sock->bypass && sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+        exanic_tcp_listening(sock))
+        return exa_notify_kern_epoll_del(no, sock, fd);
 
     return 0;
 }

@@ -33,4 +33,11 @@ int exa_sys_setsockopt(int fd, int level, int optname, const void *optval,
 int exa_sys_getsockopt(int fd, int level, int optname, void *optval,
                        socklen_t *optlen);
 
+int exa_sys_epoll_create(void);
+int exa_sys_epoll_close(int fd);
+int exa_sys_epoll_mmap(int fd, struct exasock_epoll_state **state);
+void exa_sys_epoll_munmap(int fd, struct exasock_epoll_state **state);
+int exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd,
+                      struct exa_endpoint * restrict endpoint);
+
 #endif /* SYS_H_22D9F0DEB4214559B1B05D3BFA116C9F */

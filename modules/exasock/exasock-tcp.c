@@ -1,6 +1,6 @@
 /**
  * Kernel support for the ExaSock library
- * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
+ * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -31,42 +31,45 @@
 
 struct exasock_tcp
 {
-    struct exasock_common       hdr;
+    struct exasock_hdr              hdr;
 
-    uint32_t                    local_addr;
-    uint32_t                    peer_addr;
-    uint16_t                    local_port;
-    uint16_t                    peer_port;
+    uint32_t                        local_addr;
+    uint32_t                        peer_addr;
+    uint16_t                        local_port;
+    uint16_t                        peer_port;
 
-    void *                      rx_buffer;
-    void *                      tx_buffer;
-    struct exa_socket_state *   user_page;
+    void *                          rx_buffer;
+    void *                          tx_buffer;
+    struct exa_socket_state *       user_page;
 
-    struct socket *             sock;
+    struct socket *                 sock;
 
     /* Value of send_seq and send_ack at last timer tick */
-    uint32_t                    last_send_seq;
-    uint32_t                    last_send_ack;
+    uint32_t                        last_send_seq;
+    uint32_t                        last_send_ack;
 
     /* Retransmit timeout is triggered when count reaches 0 */
-    int                         retransmit_countdown;
+    int                             retransmit_countdown;
 
     /* For keeping track of duplicate acks for entering fast retransmit */
-    uint32_t                    last_recv_ack_seq;
-    int                         num_dup_acks;
+    uint32_t                        last_recv_ack_seq;
+    int                             num_dup_acks;
 
     /* Fast retransmit state */
-    bool                        fast_retransmit;
-    uint32_t                    fast_retransmit_recover_seq;
+    bool                            fast_retransmit;
+    uint32_t                        fast_retransmit_recover_seq;
 
-    struct delayed_work         work;
+    struct delayed_work             work;
 
-    struct hlist_node           hash_node;
-    bool                        dead_node;
+    struct hlist_node               hash_node;
+    bool                            dead_node;
 
-    struct kref                 refcount;
+    struct exasock_epoll_notify *   notify;
+    spinlock_t                      notify_lock;
+
+    struct kref                     refcount;
     /* Semaphore stays down until refcount goes to 0 */
-    struct semaphore            dead_sema;
+    struct semaphore                dead_sema;
 };
 
 struct exasock_tcp_req
@@ -162,8 +165,9 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
         goto err_alloc;
     }
 
-    tcp->hdr.domain = AF_INET;
-    tcp->hdr.type = SOCK_STREAM;
+    tcp->hdr.type = EXASOCK_TYPE_SOCKET;
+    tcp->hdr.socket.domain = AF_INET;
+    tcp->hdr.socket.type = SOCK_STREAM;
     tcp->local_addr = local.sin_addr.s_addr;
     tcp->local_port = local.sin_port;
     tcp->peer_addr = htonl(INADDR_ANY);
@@ -177,6 +181,7 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
 
     kref_init(&tcp->refcount);
     sema_init(&tcp->dead_sema, 0);
+    spin_lock_init(&tcp->notify_lock);
 
     INIT_DELAYED_WORK(&tcp->work, exasock_tcp_conn_worker);
     queue_delayed_work(tcp_workqueue, &tcp->work, TCP_TIMER_JIFFIES);
@@ -231,8 +236,9 @@ int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
     int err;
     unsigned hash;
 
-    BUG_ON(tcp->hdr.domain != AF_INET);
-    BUG_ON(tcp->hdr.type != SOCK_STREAM);
+    BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(tcp->hdr.socket.domain != AF_INET);
+    BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     /* Bind to the requested address on native socket */
     sa.sin_family = AF_INET;
@@ -274,8 +280,9 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
 {
     unsigned hash;
 
-    BUG_ON(tcp->hdr.domain != AF_INET);
-    BUG_ON(tcp->hdr.type != SOCK_STREAM);
+    BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(tcp->hdr.socket.domain != AF_INET);
+    BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     /* Update kernel struct with provided addresses and ports */
     tcp->local_addr = local_addr;
@@ -309,8 +316,9 @@ void exasock_tcp_dead(struct kref *ref)
 
 void exasock_tcp_free(struct exasock_tcp *tcp)
 {
-    BUG_ON(tcp->hdr.domain != AF_INET);
-    BUG_ON(tcp->hdr.type != SOCK_STREAM);
+    BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(tcp->hdr.socket.domain != AF_INET);
+    BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     /* Send reset packet */
     exasock_tcp_send_reset(tcp);
@@ -353,6 +361,55 @@ int exasock_tcp_state_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma)
 {
     return remap_vmalloc_range(vma, tcp->user_page,
             vma->vm_pgoff - (EXASOCK_OFFSET_SOCKET_STATE / PAGE_SIZE));
+}
+
+/* Looks up exasock_tcp struct for a listening socket in hashtable.
+ * RCU read lock must be held. */
+static struct exasock_tcp *exasock_tcp_listen_lookup(uint32_t local_addr,
+                                              uint16_t local_port)
+{
+    struct exasock_tcp *tcp;
+#ifdef __HAS_OLD_HLIST_ITERATOR
+    struct hlist_node *n;
+#endif
+    unsigned hash;
+
+    /* Try to match (local_addr, local_port) */
+    hash = exasock_tcp_hash(local_addr, htonl(INADDR_ANY), local_port, 0);
+    hlist_for_each_entry_rcu(tcp,
+#ifdef __HAS_OLD_HLIST_ITERATOR
+                             n,
+#endif
+                             &tcp_buckets[hash], hash_node)
+    {
+        if (tcp->local_addr == local_addr &&
+            tcp->peer_addr == htonl(INADDR_ANY) &&
+            tcp->local_port == local_port &&
+            tcp->peer_port == 0)
+        {
+            return tcp;
+        }
+    }
+
+    /* Try to match local_port only */
+    hash = exasock_tcp_hash(htonl(INADDR_ANY), htonl(INADDR_ANY), local_port,
+                            0);
+    hlist_for_each_entry_rcu(tcp,
+#ifdef __HAS_OLD_HLIST_ITERATOR
+                             n,
+#endif
+                             &tcp_buckets[hash], hash_node)
+    {
+        if (tcp->local_addr == htonl(INADDR_ANY) &&
+            tcp->peer_addr == htonl(INADDR_ANY) &&
+            tcp->local_port == local_port &&
+            tcp->peer_port == 0)
+        {
+            return tcp;
+        }
+    }
+
+    return NULL;
 }
 
 /* Looks up exasock_tcp struct in hashtable.
@@ -731,6 +788,11 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
                                 sizeof(struct exa_tcp_new_connection);
 
         exasock_unlock(&state->rx_lock);
+
+        spin_lock(&tcp->notify_lock);
+        if (tcp->notify)
+            exasock_epoll_update(tcp->notify);
+        spin_unlock(&tcp->notify_lock);
 
         /* Remove from incomplete connections */
         hlist_del(&req->hash_node);
@@ -1233,13 +1295,82 @@ static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req)
     exasock_ip_send(IPPROTO_TCP, req->peer_addr, req->local_addr, skb);
 }
 
+int exasock_tcp_notify_add(uint32_t local_addr, uint16_t local_port,
+                           struct exasock_epoll_notify *notify)
+{
+    struct exasock_tcp *tcp;
+    int ret = 0;
+
+    /* Look up socket */
+    rcu_read_lock();
+    tcp = exasock_tcp_listen_lookup(local_addr, local_port);
+    if (tcp == NULL)
+    {
+        rcu_read_unlock();
+        return -ENOENT;
+    }
+    kref_get(&tcp->refcount);
+    rcu_read_unlock();
+
+    spin_lock(&tcp->notify_lock);
+
+    if (tcp->notify != NULL)
+    {
+        /* This socket is already a member of an epoll */
+        ret = -EINVAL;
+        goto exit;
+    }
+    tcp->notify = notify;
+
+exit:
+    spin_unlock(&tcp->notify_lock);
+    kref_put(&tcp->refcount, exasock_tcp_dead);
+    return ret;
+}
+
+int exasock_tcp_notify_del(uint32_t local_addr, uint16_t local_port,
+                           struct exasock_epoll_notify **notify)
+{
+    struct exasock_tcp *tcp;
+    int ret = 0;
+
+    /* Look up socket */
+    rcu_read_lock();
+    tcp = exasock_tcp_listen_lookup(local_addr, local_port);
+    if (tcp == NULL)
+    {
+        *notify = NULL;
+        rcu_read_unlock();
+        return -ENOENT;
+    }
+    kref_get(&tcp->refcount);
+    rcu_read_unlock();
+
+    spin_lock(&tcp->notify_lock);
+
+    *notify = tcp->notify;
+    if (tcp->notify == NULL)
+    {
+        spin_unlock(&tcp->notify_lock);
+        ret = -EINVAL;
+        goto exit;
+    }
+    tcp->notify = NULL;
+
+exit:
+    spin_unlock(&tcp->notify_lock);
+    kref_put(&tcp->refcount, exasock_tcp_dead);
+    return ret;
+}
+
 int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int optlen)
 {
     int ret;
 
-    BUG_ON(tcp->hdr.domain != AF_INET);
-    BUG_ON(tcp->hdr.type != SOCK_STREAM);
+    BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(tcp->hdr.socket.domain != AF_INET);
+    BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, optval, optlen);
 
@@ -1252,8 +1383,9 @@ int exasock_tcp_getsockopt(struct exasock_tcp *tcp, int level, int optname,
     int ret;
     mm_segment_t old_fs;
 
-    BUG_ON(tcp->hdr.domain != AF_INET);
-    BUG_ON(tcp->hdr.type != SOCK_STREAM);
+    BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(tcp->hdr.socket.domain != AF_INET);
+    BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     old_fs = get_fs();
     set_fs(KERNEL_DS);
