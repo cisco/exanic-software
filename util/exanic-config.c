@@ -221,19 +221,34 @@ int ethtool_get_phc_index(int fd, char *ifname, int *phc_index)
     return 0;
 }
 
-int get_x2_x4_phy_local_loopback(const char * device, int port_number)
+int get_local_loopback(exanic_t *exanic, int port_number)
 {
-    char buf;
-    uint8_t reg_addr = 0x0A;
-    exanic_t *exanic = acquire_handle(device);
-    if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+    exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
+    int loopback;
+
+    if ((hw_type == EXANIC_HW_X4) || (hw_type == EXANIC_HW_X2))
     {
-        fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
-        release_handle(exanic);
-        return -1;
+        char buf;
+        uint8_t reg_addr = 0x0A;
+
+        int port_status = exanic_get_port_status(exanic, port_number);
+        if (!(port_status & EXANIC_PORT_STATUS_ENABLED))
+            return -1;
+
+        if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+            return -1;
+
+        loopback = (buf & 0x40) ? 0 : 1;
     }
-    release_handle(exanic);
-    return (buf & 0x40) ? 0 : 1;
+    else
+    {
+        uint32_t flags = exanic_register_read(exanic,
+                             REG_PORT_INDEX(port_number,
+                               REG_PORT_FLAGS));
+        loopback = (flags & EXANIC_PORT_FLAG_LOOPBACK) ? 1 : 0;
+    }
+ 
+    return loopback;
 }
 
 void show_device_info(const char *device, int port_number)
@@ -472,17 +487,9 @@ void show_device_info(const char *device, int port_number)
                 printf("    MAC filters: %d", mac_rules);
                 printf("  IP filters: %d\n", ip_rules);
 
-                int loopback;
-                if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 )
-                    loopback = get_x2_x4_phy_local_loopback(device, i);
-                else
-                {
-                    uint32_t flags = exanic_register_read(exanic,
-                                         REG_PORT_INDEX(i,
-                                           REG_PORT_FLAGS));
-                    loopback = (flags & EXANIC_PORT_FLAG_LOOPBACK) ? 1 : 0;
-                }
-                printf("    Loopback mode: %s\n", loopback ? "on" : "off");
+                int loopback = get_local_loopback(exanic, i);
+                if (loopback != -1)
+                    printf("    Loopback mode: %s\n", loopback ? "on" : "off");
             }
             printf("    Promiscuous mode: %s\n",
                     exanic_get_promiscuous_mode(exanic, i) ? "on" : "off");
@@ -931,10 +938,19 @@ int set_local_loopback(const char * device, int port_number, int enable)
 {
     exanic_t *exanic = acquire_handle(device);
     exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
+
     if ((hw_type == EXANIC_HW_X4) || (hw_type == EXANIC_HW_X2))
     {
         char buf;
         uint8_t reg_addr = 0x0A;
+
+        int port_status = exanic_get_port_status(exanic, port_number);
+        if (!(port_status & EXANIC_PORT_STATUS_ENABLED))
+        {
+            fprintf(stderr, "%s:%d: cannot enable loopback on disabled port\n", device, port_number);
+            goto out;
+        }
+
         if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
         {
             fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
@@ -948,7 +964,7 @@ int set_local_loopback(const char * device, int port_number, int enable)
             goto out;
         }
     }
-    else if ((hw_type == EXANIC_HW_X10) || (hw_type == EXANIC_HW_X40))
+    else
     {
         uint32_t flags;
         flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number,
@@ -959,12 +975,6 @@ int set_local_loopback(const char * device, int port_number, int enable)
             flags = flags & (~EXANIC_PORT_FLAG_LOOPBACK);
 
         exanic_register_write(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS), flags);
-    }
-    else
-    {
-        fprintf(stderr, "%s:%d: local-loopback not supported on this hardware\n",
-                device, port_number);
-        goto out;
     }
 
     printf("%s:%d: local-loopback mode %s\n", device, port_number,
