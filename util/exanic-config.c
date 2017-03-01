@@ -938,6 +938,7 @@ int set_local_loopback(const char * device, int port_number, int enable)
 {
     exanic_t *exanic = acquire_handle(device);
     exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
+    int loopback;
 
     if ((hw_type == EXANIC_HW_X4) || (hw_type == EXANIC_HW_X2))
     {
@@ -975,6 +976,13 @@ int set_local_loopback(const char * device, int port_number, int enable)
             flags = flags & (~EXANIC_PORT_FLAG_LOOPBACK);
 
         exanic_register_write(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS), flags);
+    }
+
+    loopback = get_local_loopback(exanic, port_number);
+    if ((loopback == -1) || (enable && !loopback) || (!enable && loopback))
+    {
+        fprintf(stderr, "%s:%d: failed to update loopback mode: not supported by firmware?\n", device, port_number);
+        goto out;
     }
 
     printf("%s:%d: local-loopback mode %s\n", device, port_number,
