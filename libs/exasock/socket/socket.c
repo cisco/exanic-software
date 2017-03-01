@@ -746,7 +746,12 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
         exa_write_lock(&sock->lock);
 
-        if (!sock->bypass && !sock->disable_bypass)
+        if (sock->bypass)
+        {
+            exa_lock(&sock->state->rx_lock);
+            exa_lock(&sock->state->tx_lock);
+        }
+        else if (!sock->disable_bypass)
         {
             /* If the route is via an ExaNIC interface, put the socket into
              * bypass mode */
@@ -765,11 +770,6 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
                 assert(sock->state->rx_lock);
                 assert(sock->state->tx_lock);
             }
-        }
-        else
-        {
-            exa_lock(&sock->state->rx_lock);
-            exa_lock(&sock->state->tx_lock);
         }
 
         if (sock->bypass)
