@@ -323,6 +323,12 @@ void exasock_tcp_free(struct exasock_tcp *tcp)
     /* Send reset packet */
     exasock_tcp_send_reset(tcp);
 
+    /* If there are still any packets pending in destination table queue,
+     * it means the socket does not have a valid neighbour. These packets
+     * need to be removed now. */
+    exasock_dst_remove_socket(tcp->local_addr, tcp->peer_addr,
+                              tcp->local_port, tcp->peer_port);
+
     /* Remove from hash table */
     spin_lock(&tcp_bucket_lock);
     hlist_del_rcu(&tcp->hash_node);

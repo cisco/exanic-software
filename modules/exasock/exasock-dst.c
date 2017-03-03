@@ -11,6 +11,8 @@
 #include <linux/hash.h>
 #include <linux/vmalloc.h>
 #include <linux/if_vlan.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
 #include <net/arp.h>
 #include <net/route.h>
 
@@ -327,6 +329,47 @@ remove_entry:
     spin_unlock_bh(&dst_lock);
 
     __free_dst_entry(de);
+}
+
+/* Remove any packets pending in destination table queue related to a given
+ * connection */
+void exasock_dst_remove_socket(uint32_t local_addr, uint32_t peer_addr,
+                               uint16_t local_port, uint16_t peer_port)
+{
+    struct exasock_dst_queue_entry *qe, *tmp;
+    struct exasock_dst_entry *de;
+    unsigned idx;
+
+    spin_lock_bh(&dst_lock);
+
+    idx = __find_dst_entry(peer_addr);
+    if ((idx == ~0) || dst_table[idx] == NULL)
+        goto exit;
+
+    de = dst_table[idx];
+
+    list_for_each_entry_safe(qe, tmp, &de->dst_queue, list)
+    {
+        struct sk_buff *skb = qe->skb;
+        struct exasock_tcp *tcp;
+        struct iphdr *iph;
+        struct tcphdr *th;
+
+        iph = (struct iphdr *)skb->data;
+        if (iph->protocol != IPPROTO_TCP)
+            continue;
+        th = (struct tcphdr *)(skb->data + iph->ihl * 4);
+        if ((iph->saddr == local_addr) && (iph->daddr == peer_addr) &&
+            (th->source == local_port) && (th->dest == peer_port))
+        {
+            dev_put(skb->dev);
+            kfree_skb(skb);
+            list_del(&qe->list);
+            kfree(qe);
+        }
+    }
+exit:
+    spin_unlock_bh(&dst_lock);
 }
 
 /**

@@ -49,6 +49,8 @@ static inline void exasock_unlock(volatile uint32_t *flag)
 /* exasock-dst.c */
 int __init exasock_dst_init(void);
 void exasock_dst_exit(void);
+void exasock_dst_remove_socket(uint32_t local_addr, uint32_t peer_addr,
+                               uint16_t local_port, uint16_t peer_port);
 void exasock_dst_neigh_update(struct neighbour *neigh);
 int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr, int *ifindex,
                        struct sk_buff *skb);
