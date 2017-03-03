@@ -25,6 +25,12 @@ struct exa_timestamp
     uint32_t nsec;
 };
 
+struct exa_timeo
+{
+    bool enabled;
+    struct timeval val;
+};
+
 /* This struct is input for exa_tcp_accept() */
 struct exa_tcp_init_state
 {
@@ -110,6 +116,8 @@ struct exa_socket
     bool so_timestamp;
     bool so_timestampns;
     int so_timestamping;
+    struct exa_timeo so_sndtimeo;
+    struct exa_timeo so_rcvtimeo;
 
     /* Timestamp generation enable state */
     bool rx_sw_timestamp;

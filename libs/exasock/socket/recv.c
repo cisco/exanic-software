@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <poll.h>
+#include <time.h>
 
 #if HAVE_NET_TSTAMP_H
 #include <linux/net_tstamp.h>
@@ -112,8 +113,9 @@ recv_block_udp(struct exa_socket * restrict sock, int fd, int flags,
     assert(sock->bound);
     assert(exa_read_locked(&sock->lock));
 
-    do_socket_wait(sock, fd, nonblock, __recv_block_udp_ready,
-                   ret, ep, pkt, pkt_len, ts);
+    do_socket_wait(sock, fd, nonblock, sock->so_rcvtimeo,
+                   __recv_block_udp_ready, ret, ep, pkt, pkt_len, ts);
+
     return ret;
 }
 
@@ -163,8 +165,9 @@ recv_block_tcp(struct exa_socket * restrict sock, int fd, int flags,
     assert(sock->bound);
     assert(exa_read_locked(&sock->lock));
 
-    do_socket_wait(sock, fd, nonblock, __recv_block_tcp_ready,
-                   ret, buf1, len1, buf2, len2);
+    do_socket_wait(sock, fd, nonblock, sock->so_rcvtimeo,
+                   __recv_block_tcp_ready, ret, buf1, len1, buf2, len2);
+
     return ret;
 }
 

@@ -103,7 +103,7 @@ linger_tcp(struct exa_socket * restrict sock, int fd)
 
     /* Block until socket transmit buffer is empty */
     /* FIXME: Exit after timeout */
-    do_socket_wait(sock, fd, false, __linger_tcp_ready, ret, 0);
+    do_socket_wait_block(sock, fd, __linger_tcp_ready, ret, 0);
     return ret;
 }
 
@@ -388,7 +388,7 @@ __accept_tcp_block_ready(struct exa_socket * restrict sock, int *ret,
  * On success, returns 0 with socket rx_lock held
  * Otherwise returns -1 with no locks held */
 static int
-accept_tcp_block(struct exa_socket * restrict sock, int sockfd,
+accept_tcp_block(struct exa_socket * restrict sock,
                  struct exa_endpoint * restrict ep,
                  struct exa_tcp_init_state * restrict tcp_state)
 {
@@ -397,14 +397,14 @@ accept_tcp_block(struct exa_socket * restrict sock, int sockfd,
 
     assert(exa_read_locked(&sock->lock));
 
-    do_socket_poll(sock, sockfd, nonblock, __accept_tcp_block_ready,
+    do_socket_poll(sock, nonblock, sock->so_rcvtimeo, __accept_tcp_block_ready,
                    ret, ep, tcp_state);
     return ret;
 }
 
 static int
-accept4_tcp(struct exa_socket * restrict sock, int sockfd,
-            struct sockaddr *addr, socklen_t *addrlen, int flags)
+accept4_tcp(struct exa_socket * restrict sock, struct sockaddr *addr,
+            socklen_t *addrlen, int flags)
 {
     struct exa_endpoint ep;
     struct exa_tcp_init_state tcp_state;
@@ -419,7 +419,7 @@ accept4_tcp(struct exa_socket * restrict sock, int sockfd,
         return -1;
     }
 
-    if (accept_tcp_block(sock, sockfd, &ep, &tcp_state) == -1)
+    if (accept_tcp_block(sock, &ep, &tcp_state) == -1)
         return -1;
 
     exa_unlock(&sock->state->rx_lock);
@@ -472,7 +472,7 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
-            ret = accept4_tcp(sock, sockfd, addr, addrlen, 0);
+            ret = accept4_tcp(sock, addr, addrlen, 0);
             exa_read_unlock(&sock->lock);
         }
         else
@@ -514,7 +514,7 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
-            ret = accept4_tcp(sock, sockfd, addr, addrlen, flags);
+            ret = accept4_tcp(sock, addr, addrlen, flags);
             exa_read_unlock(&sock->lock);
         }
         else
@@ -628,7 +628,7 @@ connect_tcp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
         return ret;
     }
 
-    if (sock->flags & O_NONBLOCK)
+    if (nonblock)
     {
         /* Don't wait for connection to be established */
         exa_write_unlock(&sock->lock);
@@ -640,8 +640,15 @@ connect_tcp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
     exa_rwlock_downgrade(&sock->lock);
 
     /* Block until socket is connected */
-    do_socket_wait(sock, sockfd, nonblock, __connect_tcp_ready, ret, 0);
+    do_socket_wait(sock, sockfd, nonblock, sock->so_sndtimeo,
+                   __connect_tcp_ready, ret, 0);
+
     exa_read_unlock(&sock->lock);
+
+    /* connect does not return EAGAIN but EINPROGRESS */
+    if (errno == EAGAIN)
+        errno = EINPROGRESS;
+
     return ret;
 }
 
@@ -1287,6 +1294,18 @@ getsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             out_int = true;
             ret = 0;
             break;
+        case SO_SNDTIMEO:
+            if (*optlen > sizeof(struct timeval))
+                *optlen = sizeof(struct timeval);
+            memcpy(optval, &sock->so_sndtimeo.val, sizeof(struct timeval));
+            ret = 0;
+            break;
+        case SO_RCVTIMEO:
+            if (*optlen > sizeof(struct timeval))
+                *optlen = sizeof(struct timeval);
+            memcpy(optval, &sock->so_rcvtimeo.val, sizeof(struct timeval));
+            ret = 0;
+            break;
         }
     }
 
@@ -1497,6 +1516,8 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             optname == SO_TIMESTAMP ||
             optname == SO_TIMESTAMPNS ||
             optname == SO_TIMESTAMPING ||
+            optname == SO_SNDTIMEO ||
+            optname == SO_RCVTIMEO ||
            (optname == SO_REUSEADDR && sock->type == SOCK_STREAM))
             ret = 0;
         else
@@ -1517,6 +1538,11 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
         case SO_LINGER:
             if (optlen >= sizeof(struct linger))
                 memcpy(&sock->so_linger, optval, sizeof(struct linger));
+            else
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
             break;
         case SO_TIMESTAMP:
             sock->so_timestamp = (val != 0);
@@ -1534,6 +1560,28 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             sock->so_timestamping = val;
             if (sock->bypass)
                 exa_socket_update_timestamping(sock);
+            break;
+        case SO_SNDTIMEO:
+            if (optlen >= sizeof(struct timeval))
+                memcpy(&sock->so_sndtimeo.val, optval, sizeof(struct timeval));
+            else
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
+            sock->so_sndtimeo.enabled =
+                sock->so_sndtimeo.val.tv_sec || sock->so_sndtimeo.val.tv_usec;
+            break;
+        case SO_RCVTIMEO:
+            if (optlen >= sizeof(struct timeval))
+                memcpy(&sock->so_rcvtimeo.val, optval, sizeof(struct timeval));
+            else
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
+            sock->so_rcvtimeo.enabled =
+                sock->so_rcvtimeo.val.tv_sec || sock->so_rcvtimeo.val.tv_usec;
             break;
         }
     }
