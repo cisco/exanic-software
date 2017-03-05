@@ -351,7 +351,6 @@ void exasock_dst_remove_socket(uint32_t local_addr, uint32_t peer_addr,
     list_for_each_entry_safe(qe, tmp, &de->dst_queue, list)
     {
         struct sk_buff *skb = qe->skb;
-        struct exasock_tcp *tcp;
         struct iphdr *iph;
         struct tcphdr *th;
 
