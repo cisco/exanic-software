@@ -5,7 +5,14 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <net/tcp.h>
+#include <linux/vmalloc.h>
+#include <linux/slab.h>
+#include <linux/list.h>
+#include <linux/errno.h>
+#include <linux/err.h>
+#include <linux/compiler.h>
+#include <linux/skbuff.h>
+#include <net/neighbour.h>
 
 #include "../../libs/exasock/kernel/api.h"
 #include "../../libs/exasock/kernel/structs.h"
