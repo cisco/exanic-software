@@ -275,7 +275,7 @@ void show_device_info(const char *device, int port_number)
     if (hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
         hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
         hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-        hw_type == EXANIC_HW_X40)
+        hw_type == EXANIC_HW_X40  || hw_type == EXANIC_HW_X10_HPT)
     {
         uint32_t id, temp, vccint, vccaux;
         double temp_real=0, vccint_real=0, vccaux_real=0;
@@ -295,7 +295,7 @@ void show_device_info(const char *device, int port_number)
         }
         else if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
                     hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-                    hw_type == EXANIC_HW_X40)
+                    hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT)
         {
             temp_real = temp * (503.975 / 4096.0) - 273.15;
             vccint_real = vccint * 3.0 / 4096.0;
@@ -476,7 +476,7 @@ void show_device_info(const char *device, int port_number)
         {
             if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
                     hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-                    hw_type == EXANIC_HW_X40)
+                    hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT)
             {
                 int mac_rules = exanic_register_read(exanic,
                                     REG_EXTENDED_PORT_INDEX(i,
