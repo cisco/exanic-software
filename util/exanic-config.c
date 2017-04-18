@@ -346,6 +346,25 @@ void show_device_info(const char *device, int port_number)
         printf("  Customer version: %u (%x)\n", user_version, user_version);
     }
 
+    if (function == EXANIC_FUNCTION_NIC ||
+            function == EXANIC_FUNCTION_PTP_GM)
+    {
+        if (hw_type != EXANIC_HW_X4 && hw_type != EXANIC_HW_X2)
+        {
+            uint32_t flags = exanic_register_read(exanic,
+                       REG_HW_INDEX(REG_HW_SERIAL_PPS));
+            uint32_t config = exanic_register_read(exanic,
+                      REG_HW_INDEX(REG_HW_PER_OUT_CONFIG));
+            int pps_out = (flags & EXANIC_HW_SERIAL_PPS_OUT_EN) ? 1 : 0;
+            if (config & EXANIC_HW_PER_OUT_CONFIG_PPS)
+                printf("  PPS out: %s\n", pps_out ? "enabled" : "disabled");
+            else if (config & EXANIC_HW_PER_OUT_CONFIG_10M)
+                printf("  10Mhz out: %s\n", pps_out ? "enabled" : "disabled");
+            else
+                printf("  PPS out: disabled\n");
+        }
+    }
+
     if (function == EXANIC_FUNCTION_NIC)
     {
         /*
