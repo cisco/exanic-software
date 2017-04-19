@@ -18,7 +18,7 @@
 
 #include "pcap-structures.h"
 
-typedef enum 
+typedef enum
 {
     FORMAT_PCAP = 0,
     FORMAT_ERF = 1,
@@ -445,22 +445,32 @@ static int set_promiscuous_mode(exanic_t *exanic, int port_number, int enable)
     return 0;
 }
 
+struct exanic_rx_context
+{
+    char device[16];
+    int port_number;
+    exanic_t *exanic;
+    exanic_rx_t *rx;
+    int set_promisc;
+};
+
+#define EXA_MAX_IFACES 8
+
 int main(int argc, char *argv[])
 {
     const char *interface = NULL;
     const char *savefile = NULL;
     FILE *savefp = NULL;
-    char device[16];
-    int port_number;
-    exanic_t *exanic;
-    exanic_rx_t *rx;
+    struct exanic_rx_context rx_ctxs[EXA_MAX_IFACES];
+    int rx_ctxs_no = 0;
+    int rx_ctx_idx = 0;
     char rx_buf[16384];
     ssize_t rx_size;
     int status;
     uint32_t timestamp;
     struct timespec ts;
     int hw_tstamp = 0, nsec_pcap = 0, snaplen = sizeof(rx_buf), flush = 0;
-    int promisc = 1, set_promisc, filter;
+    int promisc = 1, filter;
     unsigned long rx_success = 0, rx_aborted = 0, rx_corrupt = 0,
                   rx_hwovfl = 0, rx_swovfl = 0, rx_other = 0;
     file_format_type file_format = FORMAT_PCAP;
@@ -469,12 +479,24 @@ int main(int argc, char *argv[])
     char file_name_buf[4096];
     int c;
 
+    memset(&rx_ctxs, 0, sizeof(rx_ctxs));
+
     while ((c = getopt(argc, argv, "i:w:s:C:F:pHNh?")) != -1)
     {
         switch (c)
         {
             case 'i':
-                interface = optarg;
+                if (exanic_find_port_by_interface_name(
+                    optarg, rx_ctxs[rx_ctxs_no].device, 16, &rx_ctxs[rx_ctxs_no].port_number) != 0
+                    &&
+                    parse_device_port(
+                    optarg, rx_ctxs[rx_ctxs_no].device, &rx_ctxs[rx_ctxs_no].port_number) != 0)
+                {
+                    fprintf(stderr, "%s: no such interface or not an ExaNIC\n", optarg);
+                    return 1;
+                }
+
+                ++rx_ctxs_no;
                 break;
             case 'w':
                 savefile = optarg;
@@ -509,15 +531,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (interface == NULL)
+    if (rx_ctxs_no == 0)
         goto usage_error;
-
-    if (exanic_find_port_by_interface_name(interface, device, 16, &port_number) != 0
-            && parse_device_port(interface, device, &port_number) != 0)
-    {
-        fprintf(stderr, "%s: no such interface or not an ExaNIC\n", interface);
-        return 1;
-    }
 
     if (savefile != NULL)
     {
@@ -542,31 +557,40 @@ int main(int argc, char *argv[])
             file_size = write_pcap_header(savefp, nsec_pcap, snaplen);
     }
 
-    /* Get the exanic handle */
-    exanic = exanic_acquire_handle(device);
-    if (exanic == NULL)
+    for (int i = 0; i < rx_ctxs_no; ++i)
     {
-        fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
-        goto err_acquire_handle;
+        /* Get the exanic handle */
+        rx_ctxs[i].exanic = exanic_acquire_handle(rx_ctxs[i].device);
+        if (rx_ctxs[i].exanic == NULL)
+        {
+            fprintf(stderr, "%s: %s\n", rx_ctxs[i].device, exanic_get_last_error());
+            goto err_acquire_handle;
+        }
+
+        filter = optind < argc;
+        if (filter)
+            rx_ctxs[i].rx = exanic_acquire_unused_filter_buffer(rx_ctxs[i].exanic, rx_ctxs[i].port_number);
+        else
+            rx_ctxs[i].rx = exanic_acquire_rx_buffer(rx_ctxs[i].exanic, rx_ctxs[i].port_number, 0);
+
+        if (rx_ctxs[i].rx == NULL)
+        {
+            fprintf(stderr, "%s:%d: %s\n", rx_ctxs[i].device, rx_ctxs[i].port_number,
+                    exanic_get_last_error());
+            goto err_acquire_rx;
+        }
+
+        if (filter && !apply_filters(rx_ctxs[i].exanic, rx_ctxs[i].rx, &argv[optind], argc-optind))
+            goto err_apply_filters;
+
+        rx_ctxs[i].set_promisc = promisc && !exanic_get_promiscuous_mode(rx_ctxs[i].exanic, rx_ctxs[i].port_number);
+
+        if (rx_ctxs[i].set_promisc)
+        {
+            if (set_promiscuous_mode(rx_ctxs[i].exanic, rx_ctxs[i].port_number, 1) == -1)
+                rx_ctxs[i].set_promisc = 0;
+        }
     }
-
-    filter = optind < argc;
-    if (filter)
-        rx = exanic_acquire_unused_filter_buffer(exanic, port_number);
-    else
-        rx = exanic_acquire_rx_buffer(exanic, port_number, 0);
-
-    if (rx == NULL)
-    {
-        fprintf(stderr, "%s:%d: %s\n", device, port_number,
-                exanic_get_last_error());
-        goto err_acquire_rx;
-    }
-
-    if (filter && !apply_filters(exanic, rx, &argv[optind], argc-optind))
-        goto err_apply_filters;
-
-    set_promisc = promisc && !exanic_get_promiscuous_mode(exanic, port_number);
 
     signal(SIGHUP, signal_handler);
     signal(SIGINT, signal_handler);
@@ -574,25 +598,22 @@ int main(int argc, char *argv[])
     signal(SIGALRM, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    if (set_promisc)
-    {
-        if (set_promiscuous_mode(exanic, port_number, 1) == -1)
-            set_promisc = 0;
-    }
-
     /* Start reading from the rx buffer */
     while (run)
     {
-        rx_size = exanic_receive_frame_ex(rx, rx_buf, sizeof(rx_buf),
+        rx_size = exanic_receive_frame_ex(rx_ctxs[rx_ctx_idx].rx, rx_buf, sizeof(rx_buf),
                 &timestamp, &status);
 
         if (rx_size < 0 && status == EXANIC_RX_FRAME_OK)
+        {
+            rx_ctx_idx = (++rx_ctx_idx) % rx_ctxs_no;
             continue;
+        }
 
         /* Get timestamp */
         if (rx_size > 0 && hw_tstamp)
         {
-            uint64_t counter = exanic_timestamp_to_counter(exanic, timestamp);
+            uint64_t counter = exanic_timestamp_to_counter(rx_ctxs[rx_ctx_idx].exanic, timestamp);
             ts.tv_sec = counter / 1000000000;
             ts.tv_nsec = counter % 1000000000;
         }
@@ -631,7 +652,7 @@ int main(int argc, char *argv[])
                                                    snaplen, savefp);
                 else if (file_format == FORMAT_ERF)
                     file_size += write_erf_packet(rx_buf, rx_size, &ts,
-                                                  port_number,
+                                                  rx_ctxs[rx_ctx_idx].port_number,
                                                   snaplen, savefp);
                 if (flush)
                     fflush(savefp);
@@ -681,23 +702,27 @@ int main(int argc, char *argv[])
             rx_other++;
     }
 
-    if (set_promisc)
-        set_promiscuous_mode(exanic, port_number, 0);
-
     fprintf(stderr, "%s: received=%lu corrupt=%lu aborted=%lu hw_lost=%lu sw_lost=%lu other=%lu\n",
                      argv[0], rx_success, rx_corrupt, rx_aborted, rx_hwovfl, rx_swovfl, rx_other);
 
-    exanic_release_rx_buffer(rx);
-    exanic_release_handle(exanic);
     if (savefp != NULL)
         fclose(savefp);
     return 0;
 
 err_open_next_file:
 err_apply_filters:
-    exanic_release_rx_buffer(rx);
 err_acquire_rx:
-    exanic_release_handle(exanic);
+    for (int i = 0; i < rx_ctxs_no; ++i)
+    {
+        if (rx_ctxs[i].set_promisc && rx_ctxs[i].exanic)
+            set_promiscuous_mode(rx_ctxs[i].exanic, rx_ctxs[i].port_number, 0);
+
+        if (rx_ctxs[i].rx)
+            exanic_release_rx_buffer(rx);
+
+        if (rx_ctxs[i].exanic)
+            exanic_release_handle(exanic);
+    }
 err_acquire_handle:
     if (savefp != NULL)
         fclose(savefp);
