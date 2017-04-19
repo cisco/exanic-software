@@ -193,6 +193,11 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     /* Get clock drift from measurement history */
     drift_known = calc_drift(&state->drift, &drift);
 
+    /* Read the latched timestamp value at the last PPS pulse
+     * This must be done before reading the current hardware time */
+    pps_reg = exanic_register_read(state->exanic, REG_EXANIC_INDEX(
+                REG_EXANIC_PPS_TIMESTAMP));
+
     /* Get current time from hardware clock */
     if (get_clock_time(state->clkfd, &poll_time_ns) == -1)
     {
@@ -214,8 +219,6 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     }
 
     /* Calculate the time of the last PPS pulse */
-    pps_reg = exanic_register_read(state->exanic, REG_EXANIC_INDEX(
-                REG_EXANIC_PPS_TIMESTAMP));
     if (pps_reg != state->pps_reg)
     {
         uint64_t poll_time_tick, pps_time_tick, pps_time_ns;
@@ -225,7 +228,9 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
         time_t time_sec;
         int valid_pps;
 
-        /* Extend the PPS pulse time to 64 bits */
+        /* Extend the PPS pulse time to 64 bits
+         * This calculation assumes the PPS pulse time is before the current
+         * hardware time, within one rollover period */
         poll_time_tick = (poll_time_ns / 1000000000) * state->tick_hz +
             (poll_time_ns % 1000000000) * state->tick_hz / 1000000000;
         poll_time_tick_hi = (poll_time_tick >> 32);
