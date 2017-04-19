@@ -445,15 +445,23 @@ static int set_promiscuous_mode(exanic_t *exanic, int port_number, int enable)
     return 0;
 }
 
+struct exanic_capture_ctx
+{
+    char device[16];
+    int port_number;
+    exanic_t *exanic;
+    exanic_rx_t *rx;
+};
+
+#define EXA_MAX_IFACES 8
+
 int main(int argc, char *argv[])
 {
     const char *interface = NULL;
     const char *savefile = NULL;
     FILE *savefp = NULL;
-    char device[16];
-    int port_number;
-    exanic_t *exanic;
-    exanic_rx_t *rx;
+    struct exanic_capture_ctx capture_ctx[EXA_MAX_IFACES];
+    int no_capture_ctxs = 0;
     char rx_buf[16384];
     ssize_t rx_size;
     int status;
@@ -474,7 +482,17 @@ int main(int argc, char *argv[])
         switch (c)
         {
             case 'i':
-                interface = optarg;
+                if (exanic_find_port_by_interface_name(
+                    optarg, capture_ctx[no_capture_ctxs].device, 16, &capture_ctx[no_capture_ctxs].port_number) != 0
+                    && 
+                    parse_device_port(
+                    optarg, capture_ctx[no_capture_ctxs].device, &capture_ctx[no_capture_ctxs].port_number) != 0)
+                {
+                    fprintf(stderr, "%s: no such interface or not an ExaNIC\n", optarg);
+                    return 1;
+                }
+
+                ++no_capture_ctxs;
                 break;
             case 'w':
                 savefile = optarg;
@@ -509,15 +527,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (interface == NULL)
+    if (no_capture_ctxs == 0)
         goto usage_error;
-
-    if (exanic_find_port_by_interface_name(interface, device, 16, &port_number) != 0
-            && parse_device_port(interface, device, &port_number) != 0)
-    {
-        fprintf(stderr, "%s: no such interface or not an ExaNIC\n", interface);
-        return 1;
-    }
 
     if (savefile != NULL)
     {
@@ -542,8 +553,10 @@ int main(int argc, char *argv[])
             file_size = write_pcap_header(savefp, nsec_pcap, snaplen);
     }
 
-    /* Get the exanic handle */
-    exanic = exanic_acquire_handle(device);
+    for (int i = 0; i < no_capture_ctxs; ++i)
+    {
+        /* Get the exanic handle */
+        captuexanic = exanic_acquire_handle(device);
     if (exanic == NULL)
     {
         fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
@@ -568,17 +581,18 @@ int main(int argc, char *argv[])
 
     set_promisc = promisc && !exanic_get_promiscuous_mode(exanic, port_number);
 
-    signal(SIGHUP, signal_handler);
-    signal(SIGINT, signal_handler);
-    signal(SIGPIPE, signal_handler);
-    signal(SIGALRM, signal_handler);
-    signal(SIGTERM, signal_handler);
-
     if (set_promisc)
     {
         if (set_promiscuous_mode(exanic, port_number, 1) == -1)
             set_promisc = 0;
     }
+    }
+
+    signal(SIGHUP, signal_handler);
+    signal(SIGINT, signal_handler);
+    signal(SIGPIPE, signal_handler);
+    signal(SIGALRM, signal_handler);
+    signal(SIGTERM, signal_handler);
 
     /* Start reading from the rx buffer */
     while (run)
