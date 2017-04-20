@@ -129,13 +129,15 @@ exa_get_system_time(struct exa_timestamp * restrict ts)
 }
 
 static inline void
-exanic_get_hardware_time(exanic_t *exanic, uint32_t hwts,
+exanic_get_hardware_time(exanic_t *exanic, exanic_cycles32_t cycles32,
                          struct exa_timestamp * restrict ts)
 {
-    uint64_t c = exanic_timestamp_to_counter(exanic, hwts);
+    const exanic_cycles_t cycles = exanic_expand_timestamp(exanic, cycles32);
+    struct timespec tspec;
+    exanic_cycles_to_timespec(exanic, cycles, &tspec);
 
-    ts->sec = c / 1000000000;
-    ts->nsec = c % 1000000000;
+    ts->sec = tspec.tv_sec;
+    ts->nsec = tspec.tv_nsec;
 }
 
 /* Send a packet on a ExaNIC */
@@ -692,7 +694,7 @@ exanic_poll_get_timestamp(struct exa_socket * restrict sock,
                           struct exanic_ip * restrict ctx,
                           uint32_t chunk_id, struct exa_timestamp ts[2])
 {
-    uint32_t hwts;
+    exanic_cycles32_t hwts;
 
     memset(ts, 0, sizeof(struct exa_timestamp) * 2);
 

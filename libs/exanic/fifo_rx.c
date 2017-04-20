@@ -266,7 +266,7 @@ void __exanic_rx_catchup(exanic_rx_t *rx)
 }
 
 ssize_t exanic_receive_frame(exanic_rx_t *rx, char *rx_buf, size_t rx_buf_size,
-                             uint32_t *timestamp)
+                             exanic_cycles32_t *timestamp)
 {
     union {
         struct rx_chunk_info info;

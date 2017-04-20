@@ -8,6 +8,7 @@
 #include "exanic.h"
 #include "pcie_if.h"
 #include "fifo_if.h"
+#include "time.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -123,7 +124,7 @@ void __exanic_rx_catchup(exanic_rx_t *rx);
  *         or <0 for errors (see \ref rx_frame_status).
  */
 ssize_t exanic_receive_frame(exanic_rx_t *rx, char *rx_buf, size_t rx_buf_size,
-                             uint32_t *timestamp);
+                             exanic_cycles32_t *timestamp);
 
 /**
  * \brief Read one chunk of data into the provided buffer
@@ -237,8 +238,9 @@ static inline int exanic_receive_chunk_recheck(exanic_rx_t *rx,
     return rx->buffer[chunk].u.info.generation == generation;
 }
 
+
 /**
- * \brief Get the timestamp of a received chunk
+ * \brief Get the lower 32 bits of a received chunk timestamp (in cycles)
  *
  * \param[in]   rx
  *      A valid RX handle.
@@ -247,13 +249,13 @@ static inline int exanic_receive_chunk_recheck(exanic_rx_t *rx,
  *
  * \return Timestamp if chunk is still valid, undefined otherwise
  */
-static inline uint32_t exanic_receive_chunk_timestamp(exanic_rx_t *rx,
-                                                      uint32_t chunk_id)
+static inline exanic_cycles32_t exanic_receive_chunk_timestamp(exanic_rx_t *rx,
+                                                            uint32_t chunk_id)
 {
     uint32_t chunk = chunk_id % EXANIC_RX_NUM_CHUNKS;
-
     return rx->buffer[chunk].u.info.timestamp;
 }
+
 
 /**
  * \brief Skip chunks until the end of a frame.

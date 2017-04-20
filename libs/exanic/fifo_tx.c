@@ -411,8 +411,8 @@ int exanic_abort_transmit_frame(exanic_tx_t *tx)
     return 0;
 }
 
-uint32_t exanic_get_tx_timestamp(exanic_tx_t *tx)
+exanic_cycles32_t exanic_get_tx_timestamp(exanic_tx_t *tx)
 {
     return exanic_register_read(tx->exanic,
-                        REG_PORT_INDEX(tx->port_number, REG_PORT_TX_LAST_TIME));
+            REG_PORT_INDEX(tx->port_number, REG_PORT_TX_LAST_TIME));
 }

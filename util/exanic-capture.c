@@ -24,6 +24,7 @@ typedef enum
     FORMAT_ERF = 1,
 } file_format_type;
 
+
 volatile int run = 1;
 
 void signal_handler(int signum)
@@ -222,13 +223,13 @@ unsigned write_pcap_header(FILE *fp, int nsec_pcap, int snaplen)
     return sizeof(hdr);
 }
 
-unsigned write_pcap_packet(char *data, ssize_t len, struct timespec *ts,
+unsigned write_pcap_packet(char *data, ssize_t len, struct exanic_timespecps *tsps,
                        int nsec_pcap, int snaplen, FILE *fp)
 {
     struct pcap_pkthdr hdr;
     ssize_t caplen = (len > snaplen) ? snaplen : len;
-    hdr.ts_sec = ts->tv_sec;
-    hdr.ts_usec = nsec_pcap ? ts->tv_nsec : (ts->tv_nsec/1000);
+    hdr.ts_sec = tsps->tv_sec;
+    hdr.ts_usec = nsec_pcap ? (tsps->tv_psec / 1000) : (tsps->tv_psec/1000/1000);
     hdr.caplen = caplen;
     hdr.len = len;
     fwrite(&hdr, sizeof(hdr), 1, fp);
@@ -249,18 +250,28 @@ struct erf_record
     uint16_t eth_pad;
 };
 
-unsigned write_erf_packet(char *data, ssize_t len, struct timespec *ts,
+unsigned write_erf_packet(char *data, ssize_t len, struct exanic_timespecps *tsps,
                           int port, int snaplen, FILE *fp)
 {
     struct erf_record hdr;
     const size_t size_hdr = 18;
     // times in little endian
-    hdr.ts_sec = htole32(ts->tv_sec);
-    // convert to binary fraction of a second
-    int64_t ns = ts->tv_nsec;
-    ns  <<= 32;
-    ns /= 1000000000LL;
-    hdr.ts_frac = htole32(ns);
+    hdr.ts_sec = htole32(tsps->tv_sec);
+
+    /* convert to 32 bit binary fraction of a second
+     * The simplest way to think of this conversion is to convert picoseconds to
+     * fractions of a second (ps / 10**12) and then to multiply by 0x100000000
+     * (1 << 32), resulting in a 32bit binary fraction. Rearranging for integer
+     * maths this becomes (ps << 32) / 10**12. This can potentially roll over
+     * for large picosecond values. It can however be factored by observing that
+     * 10**12 = 2**12 * 5**12. Thus:
+     * (ps << ( 32 - 12) ) / (5**12)  = (ps << 20) / 244140625.
+     * This does not roll over even for large picosecond values (e.g. 10**12-1)
+     */
+    const uint64_t ps = tsps->tv_psec;
+    const uint32_t erfbinfrac = (ps << 20) / 244140625;
+    hdr.ts_frac = htole32(erfbinfrac);
+
     hdr.type = 2; // type ETH with no extension header
     hdr.flags = 1 << 2; // variable length record
     hdr.flags |= (port & 0x3);
@@ -274,15 +285,15 @@ unsigned write_erf_packet(char *data, ssize_t len, struct timespec *ts,
     return size_hdr + caplen;
 }
 
-void print_time(struct timespec *ts)
+void print_time(struct exanic_timespecps *tsps)
 {
     struct tm tm;
-    localtime_r(&ts->tv_sec, &tm);
+    localtime_r((time_t*)&tsps->tv_sec, &tm);
 
-    printf("%04d%02d%02dT%02d%02d%02d.%09ld ",
+    printf("%04d%02d%02dT%02d%02d%02d.%012ld ",
            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
            tm.tm_hour, tm.tm_min, tm.tm_sec,
-           ts->tv_nsec);
+           tsps->tv_psec);
 }
 
 void print_hexdump(char *data, int len)
@@ -457,8 +468,9 @@ int main(int argc, char *argv[])
     char rx_buf[16384];
     ssize_t rx_size;
     int status;
-    uint32_t timestamp;
+    exanic_cycles32_t timestamp;
     struct timespec ts;
+    struct exanic_timespecps tsps;
     int hw_tstamp = 0, nsec_pcap = 0, snaplen = sizeof(rx_buf), flush = 0;
     int promisc = 1, set_promisc, filter;
     unsigned long rx_success = 0, rx_aborted = 0, rx_corrupt = 0,
@@ -592,13 +604,14 @@ int main(int argc, char *argv[])
         /* Get timestamp */
         if (rx_size > 0 && hw_tstamp)
         {
-            uint64_t counter = exanic_timestamp_to_counter(exanic, timestamp);
-            ts.tv_sec = counter / 1000000000;
-            ts.tv_nsec = counter % 1000000000;
+            const uint64_t timestamp64 = exanic_expand_timestamp(exanic, timestamp);
+            exanic_cycles_to_timespecps(exanic, timestamp64, &tsps);
         }
         else
         {
             clock_gettime(CLOCK_REALTIME, &ts);
+            tsps.tv_sec = ts.tv_sec;
+            tsps.tv_psec = ts.tv_nsec * 1000ULL;
         }
 
         if (savefp != NULL)
@@ -627,10 +640,10 @@ int main(int argc, char *argv[])
                         file_size = write_pcap_header(savefp, nsec_pcap, snaplen);
                 }
                 if (file_format == FORMAT_PCAP)
-                    file_size += write_pcap_packet(rx_buf, rx_size, &ts, nsec_pcap,
+                    file_size += write_pcap_packet(rx_buf, rx_size, &tsps, nsec_pcap,
                                                    snaplen, savefp);
                 else if (file_format == FORMAT_ERF)
-                    file_size += write_erf_packet(rx_buf, rx_size, &ts,
+                    file_size += write_erf_packet(rx_buf, rx_size, &tsps,
                                                   port_number,
                                                   snaplen, savefp);
                 if (flush)
@@ -640,7 +653,7 @@ int main(int argc, char *argv[])
         else
         {
             /* Dump to stdout */
-            print_time(&ts);
+            print_time(&tsps);
             if (rx_size > 0)
             {
                 if (status == EXANIC_RX_FRAME_OK)

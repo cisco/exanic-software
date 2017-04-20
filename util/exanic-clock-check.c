@@ -44,11 +44,11 @@ int main(int argc, char *argv[])
     {
         /* Compare to host clock */
         exanic_t *exanic;
-        uint32_t exanic_tick;
         uint64_t exanic_time_ns;
-        uint64_t host_time_us;
+        uint64_t host_time_ns;
         int64_t time_diff_ns;
         struct timeval tv;
+        struct timespec ts;
 
         if ((exanic = exanic_acquire_handle(device0)) == NULL)
         {
@@ -57,14 +57,17 @@ int main(int argc, char *argv[])
         }
 
         gettimeofday_spin(&tv);
-        exanic_tick = exanic_register_read(exanic, REG_EXANIC_HW_TIME);
-        exanic_time_ns = exanic_timestamp_to_counter(exanic, exanic_tick);
-        host_time_us = tv.tv_sec * 1000000 + tv.tv_usec;
-        time_diff_ns = exanic_time_ns - host_time_us * 1000;
+        const exanic_cycles32_t timestamp32 = exanic_register_read(exanic, REG_EXANIC_HW_TIME);
+        const exanic_cycles_t timestamp = exanic_expand_timestamp(exanic, timestamp32);
+        exanic_cycles_to_timespec(exanic, timestamp, &ts);
 
-        printf("Device %s: %u ticks (%lu ns since epoch)\n",
-                device0, exanic_tick, exanic_time_ns);
-        printf("Host clock: %lu us since epoch\n", host_time_us);
+        exanic_time_ns = ts.tv_sec * 1000000000 + ts.tv_nsec;
+        host_time_ns   = tv.tv_sec * 1000000000 + tv.tv_usec * 1000;
+        time_diff_ns   = exanic_time_ns - host_time_ns;
+
+        printf("Device %s: %lu ticks (%lu ns since epoch)\n",
+                device0, timestamp, exanic_time_ns);
+        printf("Host clock: %lu us since epoch\n", host_time_ns / 1000);
         printf("Difference: %ld ns\n", time_diff_ns);
 
         exanic_release_handle(exanic);
@@ -74,7 +77,8 @@ int main(int argc, char *argv[])
     {
         /* Compare to exanic clock */
         exanic_t *exanic0, *exanic1;
-        uint32_t exanic0_tick, exanic0_tock, exanic1_tick, exanic1_tock;
+        exanic_cycles32_t exanic0_tick, exanic0_tock, exanic1_tick, exanic1_tock;
+        exanic_cycles_t exanic0_tick64, exanic1_tick64;
         uint64_t exanic0_time_ns, exanic1_time_ns;
         int64_t time_diff_ns;
 
@@ -98,8 +102,10 @@ int main(int argc, char *argv[])
         exanic0_tock = exanic_register_read(exanic0, REG_EXANIC_HW_TIME);
         exanic0_tick += (exanic0_tock - exanic0_tick) / 2;
         exanic1_tick += (exanic1_tock - exanic1_tick) / 2;
-        exanic0_time_ns = exanic_timestamp_to_counter(exanic0, exanic0_tick);
-        exanic1_time_ns = exanic_timestamp_to_counter(exanic1, exanic1_tick);
+        exanic0_tick64 = exanic_expand_timestamp(exanic0, exanic0_tick);
+        exanic1_tick64 = exanic_expand_timestamp(exanic1, exanic1_tick);
+        exanic0_time_ns = exanic_cycles_to_ns(exanic0, exanic0_tick64);
+        exanic1_time_ns = exanic_cycles_to_ns(exanic1, exanic1_tick64);
         time_diff_ns = exanic0_time_ns - exanic1_time_ns;
 
         printf("Device %s: %u ticks (%lu ns since epoch)\n",
