@@ -498,6 +498,12 @@ int main(int argc, char *argv[])
         switch (c)
         {
             case 'i':
+                if (rx_ctxs_no >= EXA_MAX_IFACES)
+                {
+                    fprintf(stderr, "maximum interfaces supported: %d\n", EXA_MAX_IFACES);
+                    return 1;
+                }
+
                 if (exanic_find_port_by_interface_name(
                     optarg, rx_ctxs[rx_ctxs_no].device, 16, &rx_ctxs[rx_ctxs_no].port_number) != 0
                     &&
@@ -743,7 +749,7 @@ err_open_savefile:
     return 1;
 
 usage_error:
-    fprintf(stderr, "Usage: %s -i interface\n", argv[0]);
+    fprintf(stderr, "Usage: %s -i interface...\n", argv[0]);
     fprintf(stderr, "           [-w savefile] [-s snaplen] [-C file_size]\n");
     fprintf(stderr, "           [-F file_format] [-p] [-H] [-N] [filter...]\n");
     fprintf(stderr, "  -i: specify Linux interface (e.g. eth0) or ExaNIC port name (e.g. exanic0:0)\n");
