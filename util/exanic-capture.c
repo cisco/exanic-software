@@ -469,7 +469,6 @@ struct exanic_rx_context
 
 int main(int argc, char *argv[])
 {
-    const char *interface = NULL;
     const char *savefile = NULL;
     FILE *savefp = NULL;
     struct exanic_rx_context rx_ctxs[EXA_MAX_IFACES];
@@ -624,7 +623,7 @@ int main(int argc, char *argv[])
 
         if (rx_size < 0 && status == EXANIC_RX_FRAME_OK)
         {
-            rx_ctx_idx = (++rx_ctx_idx) % rx_ctxs_no;
+            rx_ctx_idx = (rx_ctx_idx + 1) % rx_ctxs_no;
             continue;
         }
 
@@ -737,10 +736,10 @@ err_acquire_rx:
             set_promiscuous_mode(rx_ctxs[i].exanic, rx_ctxs[i].port_number, 0);
 
         if (rx_ctxs[i].rx)
-            exanic_release_rx_buffer(rx);
+            exanic_release_rx_buffer(rx_ctxs[i].rx);
 
         if (rx_ctxs[i].exanic)
-            exanic_release_handle(exanic);
+            exanic_release_handle(rx_ctxs[i].exanic);
     }
 err_acquire_handle:
     if (savefp != NULL)
