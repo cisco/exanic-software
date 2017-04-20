@@ -8,7 +8,7 @@ LDLIBS=-L../libs/exanic -lexanic
 HAVE_PTP_CLOCK_H:=${shell $(CC) $(CFLAGS) -include linux/ptp_clock.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}
 CONFIG_CFLAGS=-DHAVE_PTP_CLOCK_H=$(HAVE_PTP_CLOCK_H)
 
-BIN=exanic-config exanic-capture exanic-clock-sync exanic-clock-check exanic-fwupdate 
+BIN=exanic-config exanic-capture exanic-clock-sync exanic-clock-check exanic-fwupdate
 
 all: $(BIN)
 exanic-fwupdate: exanic-fwupdate.c

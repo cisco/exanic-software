@@ -8,6 +8,7 @@
 #include "exanic.h"
 #include "pcie_if.h"
 #include "fifo_if.h"
+#include "time.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -123,15 +124,16 @@ int exanic_end_transmit_frame(exanic_tx_t *tx, size_t frame_size);
 int exanic_abort_transmit_frame(exanic_tx_t *tx);
 
 /**
- * \brief Get the timestamp of the last frame transmitted.
+ * \brief Get the 32 bit timestamp of the last frame transmitted (cycles).
  *
  * \param[in]   tx
  *      A valid TX handle.
  *
- * \return The timestamp of the last transmitted frame.
+ * \return The lower 32 bits of the timestamp of the last transmitted frame
+ *         (in cycles)
  *
  */
-uint32_t exanic_get_tx_timestamp(exanic_tx_t *tx);
+exanic_cycles32_t exanic_get_tx_timestamp(exanic_tx_t *tx);
 
 #ifdef __cplusplus
 }
