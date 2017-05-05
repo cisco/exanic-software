@@ -215,6 +215,9 @@ struct exa_tcp_new_connection
 
 struct exasock_epoll_state
 {
+    /* Ring to notify user about listening sockets got ready for reading */
+    int fd_ready[EXASOCK_EPOLL_FD_READY_RING_SIZE];
+
     /* Index of a next entry in fd_ready ring to be read by user.
      * This index is updated by user. */
     int next_read;
@@ -222,9 +225,6 @@ struct exasock_epoll_state
     /* Index of a next entry in fd_ready ring to be written by kernel.
      * This index is updated by kernel.  */
     int next_write;
-
-    /* Ring to notify user about listening sockets got ready for reading */
-    int fd_ready[EXASOCK_EPOLL_FD_READY_RING_SIZE];
 };
 
 #endif /* EXASOCK_KERNEL_STRUCTS_H_3184709AEFC64CF680494E0D75134908 */

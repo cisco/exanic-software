@@ -115,7 +115,6 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify)
     struct exasock_epoll *epoll = notify->epoll;
     volatile struct exasock_epoll_state *state = epoll->user_page;
     int next_wr;
-    int i;
 
     /* No need for a lock protection of struct exasock_epoll since it gets
      * accessed in a single worker thread only
@@ -135,16 +134,6 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify)
             if (EXASOCK_EPOLL_FD_READY_RING_FULL(state->next_read, next_wr))
                 break;
 
-            /* Check if this socket is currently pending in fd_ready ring.
-             * If it is, no need to add it on the ring again.
-             */
-            for (i = state->next_read; i != next_wr;
-                 EXASOCK_EPOLL_FD_READY_IDX_INC(i))
-                if (state->fd_ready[i] == no->fd)
-                    break;
-            if (i != next_wr)
-                continue;
-
             state->fd_ready[next_wr] = no->fd;
             EXASOCK_EPOLL_FD_READY_IDX_INC(next_wr);
             list_del(&no->node);
@@ -152,16 +141,6 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify)
         wmb();
         state->next_write = next_wr;
     }
-
-    /* Check if this socket is currently pending in fd_ready ring.
-     * If it is, no need to add it on the ring again.
-     */
-    for (i = state->next_read; i != next_wr;
-         EXASOCK_EPOLL_FD_READY_IDX_INC(i))
-        if (state->fd_ready[i] == notify->fd)
-            break;
-    if (i != next_wr)
-        return;
 
     /* In case fd_ready ring is full we store the socket in a backlog list
      * and leave.
