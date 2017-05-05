@@ -99,11 +99,18 @@ __linger_tcp_ready(struct exa_socket * restrict sock, int *ret, int dummy)
 static int
 linger_tcp(struct exa_socket * restrict sock, int fd)
 {
+    struct exa_timeo timeout;
+    bool nonblock;
     int ret;
 
-    /* Block until socket transmit buffer is empty */
-    /* FIXME: Exit after timeout */
-    do_socket_wait_block(sock, fd, __linger_tcp_ready, ret, 0);
+    /* Block until socket transmit buffer is empty or timeout occurs */
+    timeout.enabled = !!sock->so_linger.l_linger;
+    timeout.val.tv_sec = sock->so_linger.l_linger;
+    timeout.val.tv_usec = 0;
+    nonblock = (!timeout.enabled) || (sock->flags & O_NONBLOCK);
+    do_socket_wait(sock, fd, nonblock, timeout, __linger_tcp_ready, ret, 0);
+    if (errno == EAGAIN)
+        errno = EWOULDBLOCK;
     return ret;
 }
 
@@ -112,6 +119,7 @@ int
 close(int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
+    int linger_ret = 0;
     int ret;
 
     if (override_disabled)
@@ -136,7 +144,8 @@ close(int fd)
                     /* SO_LINGER is set */
                     /* Convert to read lock before blocking operation */
                     exa_rwlock_downgrade(&sock->lock);
-                    if (linger_tcp(sock, fd) == -1)
+                    linger_ret = linger_tcp(sock, fd);
+                    if ((linger_ret == -1) && (errno != EWOULDBLOCK))
                     {
                         exa_read_unlock(&sock->lock);
                         TRACE_RETURN(INT, -1);
@@ -157,6 +166,9 @@ close(int fd)
                 }
 
                 /* Reset the connection if it's not already closed */
+                /* FIXME: as soon as we are able to perform graceful closing
+                 *        in background, exanic_tcp_reset() should be called
+                 *        only if linger_tcp() returns with EWOULDBLOCK */
                 exa_lock(&sock->state->tx_lock);
                 exanic_tcp_reset(sock);
                 exa_unlock(&sock->state->tx_lock);
@@ -181,6 +193,11 @@ close(int fd)
     }
 
     ret = libc_close(fd);
+
+    /* If we had a linger timeout on the way, make sure we inform about it */
+    if (ret == 0)
+        ret = linger_ret;
+
     TRACE_RETURN(INT, ret);
     return ret;
 }
