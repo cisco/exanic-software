@@ -899,6 +899,7 @@ int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
             return 0;
         }
     case SIOCGHWTSTAMP:
+    case EXAIOCGHWTSTAMP:
         {
             struct hwtstamp_config config;
 

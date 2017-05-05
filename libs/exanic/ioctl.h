@@ -20,6 +20,14 @@
 /** \brief Socket ioctl for retrieving information about an ExaNIC interface */
 #define EXAIOCGIFINFO   (SIOCDEVPRIVATE+0)
 
+/** \brief Socket ioctl for retrieving ExaNIC HW timestamping configuration
+ *
+ * This is equivalent of SIOCGHWTSTAMP ioctl (returns the configuration in
+ * hwtstamp_config structure). It allows getting the configuration regardless
+ * of kernel's support for SIOCGHWTSTAMP ioctl.
+ */
+#define EXAIOCGHWTSTAMP (SIOCDEVPRIVATE+1)
+
 /**
  * \brief Info struct populated by EXAIOCGIFINFO ioctl
  */

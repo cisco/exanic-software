@@ -34,6 +34,7 @@
 #include <exanic/config.h>
 #include <exanic/port.h>
 #include <exanic/time.h>
+#include <exanic/ioctl.h>
 
 #include "kernel/api.h"
 #include "kernel/consts.h"
@@ -215,7 +216,7 @@ __exanic_ip_update_timestamping(struct exanic_ip * restrict ctx)
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-    if (ioctl(fd, SIOCGHWTSTAMP, &ifr) == 0)
+    if (ioctl(fd, EXAIOCGHWTSTAMP, &ifr) == 0)
         ctx->rx_hw_timestamp = (hwtc.rx_filter != HWTSTAMP_FILTER_NONE);
 
     close(fd);
