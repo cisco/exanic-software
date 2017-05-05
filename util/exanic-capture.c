@@ -463,6 +463,7 @@ struct exanic_rx_context
     exanic_t *exanic;
     exanic_rx_t *rx;
     int set_promisc;
+    exanic_cycles_t utc_offset_cycles;
 };
 
 #define EXA_MAX_IFACES 8
@@ -478,6 +479,7 @@ int main(int argc, char *argv[])
     ssize_t rx_size;
     int status;
     exanic_cycles32_t timestamp;
+    int utc_offset_sec = 0;
     struct timespec ts;
     struct exanic_timespecps tsps;
     int hw_tstamp = 0, nsec_pcap = 0, snaplen = sizeof(rx_buf), flush = 0;
@@ -492,7 +494,7 @@ int main(int argc, char *argv[])
 
     memset(&rx_ctxs, 0, sizeof(rx_ctxs));
 
-    while ((c = getopt(argc, argv, "i:w:s:C:F:pHNh?")) != -1)
+    while ((c = getopt(argc, argv, "i:w:s:C:F:U:pHNh?")) != -1)
     {
         switch (c)
         {
@@ -533,6 +535,9 @@ int main(int argc, char *argv[])
                     file_format = FORMAT_ERF;
                 else
                     goto usage_error;
+                break;
+            case 'U':
+                utc_offset_sec = atoi(optarg);
                 break;
             case 'p':
                 promisc = 0;
@@ -607,6 +612,8 @@ int main(int argc, char *argv[])
             if (set_promiscuous_mode(rx_ctxs[i].exanic, rx_ctxs[i].port_number, 1) == -1)
                 rx_ctxs[i].set_promisc = 0;
         }
+
+        rx_ctxs[i].utc_offset_cycles = rx_ctxs[i].exanic->tick_hz * utc_offset_sec;
     }
 
     signal(SIGHUP, signal_handler);
@@ -630,7 +637,8 @@ int main(int argc, char *argv[])
         /* Get timestamp */
         if (rx_size > 0 && hw_tstamp)
         {
-            const uint64_t timestamp64 = exanic_expand_timestamp(rx_ctxs[rx_ctx_idx].exanic, timestamp);
+            const uint64_t timestamp64 = exanic_expand_timestamp(rx_ctxs[rx_ctx_idx].exanic, timestamp)
+                + rx_ctxs[rx_ctx_idx].utc_offset_cycles; /* Add optional UTC offset in cycles */
             exanic_cycles_to_timespecps(rx_ctxs[rx_ctx_idx].exanic, timestamp64, &tsps);
         }
         else
@@ -756,6 +764,7 @@ usage_error:
     fprintf(stderr, "  -s: maximum data length to capture\n");
     fprintf(stderr, "  -C: file size at which to start a new save file (in millions of bytes)\n");
     fprintf(stderr, "  -F: file format [pcap|erf] (default is pcap)\n");
+    fprintf(stderr, "  -U: UTC offset to add to hardware timestamp (in seconds)\n");
     fprintf(stderr, "  -p: do not attempt to put interface in promiscuous mode\n");
     fprintf(stderr, "  -H: use hardware timestamps (requires exanic-clock-sync or exanic-ptpd)\n");
     fprintf(stderr, "  -N: write nanosecond-resolution pcap format\n\n");
