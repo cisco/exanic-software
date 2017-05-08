@@ -237,11 +237,13 @@ exa_notify_insert_sock(struct exa_notify * restrict no,
         if (sock->eof_ready)
             exa_notify_hangup_edge(no, sock);
     }
+
+    exa_lock(&no->fd_cnt.lock);
+    if (sock->bypass)
+        no->fd_cnt.bypass++;
     else
-    {
-        /* epoll will need to check native sockets */
-        no->have_native = true;
-    }
+        no->fd_cnt.native++;
+    exa_unlock(&no->fd_cnt.lock);
 
     return 0;
 }
@@ -325,12 +327,17 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
     /* Remove the socket from the maybe-ready queue */
     exa_notify_queue_remove(no, fd);
 
-    /* Does not currently recalculate no->have_native */
-
     /* Check if exasock kernel epoll instance needs to be updated/closed */
     if (sock->bypass && sock->domain == AF_INET && sock->type == SOCK_STREAM &&
         exanic_tcp_listening(sock))
         return exa_notify_kern_epoll_del(no, sock, fd);
+
+    exa_lock(&no->fd_cnt.lock);
+    if (sock->bypass)
+        no->fd_cnt.bypass--;
+    else
+        no->fd_cnt.native--;
+    exa_unlock(&no->fd_cnt.lock);
 
     return 0;
 }

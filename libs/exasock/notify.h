@@ -48,6 +48,17 @@ struct exa_notify_fd
     int list_prev;
 };
 
+struct exa_notify_fd_cnt
+{
+    uint32_t lock;
+
+    /* Number of bypass file descriptors belonging to this epoll */
+    unsigned int bypass;
+
+    /* Number of native file descriptors belonging to this epoll */
+    unsigned int native;
+};
+
 struct exa_notify
 {
     struct exa_notify_fd *fd_table;
@@ -61,8 +72,8 @@ struct exa_notify
     int queue[EXA_NOTIFY_MAX_QUEUE];
     uint32_t queue_lock;
 
-    /* Does this epoll have any native file descriptors? */
-    bool have_native;
+    /* File descriptor counters */
+    struct exa_notify_fd_cnt fd_cnt;
 
     /* State of exasock kernel instance of epoll */
     struct exa_notify_kern_epoll ep;
@@ -86,6 +97,20 @@ exa_notify_has_sock(struct exa_notify * restrict no,
                     struct exa_socket * restrict sock)
 {
     return sock->notify_parent == no;
+}
+
+static inline void
+exa_notify_enable_sock_bypass(struct exa_socket * restrict sock)
+{
+    struct exa_notify * restrict no = sock->notify_parent;
+
+    if (no != NULL)
+    {
+        exa_lock(&no->fd_cnt.lock);
+        no->fd_cnt.bypass++;
+        no->fd_cnt.native--;
+        exa_unlock(&no->fd_cnt.lock);
+    }
 }
 
 /* Add a socket to the maybe-ready queue */

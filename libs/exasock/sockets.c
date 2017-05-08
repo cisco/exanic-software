@@ -350,6 +350,8 @@ exa_socket_enable_bypass(struct exa_socket * restrict sock)
 
     exa_socket_update_timestamping(sock);
 
+    exa_notify_enable_sock_bypass(sock);
+
     if (getenv("EXASOCK_DEBUG"))
         fprintf(stderr, "exasock: enabled bypass on fd %u\n", fd);
 
