@@ -683,7 +683,7 @@ epoll_pwait(int epfd, struct epoll_event *events, int maxevents, int timeout,
 
     ret = epoll_pwait_spin(epfd, events, maxevents, timeout, sigmask);
     if (ret == NATIVE_FD_ONLY)
-        ret = epoll_pwait(epfd, events, maxevents, timeout, sigmask);
+        ret = libc_epoll_pwait(epfd, events, maxevents, timeout, sigmask);
 
     TRACE_ARG(EPOLL_EVENT_ARRAY, events, ret);
     TRACE_ARG(INT, maxevents);
