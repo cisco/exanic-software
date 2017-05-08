@@ -158,7 +158,7 @@ close(int fd)
                     exa_write_lock(&sock->lock);
                     if (gen_id != sock->gen_id)
                     {
-                        exa_read_unlock(&sock->lock);
+                        exa_write_unlock(&sock->lock);
                         errno = EBADF;
                         TRACE_RETURN(INT, -1);
                         return -1;
