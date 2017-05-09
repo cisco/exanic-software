@@ -322,7 +322,9 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
 
     memset(&no->fd_table[fd], 0, sizeof(no->fd_table[fd]));
 
-    /* Socket will be lazily removed from the maybe-ready queue */
+    /* Remove the socket from the maybe-ready queue */
+    exa_notify_queue_remove(no, fd);
+
     /* Does not currently recalculate no->have_native */
 
     /* Check if exasock kernel epoll instance needs to be updated/closed */

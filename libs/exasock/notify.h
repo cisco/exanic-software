@@ -169,6 +169,28 @@ exa_notify_queue_clear(struct exa_notify * restrict no, int fd)
     no->fd_table[fd].enqueued = false;
 }
 
+/* Remove a socket from the maybe-ready queue if it is there */
+static inline void
+exa_notify_queue_remove(struct exa_notify * restrict no, int fd)
+{
+    int i;
+
+    exa_lock(&no->queue_lock);
+
+    for (i = 0; i < no->queue_len; i++)
+    {
+        if (no->queue[i] == fd)
+        {
+            no->queue_len--;
+            memcpy(&no->queue[i], &no->queue[i + 1],
+                   (no->queue_len - i) * sizeof(int));
+            break;
+        }
+    }
+
+    exa_unlock(&no->queue_lock);
+}
+
 /* Called once when socket is ready for reading */
 static inline void
 exa_notify_read_edge(struct exa_notify * restrict no,
