@@ -421,7 +421,7 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
         exa_read_unlock(&epsock->lock);
         return NATIVE_FD_ONLY;
     }
-    have_native = !!no->fd_cnt.native;
+    have_native = (no->fd_cnt.native != 0);
     exa_unlock(&no->fd_cnt.lock);
 
     iters = DEFAULT_ITERS;
