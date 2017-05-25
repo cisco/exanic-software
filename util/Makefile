@@ -8,7 +8,10 @@ LDLIBS=-L../libs/exanic -lexanic
 HAVE_PTP_CLOCK_H:=${shell $(CC) $(CFLAGS) -include linux/ptp_clock.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}
 CONFIG_CFLAGS=-DHAVE_PTP_CLOCK_H=$(HAVE_PTP_CLOCK_H)
 
-BIN=exanic-config exanic-capture exanic-clock-sync exanic-clock-check exanic-fwupdate
+EXASOCK_STAT_CFLAGS=-O3 -Wall -I../modules ${shell pkg-config --cflags libnl-3.0}
+EXASOCK_STAT_LDLIBS=${shell pkg-config --libs libnl-3.0 libnl-genl-3.0}
+
+BIN=exanic-config exanic-capture exanic-clock-sync exanic-clock-check exanic-fwupdate exasock-stat
 
 all: $(BIN)
 exanic-fwupdate: exanic-fwupdate.c
@@ -25,6 +28,9 @@ exanic-clock-sync: exanic-clock-sync.c clock-sync/common.c clock-sync/phc_sys.c 
 
 exanic-clock-check: exanic-clock-check.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+exasock-stat: exasock-stat.c
+	$(CC) $(EXASOCK_STAT_CFLAGS) $^ -o $@ $(EXASOCK_STAT_LDLIBS)
 
 install: all
 	rm -f $(BINDIR)/exanic-rx-raw # clean up old utility

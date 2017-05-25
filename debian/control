@@ -25,11 +25,14 @@ Description: ExaNIC network driver
 
 Package: exanic-utils
 Architecture: any
+Build-Depends: pkgconfig, libnl3-devel
+Depends: libnl3
 Section: Utilities
 Description: ExaNIC utilities
  This package contains userspace utilities for the ExaNIC, including
  exanic-config, exanic-capture, exanic-clock-sync and exanic-fwupdate.
- It also contains the ExaNIC Sockets wrapper (exasock).
+ It also contains the ExaNIC Sockets wrapper (exasock) and its utilities
+ (exasock-stat).
 
 Package: exanic-dev
 Architecture: any

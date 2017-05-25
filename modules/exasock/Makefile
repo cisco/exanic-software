@@ -1,6 +1,6 @@
 ifneq ($(PATCHLEVEL),) # kbuild part of makefile
 obj-m := exasock.o
-exasock-objs := exasock-main.o exasock-dst.o exasock-ip.o exasock-udp.o exasock-tcp.o exasock-epoll.o
+exasock-objs := exasock-main.o exasock-dst.o exasock-ip.o exasock-udp.o exasock-tcp.o exasock-epoll.o exasock-stats.o
 
 # detect kernel features that cannot be reliably detected by version
 HAS_RT_GENID_GETTER := ${shell grep -c 'rt_genid(' $(srctree)/include/net/net_namespace.h}

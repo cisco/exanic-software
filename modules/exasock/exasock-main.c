@@ -574,6 +574,11 @@ static int __init exasock_init(void)
     if (err)
         goto err_tcp_init;
 
+    /* Set up stats */
+    err = exasock_stats_init();
+    if (err)
+        goto err_stats_init;
+
     /* Prepare kernel info page */
     exasock_info_page = vmalloc_user(PAGE_SIZE);
     if (exasock_info_page == NULL)
@@ -605,6 +610,8 @@ static int __init exasock_init(void)
 err_miscdev:
     vfree(exasock_info_page);
 err_vmalloc:
+    exasock_stats_exit();
+err_stats_init:
     exasock_tcp_exit();
 err_tcp_init:
     exasock_udp_exit();
@@ -623,6 +630,7 @@ static void __exit exasock_exit(void)
     unregister_netevent_notifier(&exasock_net_notifier);
     unregister_inetaddr_notifier(&exasock_inetaddr_notifier);
     misc_deregister(&exasock_dev);
+    exasock_stats_exit();
     exasock_dst_exit();
     exasock_udp_exit();
     exasock_tcp_exit();

@@ -32,10 +32,13 @@ modules are then automatically built by dkms.
 %package utils
 Summary:        ExaNIC utilities
 Group:          Applications/System
+BuildRequires:  pkgconfig, libnl3-devel
+Requires:       libnl3
 %description utils
 This package contains userspace utilities for the ExaNIC, including
 exanic-config, exanic-capture, exanic-clock-sync and exanic-fwupdate.
-It also contains the ExaNIC Sockets wrapper (exasock).
+It also contains the ExaNIC Sockets wrapper (exasock) and its utilities
+(exasock-stat).
 
 %package devel
 Summary:        ExaNIC development library

@@ -3,6 +3,8 @@
  * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
+#include <net/neighbour.h>
+
 enum exasock_type
 {
     EXASOCK_TYPE_SOCKET,
@@ -33,6 +35,38 @@ struct exasock_epoll_notify
     struct exasock_epoll *epoll;
     int fd;
     struct list_head node;
+};
+
+enum exasock_socktype
+{
+    EXASOCK_SOCKTYPE_TCP,
+    EXASOCK_SOCKTYPE_UDP,
+    EXASOCK_SOCKTYPE_UDP_CONN,
+};
+
+struct exasock_stats_sock_info_addr
+{
+    uint32_t local_ip;
+    uint32_t peer_ip;
+    uint16_t local_port;
+    uint16_t peer_port;
+};
+
+struct exasock_stats_sock_info
+{
+    struct exasock_stats_sock_info_addr addr;
+
+    uint32_t *recv_q_read_seq;
+    uint32_t *recv_q_recv_seq;
+    uint32_t *send_q_sent_seq;
+    uint32_t *send_q_ack_seq;
+    uint8_t *state;
+};
+
+struct exasock_stats_sock
+{
+    struct exasock_stats_sock_info  info;
+    struct list_head                node;
 };
 
 /* Return 1 if lock successful, 0 if unsuccessful */
@@ -114,3 +148,15 @@ void exasock_epoll_free(struct exasock_epoll *epoll);
 int exasock_epoll_state_mmap(struct exasock_epoll *epoll,
                              struct vm_area_struct *vma);
 void exasock_epoll_update(struct exasock_epoll_notify *notify);
+
+/* exasock-stats.c */
+int __init exasock_stats_init(void);
+void exasock_stats_exit(void);
+struct exasock_stats_sock *exasock_stats_socket_add(enum exasock_socktype type,
+                                         struct exasock_stats_sock_info *info);
+void exasock_stats_socket_update(struct exasock_stats_sock *sock_stats,
+                                 enum exasock_socktype prev_type,
+                                 enum exasock_socktype type,
+                                 struct exasock_stats_sock_info_addr *addr);
+void exasock_stats_socket_del(struct exasock_stats_sock *sock_stats,
+                              enum exasock_socktype type);
