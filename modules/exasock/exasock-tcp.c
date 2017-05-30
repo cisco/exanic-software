@@ -143,6 +143,16 @@ static inline void exasock_tcp_stats_fill_addr(
     addr->peer_port  = tcp->peer_port;
 }
 
+static inline void exasock_tcp_stats_fill_info(
+                                          struct exasock_stats_sock_info *info,
+                                          struct exasock_tcp *tcp, int fd)
+{
+    info->pid = task_tgid_nr(current);
+    get_task_comm(info->prog_name, current);
+    info->fd = fd;
+    info->uid = from_kuid(current_user_ns(), current_uid());
+}
+
 static uint8_t exasock_tcp_stats_get_state(struct exasock_stats_sock *stats)
 {
     struct exasock_tcp *tcp = stats_to_tcp(stats);
@@ -169,13 +179,14 @@ static void exasock_tcp_stats_get_snapshot(struct exasock_stats_sock *stats,
     }
 }
 
-static void exasock_tcp_stats_init(struct exasock_tcp *tcp)
+static void exasock_tcp_stats_init(struct exasock_tcp *tcp, int fd)
 {
     struct exasock_stats_sock *stats = &tcp->stats;
 
     memset(stats, 0, sizeof(struct exasock_stats_sock));
 
     exasock_tcp_stats_fill_addr(&stats->addr, tcp);
+    exasock_tcp_stats_fill_info(&stats->info, tcp, fd);
 
     stats->ops.get_state    = exasock_tcp_stats_get_state;
     stats->ops.get_snapshot = exasock_tcp_stats_get_snapshot;
@@ -211,7 +222,7 @@ static void exasock_tcp_update_hashtbl(struct exasock_tcp *tcp)
     spin_unlock(&tcp_bucket_lock);
 }
 
-struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
+struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
 {
     struct exasock_tcp *tcp = NULL;
     struct sockaddr_in local;
@@ -257,7 +268,7 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
     tcp->retransmit_countdown = -1;
     tcp->dead_node = false;
 
-    exasock_tcp_stats_init(tcp);
+    exasock_tcp_stats_init(tcp, fd);
 
     kref_init(&tcp->refcount);
     sema_init(&tcp->dead_sema, 0);

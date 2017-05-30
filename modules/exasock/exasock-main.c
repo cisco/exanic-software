@@ -263,7 +263,7 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             if (sock->ops->family == AF_INET && sock->type == SOCK_DGRAM)
             {
-                struct exasock_udp *udp = exasock_udp_alloc(sock);
+                struct exasock_udp *udp = exasock_udp_alloc(sock, sockfd);
                 if (IS_ERR(udp))
                 {
                     sockfd_put(sock);
@@ -277,7 +277,7 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             }
             else if (sock->ops->family == AF_INET && sock->type == SOCK_STREAM)
             {
-                struct exasock_tcp *tcp = exasock_tcp_alloc(sock);
+                struct exasock_tcp *tcp = exasock_tcp_alloc(sock, sockfd);
                 if (IS_ERR(tcp))
                 {
                     sockfd_put(sock);

@@ -75,6 +75,16 @@ static inline void exasock_udp_stats_fill_addr(
     addr->peer_port  = udp->peer_port;
 }
 
+static inline void exasock_udp_stats_fill_info(
+                                          struct exasock_stats_sock_info *info,
+                                          struct exasock_udp *udp, int fd)
+{
+    info->pid = task_tgid_nr(current);
+    get_task_comm(info->prog_name, current);
+    info->fd = fd;
+    info->uid = from_kuid(current_user_ns(), current_uid());
+}
+
 static void exasock_udp_stats_get_snapshot(struct exasock_stats_sock *stats,
                                          struct exasock_stats_sock_snapshot *s)
 {
@@ -85,13 +95,14 @@ static void exasock_udp_stats_get_snapshot(struct exasock_stats_sock *stats,
     s->send_q = 0;
 }
 
-static void exasock_udp_stats_init(struct exasock_udp *udp)
+static void exasock_udp_stats_init(struct exasock_udp *udp, int fd)
 {
     struct exasock_stats_sock *stats = &udp->stats;
 
     memset(stats, 0, sizeof(struct exasock_stats_sock));
 
     exasock_udp_stats_fill_addr(&stats->addr, udp);
+    exasock_udp_stats_fill_info(&stats->info, udp, fd);
 
     stats->ops.get_state    = NULL;
     stats->ops.get_snapshot = exasock_udp_stats_get_snapshot;
@@ -128,7 +139,7 @@ static void exasock_udp_update_hashtbl(struct exasock_udp *udp)
     spin_unlock_irqrestore(&udp_bucket_lock, flags);
 }
 
-struct exasock_udp *exasock_udp_alloc(struct socket *sock)
+struct exasock_udp *exasock_udp_alloc(struct socket *sock, int fd)
 {
     struct exasock_udp *udp = NULL;
     struct sockaddr_in local, peer;
@@ -180,7 +191,7 @@ struct exasock_udp *exasock_udp_alloc(struct socket *sock)
     udp->sock = sock;
 
     /* Initialize stats */
-    exasock_udp_stats_init(udp);
+    exasock_udp_stats_init(udp, fd);
 
     /* Insert into hash table */
     hash = exasock_udp_hash(udp->local_addr, udp->peer_addr,

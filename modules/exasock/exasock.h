@@ -58,6 +58,14 @@ struct exasock_stats_sock_addr
     uint16_t peer_port;
 };
 
+struct exasock_stats_sock_info
+{
+    pid_t pid;
+    char prog_name[TASK_COMM_LEN];
+    int fd;
+    uid_t uid;
+};
+
 struct exasock_stats_sock;
 
 struct exasock_stats_sock_ops
@@ -70,6 +78,7 @@ struct exasock_stats_sock_ops
 struct exasock_stats_sock
 {
     struct exasock_stats_sock_addr addr;
+    struct exasock_stats_sock_info info;
     struct exasock_stats_sock_ops  ops;
     struct list_head               node;
 };
@@ -107,7 +116,7 @@ struct exasock_udp;
 
 int __init exasock_udp_init(void);
 void exasock_udp_exit(void);
-struct exasock_udp *exasock_udp_alloc(struct socket *sock);
+struct exasock_udp *exasock_udp_alloc(struct socket *sock, int fd);
 int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
                      uint16_t *local_port);
 int exasock_udp_connect(struct exasock_udp *udp, uint32_t *local_addr,
@@ -126,7 +135,7 @@ struct exasock_tcp;
 
 int __init exasock_tcp_init(void);
 void exasock_tcp_exit(void);
-struct exasock_tcp *exasock_tcp_alloc(struct socket *sock);
+struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd);
 int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
                      uint16_t *local_port);
 void exasock_tcp_update(struct exasock_tcp *tcp,

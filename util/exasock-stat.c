@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <getopt.h>
 #include <errno.h>
+#include <pwd.h>
 #include <netlink/netlink.h>
 #include <netlink/genl/genl.h>
 #include <netlink/genl/ctrl.h>
@@ -10,7 +11,7 @@
 
 #include <exasock/exasock-genl.h>
 
-#define EXASOCK_STAT_ADDR_BUF_SIZE 24
+#define EXASOCK_STAT_BUF_SIZE 24
 
 struct exasock_stat_config
 {
@@ -18,6 +19,7 @@ struct exasock_stat_config
     bool show_listening;
     bool show_tcp;
     bool show_udp;
+    bool show_more;
 };
 
 struct exasock_stat_genl
@@ -79,19 +81,54 @@ static inline char * print_sock_addr(char buf[], struct in_addr ip,
                                      uint16_t port)
 {
     if (port == 0)
-        snprintf(buf, EXASOCK_STAT_ADDR_BUF_SIZE, "%s:*",
+        snprintf(buf, EXASOCK_STAT_BUF_SIZE, "%s:*",
                  (ip.s_addr == 0) ? "*" : inet_ntoa(ip));
     else
-        snprintf(buf, EXASOCK_STAT_ADDR_BUF_SIZE, "%s:%i",
+        snprintf(buf, EXASOCK_STAT_BUF_SIZE, "%s:%i",
                  (ip.s_addr == 0) ? "*" : inet_ntoa(ip), ntohs(port));
     return buf;
 }
 
-static void print_socket_info(struct nlattr *attr_sock[],
+static inline char * print_username(char buf[], uint32_t uid)
+{
+    struct passwd *pwd = getpwuid(uid);
+    if (pwd)
+        return pwd->pw_name;
+    snprintf(buf, EXASOCK_STAT_BUF_SIZE, "%i", uid);
+    return buf;
+}
+
+static inline char * print_pid_fd(char buf[], uint32_t pid, uint32_t fd)
+{
+    snprintf(buf, EXASOCK_STAT_BUF_SIZE, "%i:%i", pid, fd);
+    return buf;
+}
+
+static void print_socket_info_ext(struct nlattr *attr[])
+{
+    char buf_u[EXASOCK_STAT_BUF_SIZE];
+    char buf_p[EXASOCK_STAT_BUF_SIZE];
+    uint32_t uid;
+    uint32_t pid;
+    uint32_t fd;
+    char *prog_name;
+
+    uid = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_UID]);
+    pid = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_PID]);
+    fd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_FD]);
+    prog_name = nla_get_string(attr[EXASOCK_GENL_A_SKINFOEXT_PROG]);
+
+    printf(" | %-12s | %-10s | %s",
+           print_username(buf_u, uid),      /* User */
+           print_pid_fd(buf_p, pid, fd),    /* PID:FD */
+           prog_name);                      /* Program */
+}
+
+static void print_socket_info(struct nlattr *attr[],
                               enum exasock_genl_sock_type sock_type)
 {
-    char buf_la[EXASOCK_STAT_ADDR_BUF_SIZE];
-    char buf_pa[EXASOCK_STAT_ADDR_BUF_SIZE];
+    char buf_la[EXASOCK_STAT_BUF_SIZE];
+    char buf_pa[EXASOCK_STAT_BUF_SIZE];
     struct in_addr local_ip;
     struct in_addr peer_ip;
     uint16_t local_port;
@@ -100,15 +137,15 @@ static void print_socket_info(struct nlattr *attr_sock[],
     uint32_t send_q;
     uint8_t state;
 
-    local_ip.s_addr = nla_get_u32(attr_sock[EXASOCK_GENL_A_SOCK_LOCAL_ADDR]);
-    peer_ip.s_addr = nla_get_u32(attr_sock[EXASOCK_GENL_A_SOCK_PEER_ADDR]);
-    local_port = nla_get_u16(attr_sock[EXASOCK_GENL_A_SOCK_LOCAL_PORT]);
-    peer_port = nla_get_u16(attr_sock[EXASOCK_GENL_A_SOCK_PEER_PORT]);
-    recv_q = nla_get_u32(attr_sock[EXASOCK_GENL_A_SOCK_RECV_Q]);
-    send_q = nla_get_u32(attr_sock[EXASOCK_GENL_A_SOCK_SEND_Q]);
-    state = nla_get_u8(attr_sock[EXASOCK_GENL_A_SOCK_STATE]);
+    local_ip.s_addr = nla_get_u32(attr[EXASOCK_GENL_A_SKINFO_LOCAL_ADDR]);
+    peer_ip.s_addr = nla_get_u32(attr[EXASOCK_GENL_A_SKINFO_PEER_ADDR]);
+    local_port = nla_get_u16(attr[EXASOCK_GENL_A_SKINFO_LOCAL_PORT]);
+    peer_port = nla_get_u16(attr[EXASOCK_GENL_A_SKINFO_PEER_PORT]);
+    recv_q = nla_get_u32(attr[EXASOCK_GENL_A_SKINFO_RECV_Q]);
+    send_q = nla_get_u32(attr[EXASOCK_GENL_A_SKINFO_SEND_Q]);
+    state = nla_get_u8(attr[EXASOCK_GENL_A_SKINFO_STATE]);
 
-    printf(" %-8s | %-8i | %-8i | %-24s | %-24s | %-16s\n",
+    printf(" %-5s | %-8i | %-8i | %-24s | %-24s | %-12s",
            print_sock_proto(sock_type),                     /* Proto */
            recv_q,                                          /* Recv-Q */
            send_q,                                          /* Send-Q */
@@ -122,7 +159,8 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
     enum exasock_genl_sock_type *sock_type = arg;
     struct nlattr *attr[EXASOCK_GENL_A_MAX + 1];
     struct nlattr *attr_sockelem;
-    struct nlattr *attr_sock[EXASOCK_GENL_A_SOCK_MAX + 1];
+    struct nlattr *attr_sock[EXASOCK_GENL_A_SKINFO_MAX + 1];
+    struct nlattr *attr_sockext[EXASOCK_GENL_A_SKINFOEXT_MAX + 1];
     int i;
     int err;
 
@@ -157,7 +195,7 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
 
     nla_for_each_nested(attr_sockelem, attr[EXASOCK_GENL_A_LIST_SOCK], i)
     {
-        err = nla_parse_nested(attr_sock, EXASOCK_GENL_A_SOCK_MAX,
+        err = nla_parse_nested(attr_sock, EXASOCK_GENL_A_SKINFO_MAX,
                                attr_sockelem, NULL);
         if (err)
         {
@@ -167,12 +205,28 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
             return NL_SKIP;
         }
         print_socket_info(attr_sock, *sock_type);
+
+        if (attr_sock[EXASOCK_GENL_A_SKINFO_EXT])
+        {
+            err = nla_parse_nested(attr_sockext, EXASOCK_GENL_A_SKINFOEXT_MAX,
+                                   attr_sock[EXASOCK_GENL_A_SKINFO_EXT], NULL);
+            if (err)
+            {
+                fprintf(stderr,
+                        "failed to parse netlink nested attributes (%s: err=%i)\n",
+                        __func__, err);
+                return NL_SKIP;
+            }
+            print_socket_info_ext(attr_sockext);
+        }
+
+        printf("\n");
     }
 
     return NL_SKIP;
 }
 
-static int get_sockets(enum exasock_genl_sock_type sock_type)
+static int get_sockets(enum exasock_genl_sock_type sock_type, bool extended)
 {
     struct nl_msg *msg;
     int ret;
@@ -189,6 +243,9 @@ static int get_sockets(enum exasock_genl_sock_type sock_type)
             EXASOCK_GENL_C_GET_SOCKLIST, 0);
 
     NLA_PUT_U8(msg, EXASOCK_GENL_A_SOCK_TYPE, sock_type);
+
+    if (extended)
+        NLA_PUT_FLAG(msg, EXASOCK_GENL_A_SOCK_EXTENDED);
 
     ret = nl_send_auto(exasock_genl.sock, msg);
     nlmsg_free(msg);
@@ -271,13 +328,13 @@ static void show_tcp(struct exasock_stat_config *cfg)
 
     if (cfg->show_listening)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_LISTEN);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_LISTEN, cfg->show_more);
         if (err)
             goto get_sockets_failure;
     }
     if (cfg->show_connected)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_CONN);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_CONN, cfg->show_more);
         if (err)
             goto get_sockets_failure;
     }
@@ -294,13 +351,13 @@ static void show_udp(struct exasock_stat_config *cfg)
 
     if (cfg->show_listening)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_LISTEN);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_LISTEN, cfg->show_more);
         if (err)
             goto get_sockets_failure;
     }
     if (cfg->show_connected)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_CONN);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_CONN, cfg->show_more);
         if (err)
             goto get_sockets_failure;
     }
@@ -320,8 +377,12 @@ static void show_stats(struct exasock_stat_config *cfg)
         printf(" (w/o servers):\n");
     else if (cfg->show_listening)
         printf(" (only servers):\n");
-    printf(" %-8s | %-8s | %-8s | %-24s | %-24s | %-16s\n",
-            "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address", "State");
+    printf(" %-5s | %-8s | %-8s | %-24s | %-24s | %-12s",
+           "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address", "State");
+    if (cfg->show_more)
+        printf(" | %-12s | %-10s | %s",
+               "User", "PID:FD", "Program");
+    printf("\n");
 
     if (cfg->show_tcp)
         show_tcp(cfg);
@@ -335,12 +396,13 @@ static void print_usage(char *name)
     fprintf(stderr, "\nexasock-stat (ExaSock version @EXANIC_VERSION@)\n");
     fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n");
     fprintf(stderr, "\nUsage:\n");
-    fprintf(stderr, "   %s [-cltu]\n", name);
+    fprintf(stderr, "   %s [-cltue]\n", name);
     fprintf(stderr, "   %s [-h]\n", name);
     fprintf(stderr, "    -c, --connected    display connected sockets (default: all)\n");
     fprintf(stderr, "    -l, --listening    display listening server sockets\n");
     fprintf(stderr, "    -t, --tcp          display TCP sockets (default: all)\n");
     fprintf(stderr, "    -u, --udp          display UDP sockets\n");
+    fprintf(stderr, "    -e, --extend       display more information (user, program, fd)\n");
     fprintf(stderr, "    -h, --help         display this usage info\n");
     fprintf(stderr, "\nOutput:\n");
     fprintf(stderr, "   Proto:\n");
@@ -357,6 +419,13 @@ static void print_usage(char *name)
     fprintf(stderr, "       Address and port number of the remote end of the socket\n");
     fprintf(stderr, "   State:\n");
     fprintf(stderr, "       The state of the socket\n");
+    fprintf(stderr, "Extended Output (-e/--extend enabled):\n");
+    fprintf(stderr, "   User:\n");
+    fprintf(stderr, "       The username or the user id (UID) of the owner of the socket\n");
+    fprintf(stderr, "   PID:FD:\n");
+    fprintf(stderr, "       PID of the process that owns the socket and value of the socket's file descriptor\n");
+    fprintf(stderr, "   Program:\n");
+    fprintf(stderr, "       Process name of the process that owns the socket\n");
     fprintf(stderr, "\n");
 }
 
@@ -366,6 +435,7 @@ static struct option longopts[] =
     {"listening", 0, 0, 'l'},
     {"tcp",       0, 0, 't'},
     {"udp",       0, 0, 'u'},
+    {"extend",    0, 0, 'e'},
     {"help",      0, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -381,8 +451,9 @@ int main(int argc, char *argv[])
     cfg.show_listening = false;
     cfg.show_tcp = false;
     cfg.show_udp = false;
+    cfg.show_more = false;
 
-    while ((opt = getopt_long(argc, argv, ":cltuh", longopts, NULL)) != -1)
+    while ((opt = getopt_long(argc, argv, ":cltueh", longopts, NULL)) != -1)
     {
         switch (opt)
         {
@@ -397,6 +468,9 @@ int main(int argc, char *argv[])
             break;
         case 'u':
             cfg.show_udp = true;
+            break;
+        case 'e':
+            cfg.show_more = true;
             break;
         case 'h':
             print_usage(argv[0]);

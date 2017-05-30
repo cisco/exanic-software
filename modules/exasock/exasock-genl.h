@@ -56,8 +56,9 @@ enum
 enum
 {
     EXASOCK_GENL_A_UNSPEC,
-    EXASOCK_GENL_A_SOCK_TYPE,           /* u8 (enum exasock_genl_sock_type) */
-    EXASOCK_GENL_A_LIST_SOCK,           /* nest */
+    EXASOCK_GENL_A_SOCK_TYPE,       /* u8 (enum exasock_genl_sock_type) */
+    EXASOCK_GENL_A_SOCK_EXTENDED,   /* flag */
+    EXASOCK_GENL_A_LIST_SOCK,       /* nest */
 
     __EXASOCK_GENL_A_MAX,
 };
@@ -74,17 +75,30 @@ enum
 
 enum
 {
-    EXASOCK_GENL_A_SOCK_UNSPEC,
-    EXASOCK_GENL_A_SOCK_LOCAL_ADDR,     /* u32 */
-    EXASOCK_GENL_A_SOCK_PEER_ADDR,      /* u32 */
-    EXASOCK_GENL_A_SOCK_LOCAL_PORT,     /* u16 */
-    EXASOCK_GENL_A_SOCK_PEER_PORT,      /* u16 */
-    EXASOCK_GENL_A_SOCK_RECV_Q,         /* u32 */
-    EXASOCK_GENL_A_SOCK_SEND_Q,         /* u32 */
-    EXASOCK_GENL_A_SOCK_STATE,          /* u8 */
+    EXASOCK_GENL_A_SKINFO_UNSPEC,
+    EXASOCK_GENL_A_SKINFO_LOCAL_ADDR,   /* u32 */
+    EXASOCK_GENL_A_SKINFO_PEER_ADDR,    /* u32 */
+    EXASOCK_GENL_A_SKINFO_LOCAL_PORT,   /* u16 */
+    EXASOCK_GENL_A_SKINFO_PEER_PORT,    /* u16 */
+    EXASOCK_GENL_A_SKINFO_RECV_Q,       /* u32 */
+    EXASOCK_GENL_A_SKINFO_SEND_Q,       /* u32 */
+    EXASOCK_GENL_A_SKINFO_STATE,        /* u8 */
+    EXASOCK_GENL_A_SKINFO_EXT,          /* nest */
 
-    __EXASOCK_GENL_A_SOCK_MAX,
+    __EXASOCK_GENL_A_SKINFO_MAX,
 };
-#define EXASOCK_GENL_A_SOCK_MAX (__EXASOCK_GENL_A_SOCK_MAX - 1)
+#define EXASOCK_GENL_A_SKINFO_MAX (__EXASOCK_GENL_A_SKINFO_MAX - 1)
+
+enum
+{
+    EXASOCK_GENL_A_SKINFOEXT_UNSPEC,
+    EXASOCK_GENL_A_SKINFOEXT_UID,       /* u32 */
+    EXASOCK_GENL_A_SKINFOEXT_PID,       /* u32 */
+    EXASOCK_GENL_A_SKINFOEXT_FD,        /* u32 */
+    EXASOCK_GENL_A_SKINFOEXT_PROG,      /* string */
+
+    __EXASOCK_GENL_A_SKINFOEXT_MAX,
+};
+#define EXASOCK_GENL_A_SKINFOEXT_MAX (__EXASOCK_GENL_A_SKINFOEXT_MAX - 1)
 
 #endif /* _EXASOCK_GENL_H_ */
