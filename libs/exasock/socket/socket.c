@@ -227,12 +227,10 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     if (!sock->bypass && !sock->disable_bypass)
     {
-        /* Put into bypass mode if address is an ExaNIC interface, INADDR_ANY,
-         * or a multicast address */
+        /* Put into bypass mode if address is an ExaNIC interface or INADDR_ANY */
         if (sock->domain == AF_INET && in_addr->sin_family == AF_INET)
         {
             if (in_addr->sin_addr.s_addr == htonl(INADDR_ANY) ||
-                IN_MULTICAST(ntohl(in_addr->sin_addr.s_addr)) ||
                 exanic_ip_find(in_addr->sin_addr.s_addr))
             {
                 /* On successful return we hold rx_lock and tx_lock */
@@ -276,7 +274,11 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         }
     }
     else
+    {
         ret = libc_bind(sockfd, addr, addrlen);
+        if (ret == 0)
+            sock->native_bound = true;
+    }
 
     exa_write_unlock(&sock->lock);
     TRACE_RETURN(INT, ret);
@@ -1396,9 +1398,99 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 
     exa_write_lock(&sock->lock);
 
-    /* Validate options */
+    /* Handle options */
     switch (optname)
     {
+    case IP_ADD_MEMBERSHIP:
+        if (sock->type == SOCK_DGRAM)
+        {
+            in_addr_t interface_addr;
+            struct sockaddr_in in_addr;
+            socklen_t addrlen;
+            bool is_exanic = false;
+
+            if (optlen >= sizeof(struct ip_mreqn))
+            {
+                struct ip_mreqn *mreqn = (struct ip_mreqn *)optval;
+                char devname[IF_NAMESIZE];
+
+                if (mreqn->imr_ifindex)
+                {
+                    interface_addr = INADDR_ANY;
+                    is_exanic = exanic_ip_find_by_interface(
+                                    if_indextoname(mreqn->imr_ifindex, devname),
+                                    &interface_addr);
+                    if (interface_addr == INADDR_ANY)
+                    {
+                        /* No interface found */
+                        errno = EINVAL;
+                        goto err_exit;
+                    }
+                }
+                else
+                {
+                    interface_addr = mreqn->imr_address.s_addr;
+                    is_exanic = exanic_ip_find(interface_addr);
+                }
+            }
+            else if (optlen >= sizeof(struct ip_mreq))
+            {
+                interface_addr = ((struct ip_mreq *)optval)->imr_interface.s_addr;
+                is_exanic = exanic_ip_find(interface_addr);
+            }
+            else
+            {
+                errno = EINVAL;
+                goto err_exit;
+            }
+
+            if (is_exanic)
+            {
+                if (!sock->bypass && !sock->disable_bypass)
+                {
+                    /* Put socket into bypass mode. */
+
+                    if (sock->native_bound)
+                    {
+                        addrlen = sizeof(in_addr);
+                        ret = libc_getsockname(sockfd,
+                                               (struct sockaddr *)&in_addr,
+                                               &addrlen);
+                        if (ret == -1)
+                            goto err_exit;
+                    }
+
+                    /* On successful return we hold rx_lock and tx_lock */
+                    ret = exa_socket_enable_bypass(sock);
+                    if (ret == -1)
+                        goto err_exit;
+                    exa_unlock(&sock->state->rx_lock);
+                    exa_unlock(&sock->state->tx_lock);
+                    assert(sock->bypass);
+
+                    /* If native socket already bound, binding on exasock level
+                     * needs to be performed now
+                     */
+                    if (sock->native_bound)
+                    {
+                        ret = exa_socket_udp_bind(sock,
+                                                  in_addr.sin_addr.s_addr,
+                                                  in_addr.sin_port);
+                        if (ret == -1)
+                            goto err_exit;
+                    }
+                }
+            }
+            else if ((interface_addr != INADDR_ANY) && sock->bypass)
+            {
+                /* Unable to join multicast on an accelerated socket with
+                 * non-exanic interface
+                 */
+                errno = EINVAL;
+                goto err_exit;
+            }
+        }
+        break;
     case IP_MULTICAST_LOOP:
         /* Loopback is unsupported, return error if user tries to enable it */
         if (sock->bypass && val)

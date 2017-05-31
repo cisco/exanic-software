@@ -425,6 +425,7 @@ exanic_ip_find_by_interface(const char *ifname, in_addr_t *addr)
     char device[16];
     int port_number;
     uint16_t vlan_id;
+    bool found = false;
 
     exasock_override_off();
 
@@ -450,18 +451,19 @@ exanic_ip_find_by_interface(const char *ifname, in_addr_t *addr)
 
         exanic_ip_get_real_device(ifname, ifname_real, sizeof(ifname_real), &vlan_id);
         if (exanic_find_port_by_interface_name(ifname_real, device, sizeof(device),
-                &port_number) == -1)
-            break; /* exists but not an ExaNIC */
+                &port_number) == 0)
+            found = true;
 
+        /* If we are here with (found == false), the interface exists but it is
+         * not an ExaNIC. We pass its address anyway.
+         */
         *addr = ((struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr;
-        freeifaddrs(ifaddrs);
-        exasock_override_on();
-        return true;
+        break;
     }
 
     freeifaddrs(ifaddrs);
     exasock_override_on();
-    return false;
+    return found;
 }
 
 struct exanic_ip *

@@ -69,8 +69,8 @@ struct exasock_udp;
 int __init exasock_udp_init(void);
 void exasock_udp_exit(void);
 struct exasock_udp *exasock_udp_alloc(struct socket *sock);
-int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
-                     uint16_t *local_port);
+int exasock_udp_bind(struct exasock_udp *udp, bool native_bound,
+                     uint32_t local_addr, uint16_t *local_port);
 int exasock_udp_connect(struct exasock_udp *udp, uint32_t *local_addr,
                         uint16_t *local_port, uint32_t peer_addr,
                         uint16_t peer_port);

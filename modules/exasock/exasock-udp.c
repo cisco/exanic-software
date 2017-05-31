@@ -134,8 +134,8 @@ err_sock_getname:
     return ERR_PTR(err);
 }
 
-int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
-                     uint16_t *local_port)
+int exasock_udp_bind(struct exasock_udp *udp, bool native_bound,
+                     uint32_t local_addr, uint16_t *local_port)
 {
     struct sockaddr_in sa;
     int slen;
@@ -147,13 +147,16 @@ int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
     BUG_ON(udp->hdr.socket.domain != AF_INET);
     BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
-    /* Bind to the requested address on native socket */
-    sa.sin_family = AF_INET;
-    sa.sin_addr.s_addr = local_addr;
-    sa.sin_port = *local_port;
-    err = udp->sock->ops->bind(udp->sock, (struct sockaddr *)&sa, sizeof(sa));
-    if (err)
-        return err;
+    if (!native_bound)
+    {
+        /* Bind to the requested address on native socket */
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = local_addr;
+        sa.sin_port = *local_port;
+        err = udp->sock->ops->bind(udp->sock, (struct sockaddr *)&sa, sizeof(sa));
+        if (err)
+            return err;
+    }
 
     /* Get assigned port from native socket */
     slen = sizeof(sa);

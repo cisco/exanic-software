@@ -2,7 +2,7 @@
 #define EXASOCK_KERNEL_API_H_E93E80DA56F0480CA7B1A4F373471638
 
 #define EXASOCK_DEVICE "/dev/exasock"
-#define EXASOCK_API_VERSION 14
+#define EXASOCK_API_VERSION 15
 
 #define EXASOCK_IOCTL_TYPE          'x'
 #define EXASOCK_IOCTL_SOCKET        _IOW(EXASOCK_IOCTL_TYPE, 0x50, int)
@@ -22,13 +22,20 @@
 #define EXASOCK_IOCTL_EPOLL_CTL     _IOW(EXASOCK_IOCTL_TYPE, 0x5f, \
                                           struct exasock_epoll_ctl_request)
 
-/* Arguments for EXASOCK_IOCTL_BIND_UDP and EXASOCK_IOCTL_BIND_TCP */
+/* Arguments for EXASOCK_IOCTL_CONNECT and EXASOCK_IOCTL_UPDATE */
 struct exasock_endpoint
 {
     uint32_t local_addr;
     uint32_t peer_addr;
     uint16_t local_port;
     uint16_t peer_port;
+};
+
+/* Argument for EXASOCK_IOCTL_BIND */
+struct exasock_bind_request
+{
+    struct exasock_endpoint endpoint;
+    bool native_bound;
 };
 
 /* Argument for EXASOCK_IOCTL_DST_QUEUE */
