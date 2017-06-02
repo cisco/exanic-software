@@ -1398,7 +1398,30 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 
     exa_write_lock(&sock->lock);
 
-    /* Handle options */
+    /* Validate options */
+    switch (optname)
+    {
+    case IP_MULTICAST_LOOP:
+        /* Loopback is unsupported, return error if user tries to enable it */
+        if (sock->bypass && val)
+        {
+            errno = EINVAL;
+            goto err_exit;
+        }
+        break;
+    }
+
+    if (sock->bypass)
+        ret = exa_sys_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
+    else
+        ret = libc_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
+
+    if (ret == -1)
+        goto err_exit;
+
+    /* Handle some socket options on exasock level or keep track of those
+     * we will need to know if this socket is put into bypass mode
+     */
     switch (optname)
     {
     case IP_ADD_MEMBERSHIP:
@@ -1424,7 +1447,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                     {
                         /* No interface found */
                         errno = EINVAL;
-                        goto err_exit;
+                        goto add_membership_err_exit;
                     }
                 }
                 else
@@ -1441,7 +1464,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             else
             {
                 errno = EINVAL;
-                goto err_exit;
+                goto add_membership_err_exit;
             }
 
             if (is_exanic)
@@ -1457,13 +1480,13 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                                                (struct sockaddr *)&in_addr,
                                                &addrlen);
                         if (ret == -1)
-                            goto err_exit;
+                            goto add_membership_err_exit;
                     }
 
                     /* On successful return we hold rx_lock and tx_lock */
                     ret = exa_socket_enable_bypass(sock);
                     if (ret == -1)
-                        goto err_exit;
+                        goto add_membership_err_exit;
                     exa_unlock(&sock->state->rx_lock);
                     exa_unlock(&sock->state->tx_lock);
                     assert(sock->bypass);
@@ -1477,7 +1500,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                                                   in_addr.sin_addr.s_addr,
                                                   in_addr.sin_port);
                         if (ret == -1)
-                            goto err_exit;
+                            goto add_membership_err_exit;
                     }
                 }
             }
@@ -1487,32 +1510,11 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                  * non-exanic interface
                  */
                 errno = EINVAL;
-                goto err_exit;
+                goto add_membership_err_exit;
             }
         }
         break;
-    case IP_MULTICAST_LOOP:
-        /* Loopback is unsupported, return error if user tries to enable it */
-        if (sock->bypass && val)
-        {
-            errno = EINVAL;
-            goto err_exit;
-        }
-        break;
-    }
 
-    if (sock->bypass)
-        ret = exa_sys_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
-    else
-        ret = libc_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
-
-    if (ret == -1)
-        goto err_exit;
-
-    /* Keep track of some socket options which we will need to know
-     * if this socket is put into bypass mode */
-    switch (optname)
-    {
     case IP_MULTICAST_IF:
         if (optlen >= sizeof(struct ip_mreqn))
         {
@@ -1534,6 +1536,11 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     exa_write_unlock(&sock->lock);
     return 0;
 
+add_membership_err_exit:
+    if (sock->bypass)
+        exa_sys_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval, optlen);
+    else
+        libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval, optlen);
 err_exit:
     exa_write_unlock(&sock->lock);
     return -1;
