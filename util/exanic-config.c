@@ -251,7 +251,7 @@ int get_local_loopback(exanic_t *exanic, int port_number)
     return loopback;
 }
 
-void show_device_info(const char *device, int port_number)
+void show_device_info(const char *device, int port_number, int verbose)
 {
     int i, first_port, last_port, port_status;
     const char *str;
@@ -493,31 +493,36 @@ void show_device_info(const char *device, int port_number)
                  function == EXANIC_FUNCTION_DEVKIT)
                     && rx_usable)
         {
+            int loopback, promisc;
+
             if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
                     hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
                     hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT)
             {
-                int mac_rules = exanic_register_read(exanic,
-                                    REG_EXTENDED_PORT_INDEX(i,
-                                      REG_EXTENDED_PORT_NUM_MAC_FILTER_RULES));
-                int ip_rules = exanic_register_read(exanic,
-                                    REG_EXTENDED_PORT_INDEX(i,
-                                      REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
-                int tx_size = exanic_register_read(exanic,
-                                    REG_PORT_INDEX(i,
-                                      REG_PORT_TX_REGION_SIZE)) / 1024;
-                printf("    MAC filters: %d", mac_rules);
-                printf("  IP filters: %d\n", ip_rules);
-                printf("    TX region: %dkB\n", tx_size);
+                if (verbose)
+                {
+                    int mac_rules = exanic_register_read(exanic,
+                                        REG_EXTENDED_PORT_INDEX(i,
+                                          REG_EXTENDED_PORT_NUM_MAC_FILTER_RULES));
+                    int ip_rules = exanic_register_read(exanic,
+                                        REG_EXTENDED_PORT_INDEX(i,
+                                          REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
+                    int tx_size = exanic_register_read(exanic,
+                                        REG_PORT_INDEX(i,
+                                          REG_PORT_TX_REGION_SIZE)) / 1024;
+                    printf("    MAC filters: %d", mac_rules);
+                    printf("  IP filters: %d\n", ip_rules);
+                    printf("    TX buffer size: %dkB\n", tx_size);
+                }
 
-                int loopback = get_local_loopback(exanic, i);
-                if (loopback != -1)
+                loopback = get_local_loopback(exanic, i);
+                if ((loopback != -1) && (loopback || verbose))
                     printf("    Loopback mode: %s\n", loopback ? "on" : "off");
             }
-            printf("    Promiscuous mode: %s\n",
-                    exanic_get_promiscuous_mode(exanic, i) ? "on" : "off");
+            promisc = exanic_get_promiscuous_mode(exanic, i);
+            if ((promisc != -1) && (promisc || verbose))
+                printf("    Promiscuous mode: %s\n", promisc ? "on" : "off");
         }
-
 
         if ((function == EXANIC_FUNCTION_NIC ||
                 function == EXANIC_FUNCTION_PTP_GM ||
@@ -526,7 +531,7 @@ void show_device_info(const char *device, int port_number)
         {
             char flag_names[32][ETH_GSTRING_LEN];
             uint32_t flags;
-            int b;
+            int b, bypass = -1;
 
             if (ethtool_get_flag_names(fd, ifname, flag_names) == 0 &&
                 ethtool_get_priv_flags(fd, ifname, &flags) == 0)
@@ -534,10 +539,12 @@ void show_device_info(const char *device, int port_number)
                 for (b = 0; b < 32; b++)
                 {
                     if (strcmp("bypass_only", flag_names[b]) == 0)
-                        printf("    Bypass-only mode: %s\n",
-                                (flags & (1 << b)) ? "on" : "off");
+                        bypass = (flags & (1 << b)) ? 1 : 0;
                 }
             }
+
+            if ((bypass != -1) && (bypass || verbose))
+                printf("    Bypass-only mode: %s\n", bypass ? "on" : "off");
         }
 
         if ((function == EXANIC_FUNCTION_NIC ||
@@ -593,7 +600,7 @@ void show_device_info(const char *device, int port_number)
     release_handle(exanic);
 }
 
-void show_all_devices(void)
+void show_all_devices(int verbose)
 {
     char device_file[32];
     int device_number;
@@ -603,7 +610,7 @@ void show_all_devices(void)
         if (access(device_file, F_OK) != 0)
             break;
 
-        show_device_info(device_file+5, -1);
+        show_device_info(device_file+5, -1, verbose);
     }
 }
 
@@ -1958,7 +1965,12 @@ int main(int argc, char *argv[])
 
     if (argc < 2)
     {
-        show_all_devices();
+        show_all_devices(0);
+        return 0;
+    }
+    else if (argc == 2 && strcmp(argv[1], "-v") == 0)
+    {
+        show_all_devices(1);
         return 0;
     }
 
@@ -1971,7 +1983,12 @@ int main(int argc, char *argv[])
 
     if (argc == 2)
     {
-        show_device_info(device, port_number);
+        show_device_info(device, port_number, 0);
+        return 0;
+    }
+    else if (argc == 3 && strcmp(argv[2], "-v") == 0)
+    {
+        show_device_info(device, port_number, 1);
         return 0;
     }
     else if (argc == 4 && strcmp(argv[2], "sfp") == 0
@@ -2144,7 +2161,7 @@ int main(int argc, char *argv[])
 usage_error:
     fprintf(stderr, "exanic-config version 1.8.1-git\n");
     fprintf(stderr, "Detailed network interface configuration and status:\n");
-    fprintf(stderr, "   %s <device>\n", argv[0]);
+    fprintf(stderr, "   %s <device> [-v]\n", argv[0]);
     fprintf(stderr, "   %s <device> sfp status\n", argv[0]);
     fprintf(stderr, "   %s <device> { up | down }\n", argv[0]);
     fprintf(stderr, "   %s <device> bridging { on | off }\n", argv[0]);
