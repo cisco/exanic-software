@@ -503,8 +503,12 @@ void show_device_info(const char *device, int port_number)
                 int ip_rules = exanic_register_read(exanic,
                                     REG_EXTENDED_PORT_INDEX(i,
                                       REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
+                int tx_size = exanic_register_read(exanic,
+                                    REG_PORT_INDEX(i,
+                                      REG_PORT_TX_REGION_SIZE)) / 1024;
                 printf("    MAC filters: %d", mac_rules);
                 printf("  IP filters: %d\n", ip_rules);
+                printf("    TX region: %dkB\n", tx_size);
 
                 int loopback = get_local_loopback(exanic, i);
                 if (loopback != -1)
