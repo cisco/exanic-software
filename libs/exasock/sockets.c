@@ -397,7 +397,7 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
     endpoint.port.local = port;
 
     /* Bind to ExaNIC interface */
-    if (exa_sys_bind(fd, &endpoint, sock->native_bound) == -1)
+    if (exa_sys_bind(fd, &endpoint) == -1)
         goto err_sys_bind;
 
     sock->bind.ip = endpoint;
@@ -513,7 +513,7 @@ exa_socket_tcp_bind(struct exa_socket * restrict sock, in_addr_t addr,
     endpoint.port.local = port;
 
     /* Bind to ExaNIC interface */
-    if (exa_sys_bind(fd, &endpoint, sock->native_bound) == -1)
+    if (exa_sys_bind(fd, &endpoint) == -1)
         goto err_sys_bind;
 
     sock->bind.ip = endpoint;

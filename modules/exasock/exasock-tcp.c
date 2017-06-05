@@ -133,6 +133,17 @@ static unsigned exasock_tcp_hash(uint32_t local_addr, uint32_t peer_addr,
                         local_addr, peer_addr, 0) & (NUM_BUCKETS - 1);
 }
 
+static void exasock_tcp_update_hashtbl(struct exasock_tcp *tcp)
+{
+    unsigned hash = exasock_tcp_hash(tcp->local_addr, tcp->peer_addr,
+                                     tcp->local_port, tcp->peer_port);
+
+    spin_lock(&tcp_bucket_lock);
+    hlist_del_rcu(&tcp->hash_node);
+    hlist_add_head_rcu(&tcp->hash_node, &tcp_buckets[hash]);
+    spin_unlock(&tcp_bucket_lock);
+}
+
 struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
 {
     struct exasock_tcp *tcp = NULL;
@@ -234,7 +245,6 @@ int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
     struct sockaddr_in sa;
     int slen;
     int err;
-    unsigned hash;
 
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
@@ -259,13 +269,7 @@ int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
     tcp->local_port = sa.sin_port;
 
     /* Update hash table */
-    hash = exasock_tcp_hash(tcp->local_addr, tcp->peer_addr,
-                            tcp->local_port, tcp->peer_port);
-
-    spin_lock(&tcp_bucket_lock);
-    hlist_del_rcu(&tcp->hash_node);
-    hlist_add_head_rcu(&tcp->hash_node, &tcp_buckets[hash]);
-    spin_unlock(&tcp_bucket_lock);
+    exasock_tcp_update_hashtbl(tcp);
 
     tcp->user_page->e.ip.local_addr = tcp->local_addr;
     tcp->user_page->e.ip.local_port = tcp->local_port;
@@ -274,12 +278,10 @@ int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
     return 0;
 }
 
-int exasock_tcp_update(struct exasock_tcp *tcp,
-                       uint32_t local_addr, uint16_t local_port,
-                       uint32_t peer_addr, uint16_t peer_port)
+void exasock_tcp_update(struct exasock_tcp *tcp,
+                        uint32_t local_addr, uint16_t local_port,
+                        uint32_t peer_addr, uint16_t peer_port)
 {
-    unsigned hash;
-
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
@@ -291,21 +293,13 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
     tcp->peer_port = peer_port;
 
     /* Update hash table */
-    hash = exasock_tcp_hash(tcp->local_addr, tcp->peer_addr,
-                            tcp->local_port, tcp->peer_port);
-
-    spin_lock(&tcp_bucket_lock);
-    hlist_del_rcu(&tcp->hash_node);
-    hlist_add_head_rcu(&tcp->hash_node, &tcp_buckets[hash]);
-    spin_unlock(&tcp_bucket_lock);
+    exasock_tcp_update_hashtbl(tcp);
 
     /* Update user page */
     tcp->user_page->e.ip.local_addr = tcp->local_addr;
     tcp->user_page->e.ip.local_port = tcp->local_port;
     tcp->user_page->e.ip.peer_addr = tcp->peer_addr;
     tcp->user_page->e.ip.peer_port = tcp->peer_port;
-
-    return 0;
 }
 
 void exasock_tcp_dead(struct kref *ref)

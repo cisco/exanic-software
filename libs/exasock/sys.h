@@ -16,8 +16,7 @@ int exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr,
 int exa_sys_exasock_open(int native_fd);
 int exa_sys_replace_fd(int native_fd, int exasock_fd);
 
-int exa_sys_bind(int fd, struct exa_endpoint * restrict endpoint,
-                 bool native_bound);
+int exa_sys_bind(int fd, struct exa_endpoint * restrict endpoint);
 int exa_sys_connect(int fd, struct exa_endpoint * restrict endpoint);
 int exa_sys_listen(int fd, struct exa_endpoint * restrict endpoint);
 int exa_sys_update(int fd, struct exa_endpoint * restrict endpoint);

@@ -300,7 +300,7 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
         {
             struct exasock_hdr *priv = filp->private_data;
             struct exasock_hdr_socket *socket;
-            struct exasock_bind_request req;
+            struct exasock_endpoint req;
             int err;
 
             if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
@@ -316,25 +316,22 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
             {
                 err = exasock_udp_bind((struct exasock_udp *)priv,
-                                       req.native_bound,
-                                       req.endpoint.local_addr,
-                                       &req.endpoint.local_port);
+                                       req.local_addr, &req.local_port);
                 if (err)
                     return err;
 
-                req.endpoint.peer_addr = 0;
-                req.endpoint.peer_port = 0;
+                req.peer_addr = 0;
+                req.peer_port = 0;
             }
             else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
             {
                 err = exasock_tcp_bind((struct exasock_tcp *)priv,
-                                       req.endpoint.local_addr,
-                                       &req.endpoint.local_port);
+                                       req.local_addr, &req.local_port);
                 if (err)
                     return err;
 
-                req.endpoint.peer_addr = 0;
-                req.endpoint.peer_port = 0;
+                req.peer_addr = 0;
+                req.peer_port = 0;
             }
             else
                 return -EINVAL;
@@ -403,7 +400,6 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             struct exasock_hdr *priv = filp->private_data;
             struct exasock_hdr_socket *socket;
             struct exasock_endpoint req;
-            int err;
 
             if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
                 return -EFAULT;
@@ -416,13 +412,9 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             socket = &priv->socket;
             if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
-            {
-                err = exasock_tcp_update((struct exasock_tcp *)priv,
-                                         req.local_addr, req.local_port,
-                                         req.peer_addr, req.peer_port);
-                if (err)
-                    return err;
-            }
+                exasock_tcp_update((struct exasock_tcp *)priv,
+                                   req.local_addr, req.local_port,
+                                   req.peer_addr, req.peer_port);
             else
                 return -EINVAL;
 

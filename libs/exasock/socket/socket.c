@@ -274,11 +274,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         }
     }
     else
-    {
         ret = libc_bind(sockfd, addr, addrlen);
-        if (ret == 0)
-            sock->native_bound = true;
-    }
 
     exa_write_unlock(&sock->lock);
     TRACE_RETURN(INT, ret);
@@ -1428,8 +1424,6 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
         if (sock->type == SOCK_DGRAM)
         {
             in_addr_t interface_addr;
-            struct sockaddr_in in_addr;
-            socklen_t addrlen;
             bool is_exanic = false;
 
             if (optlen >= sizeof(struct ip_mreqn))
@@ -1471,37 +1465,15 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             {
                 if (!sock->bypass && !sock->disable_bypass)
                 {
-                    /* Put socket into bypass mode. */
-
-                    if (sock->native_bound)
-                    {
-                        addrlen = sizeof(in_addr);
-                        ret = libc_getsockname(sockfd,
-                                               (struct sockaddr *)&in_addr,
-                                               &addrlen);
-                        if (ret == -1)
-                            goto add_membership_err_exit;
-                    }
-
-                    /* On successful return we hold rx_lock and tx_lock */
+                    /* Put socket into bypass mode.
+                     * On successful return we hold rx_lock and tx_lock.
+                     */
                     ret = exa_socket_enable_bypass(sock);
                     if (ret == -1)
                         goto add_membership_err_exit;
                     exa_unlock(&sock->state->rx_lock);
                     exa_unlock(&sock->state->tx_lock);
                     assert(sock->bypass);
-
-                    /* If native socket already bound, binding on exasock level
-                     * needs to be performed now
-                     */
-                    if (sock->native_bound)
-                    {
-                        ret = exa_socket_udp_bind(sock,
-                                                  in_addr.sin_addr.s_addr,
-                                                  in_addr.sin_port);
-                        if (ret == -1)
-                            goto add_membership_err_exit;
-                    }
                 }
             }
             else if ((interface_addr != INADDR_ANY) && sock->bypass)

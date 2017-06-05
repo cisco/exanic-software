@@ -224,23 +224,21 @@ err_dup2:
 
 /* Send a bind request to the kernel module */
 int
-exa_sys_bind(int fd, struct exa_endpoint * restrict endpoint,
-             bool native_bound)
+exa_sys_bind(int fd, struct exa_endpoint * restrict endpoint)
 {
-    struct exasock_bind_request req;
+    struct exasock_endpoint req;
 
     exasock_override_off();
 
     memset(&req, 0, sizeof(req));
-    req.endpoint.local_addr = endpoint->addr.local;
-    req.endpoint.local_port = endpoint->port.local;
-    req.native_bound = native_bound;
+    req.local_addr = endpoint->addr.local;
+    req.local_port = endpoint->port.local;
 
     if (ioctl(fd, EXASOCK_IOCTL_BIND, &req) != 0)
         goto err_ioctl;
 
     if (endpoint->port.local == 0)
-        endpoint->port.local = req.endpoint.local_port;
+        endpoint->port.local = req.local_port;
 
     exasock_override_on();
     return 0;

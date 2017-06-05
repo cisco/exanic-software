@@ -69,8 +69,8 @@ struct exasock_udp;
 int __init exasock_udp_init(void);
 void exasock_udp_exit(void);
 struct exasock_udp *exasock_udp_alloc(struct socket *sock);
-int exasock_udp_bind(struct exasock_udp *udp, bool native_bound,
-                     uint32_t local_addr, uint16_t *local_port);
+int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
+                     uint16_t *local_port);
 int exasock_udp_connect(struct exasock_udp *udp, uint32_t *local_addr,
                         uint16_t *local_port, uint32_t peer_addr,
                         uint16_t peer_port);
@@ -90,9 +90,9 @@ void exasock_tcp_exit(void);
 struct exasock_tcp *exasock_tcp_alloc(struct socket *sock);
 int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
                      uint16_t *local_port);
-int exasock_tcp_update(struct exasock_tcp *tcp,
-                       uint32_t local_addr, uint16_t local_port,
-                       uint32_t peer_addr, uint16_t peer_port);
+void exasock_tcp_update(struct exasock_tcp *tcp,
+                        uint32_t local_addr, uint16_t local_port,
+                        uint32_t peer_addr, uint16_t peer_port);
 void exasock_tcp_free(struct exasock_tcp *tcp);
 int exasock_tcp_rx_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
 int exasock_tcp_tx_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);

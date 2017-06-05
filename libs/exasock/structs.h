@@ -71,9 +71,6 @@ struct exa_socket
     /* Bound to specific device with SO_BINDTODEVICE */
     bool bound_to_device;
 
-    /* Native socket state */
-    bool native_bound;
-
     /* If listening on all interfaces, all_if is true and listen_if is NULL
      * Otherwise all_if is false and listen_if is not NULL */
     bool all_if;
