@@ -1378,6 +1378,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 {
     int val = 0;
     int ret;
+    bool is_exanic = false;
 
     if (optname == IP_MULTICAST_TTL || optname == IP_MULTICAST_LOOP)
     {
@@ -1405,26 +1406,11 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             goto err_exit;
         }
         break;
-    }
 
-    if (sock->bypass)
-        ret = exa_sys_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
-    else
-        ret = libc_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
-
-    if (ret == -1)
-        goto err_exit;
-
-    /* Handle some socket options on exasock level or keep track of those
-     * we will need to know if this socket is put into bypass mode
-     */
-    switch (optname)
-    {
     case IP_ADD_MEMBERSHIP:
         if (sock->type == SOCK_DGRAM)
         {
             in_addr_t interface_addr;
-            bool is_exanic = false;
 
             if (optlen >= sizeof(struct ip_mreqn))
             {
@@ -1441,7 +1427,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                     {
                         /* No interface found */
                         errno = EINVAL;
-                        goto add_membership_err_exit;
+                        goto err_exit;
                     }
                 }
                 else
@@ -1452,38 +1438,61 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             }
             else if (optlen >= sizeof(struct ip_mreq))
             {
-                interface_addr = ((struct ip_mreq *)optval)->imr_interface.s_addr;
+                interface_addr =
+                        ((struct ip_mreq *)optval)->imr_interface.s_addr;
                 is_exanic = exanic_ip_find(interface_addr);
             }
             else
             {
                 errno = EINVAL;
-                goto add_membership_err_exit;
+                goto err_exit;
             }
 
-            if (is_exanic)
-            {
-                if (!sock->bypass && !sock->disable_bypass)
-                {
-                    /* Put socket into bypass mode.
-                     * On successful return we hold rx_lock and tx_lock.
-                     */
-                    ret = exa_socket_enable_bypass(sock);
-                    if (ret == -1)
-                        goto add_membership_err_exit;
-                    exa_unlock(&sock->state->rx_lock);
-                    exa_unlock(&sock->state->tx_lock);
-                    assert(sock->bypass);
-                }
-            }
-            else if ((interface_addr != INADDR_ANY) && sock->bypass)
+            if (!is_exanic && (interface_addr != INADDR_ANY) && sock->bypass)
             {
                 /* Unable to join multicast on an accelerated socket with
                  * non-exanic interface
                  */
                 errno = EINVAL;
-                goto add_membership_err_exit;
+                goto err_exit;
             }
+        }
+        break;
+    }
+
+    if (sock->bypass)
+        ret = exa_sys_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
+    else
+        ret = libc_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
+
+    if (ret == -1)
+        goto err_exit;
+
+    /* Process some socket options on exasock level or keep track of those
+     * we will need to know if this socket is put into bypass mode
+     */
+    switch (optname)
+    {
+    case IP_ADD_MEMBERSHIP:
+        if (is_exanic && !sock->bypass && !sock->disable_bypass)
+        {
+            /* Put socket into bypass mode.
+             * On successful return we hold rx_lock and tx_lock.
+             */
+            ret = exa_socket_enable_bypass(sock);
+            if (ret == -1)
+            {
+                if (sock->bypass)
+                    exa_sys_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+                                       optval, optlen);
+                else
+                    libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+                                    optval, optlen);
+                goto err_exit;
+            }
+            exa_unlock(&sock->state->rx_lock);
+            exa_unlock(&sock->state->tx_lock);
+            assert(sock->bypass);
         }
         break;
 
@@ -1508,11 +1517,6 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     exa_write_unlock(&sock->lock);
     return 0;
 
-add_membership_err_exit:
-    if (sock->bypass)
-        exa_sys_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval, optlen);
-    else
-        libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval, optlen);
 err_exit:
     exa_write_unlock(&sock->lock);
     return -1;

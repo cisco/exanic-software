@@ -326,6 +326,11 @@ exa_socket_enable_bypass(struct exa_socket * restrict sock)
     exa_lock(&sock->state->rx_lock);
     exa_lock(&sock->state->tx_lock);
 
+    /* The bypass flag needs to be set before switching to native fd.
+     * The reason is to allow socket calls to check the flag without taking
+     * the socket lock (if bypass found set, then exasock blocks on the lock
+     * so that processing continues no sooner than fd switching is completed).
+     */
     sock->bypass = true;
 
     if (exa_sys_replace_fd(fd, tmpfd) == -1)
