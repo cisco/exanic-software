@@ -1482,12 +1482,8 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             ret = exa_socket_enable_bypass(sock);
             if (ret == -1)
             {
-                if (sock->bypass)
-                    exa_sys_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP,
-                                       optval, optlen);
-                else
-                    libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP,
-                                    optval, optlen);
+                libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval,
+                                optlen);
                 goto err_exit;
             }
             exa_unlock(&sock->state->rx_lock);
