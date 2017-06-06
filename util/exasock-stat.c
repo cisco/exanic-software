@@ -85,7 +85,7 @@ static inline char * print_sock_addr(char buf[], struct in_addr ip,
                  (ip.s_addr == 0) ? "*" : inet_ntoa(ip));
     else
         snprintf(buf, EXASOCK_STAT_ADDR_BUF_SIZE, "%s:%i",
-                 (ip.s_addr == 0) ? "*" : inet_ntoa(ip), port);
+                 (ip.s_addr == 0) ? "*" : inet_ntoa(ip), ntohs(port));
     return buf;
 }
 

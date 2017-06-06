@@ -141,38 +141,12 @@ static inline enum exasock_genl_conn_state tcp_state_to_genl_connstate(
     }
 }
 
-static inline uint8_t get_sock_state(uint8_t *state)
+static inline uint8_t get_sock_state(struct exasock_stats_sock *sk_stats)
 {
-    if (state == NULL)
+    if (sk_stats->ops.get_state == NULL)
         return EXASOCK_GENL_CONNSTATE_NONE;
     else
-        return tcp_state_to_genl_connstate(*state);
-}
-
-static inline uint32_t get_sock_recv_q(struct exasock_stats_sock_info *info)
-{
-    uint32_t recv_q_bytes;
-
-    if ((info->recv_q_recv_seq == NULL) || (info->recv_q_read_seq == NULL))
-        return 0;
-
-    recv_q_bytes = *(info->recv_q_recv_seq) - *(info->recv_q_read_seq);
-
-    if (get_sock_state(info->state) == EXASOCK_GENL_CONNSTATE_LISTEN)
-        return (recv_q_bytes / sizeof(struct exa_tcp_new_connection));
-    else
-        /* FIXME: for UDP this count of bytes includes headers, footers
-         * and alignment padding */
-        return recv_q_bytes;
-}
-
-static inline uint32_t get_sock_send_q(struct exasock_stats_sock_info *info)
-{
-    if ((info->send_q_sent_seq == NULL) || (info->send_q_ack_seq == NULL))
-        return 0;
-    if (get_sock_state(info->state) == EXASOCK_GENL_CONNSTATE_LISTEN)
-        return 0;
-    return (*(info->send_q_sent_seq) - *(info->send_q_ack_seq));
+        return tcp_state_to_genl_connstate(sk_stats->ops.get_state(sk_stats));
 }
 
 /**************************************
@@ -191,26 +165,33 @@ static const struct nla_policy exasock_genl_policy[EXASOCK_GENL_A_MAX + 1] =
 };
 
 static inline int exasock_genl_msg_set_sockelem(struct sk_buff *msg,
-                                          struct exasock_stats_sock_info *info,
+                                          struct exasock_stats_sock *sk_stats,
                                           uint8_t state)
 {
     struct nlattr *attr_sockelem;
+    struct exasock_stats_sock_snapshot snapshot;
+
+    sk_stats->ops.get_snapshot(sk_stats, &snapshot);
 
     attr_sockelem = nla_nest_start(msg, EXASOCK_GENL_A_ELEM_SOCK);
     if (attr_sockelem == NULL)
         return -EMSGSIZE;
 
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_LOCAL_ADDR, info->addr.local_ip))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_LOCAL_ADDR,
+                    sk_stats->addr.local_ip))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_PEER_ADDR, info->addr.peer_ip))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_PEER_ADDR,
+                    sk_stats->addr.peer_ip))
         goto err_nla_put;
-    if (nla_put_u16(msg, EXASOCK_GENL_A_SOCK_LOCAL_PORT, info->addr.local_port))
+    if (nla_put_u16(msg, EXASOCK_GENL_A_SOCK_LOCAL_PORT,
+                    sk_stats->addr.local_port))
         goto err_nla_put;
-    if (nla_put_u16(msg, EXASOCK_GENL_A_SOCK_PEER_PORT, info->addr.peer_port))
+    if (nla_put_u16(msg, EXASOCK_GENL_A_SOCK_PEER_PORT,
+                    sk_stats->addr.peer_port))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_RECV_Q, get_sock_recv_q(info)))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_RECV_Q, snapshot.recv_q))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_SEND_Q, get_sock_send_q(info)))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SOCK_SEND_Q, snapshot.send_q))
         goto err_nla_put;
     if (nla_put_u8(msg, EXASOCK_GENL_A_SOCK_STATE, state))
         goto err_nla_put;
@@ -225,57 +206,54 @@ err_nla_put:
 }
 
 static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_listen_list(
-                                     struct exasock_stats_sock_list *sock_list,
-                                     struct exasock_stats_sock *sock_stats,
+                                     struct exasock_stats_sock_list *sk_list,
+                                     struct exasock_stats_sock *sk_stats,
                                      struct sk_buff *msg)
 {
     uint8_t state;
 
-    list_for_each_entry_from(sock_stats, &sock_list->list, node)
+    list_for_each_entry_from(sk_stats, &sk_list->list, node)
     {
-        state = get_sock_state(sock_stats->info.state);
+        state = get_sock_state(sk_stats);
 
         if (state != EXASOCK_GENL_CONNSTATE_LISTEN)
             continue;
 
-        if (exasock_genl_msg_set_sockelem(msg, &sock_stats->info, state) ==
-                -EMSGSIZE)
-            return sock_stats;
+        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state) == -EMSGSIZE)
+            return sk_stats;
     }
     return NULL;
 }
 
 static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_conn_list(
-                                     struct exasock_stats_sock_list *sock_list,
-                                     struct exasock_stats_sock *sock_stats,
+                                     struct exasock_stats_sock_list *sk_list,
+                                     struct exasock_stats_sock *sk_stats,
                                      struct sk_buff *msg)
 {
     uint8_t state;
 
-    list_for_each_entry_from(sock_stats, &sock_list->list, node)
+    list_for_each_entry_from(sk_stats, &sk_list->list, node)
     {
-        state = get_sock_state(sock_stats->info.state);
+        state = get_sock_state(sk_stats);
 
         if (state == EXASOCK_GENL_CONNSTATE_LISTEN)
             continue;
 
-        if (exasock_genl_msg_set_sockelem(msg, &sock_stats->info, state) ==
-                -EMSGSIZE)
-            return sock_stats;
+        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state) == -EMSGSIZE)
+            return sk_stats;
     }
     return NULL;
 }
 
 static struct exasock_stats_sock *exasock_genl_msg_fill_udp_list(
-                                     struct exasock_stats_sock_list *sock_list,
-                                     struct exasock_stats_sock *sock_stats,
+                                     struct exasock_stats_sock_list *sk_list,
+                                     struct exasock_stats_sock *sk_stats,
                                      struct sk_buff *msg,
                                      enum exasock_genl_conn_state state)
 {
-    list_for_each_entry_from(sock_stats, &sock_list->list, node)
-        if (exasock_genl_msg_set_sockelem(msg, &sock_stats->info, state) ==
-                -EMSGSIZE)
-            return sock_stats;
+    list_for_each_entry_from(sk_stats, &sk_list->list, node)
+        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state) == -EMSGSIZE)
+            return sk_stats;
     return NULL;
 }
 
@@ -283,7 +261,7 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
                                          struct genl_info *info)
 {
     enum exasock_genl_sock_type genl_sock_type;
-    struct exasock_stats_sock_list *sock_list;
+    struct exasock_stats_sock_list *sk_list;
     struct exasock_stats_sock *next_sock;
     struct nlattr *attr_socklist;
     struct sk_buff *resp_skb;
@@ -297,13 +275,13 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
     if ((uint8_t)genl_sock_type > EXASOCK_GENL_SOCKTYPE_MAX)
         return -EINVAL;
 
-    sock_list = get_stats_sock_list(genl_sock_type_to_socktype(genl_sock_type));
-    if (sock_list == NULL)
+    sk_list = get_stats_sock_list(genl_sock_type_to_socktype(genl_sock_type));
+    if (sk_list == NULL)
         return -EINVAL;
 
-    mutex_lock(&sock_list->lock);
+    mutex_lock(&sk_list->lock);
 
-    next_sock = list_first_entry(&sock_list->list, struct exasock_stats_sock,
+    next_sock = list_first_entry(&sk_list->list, struct exasock_stats_sock,
                                  node);
 
     do
@@ -337,25 +315,25 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
         switch (genl_sock_type)
         {
         case EXASOCK_GENL_SOCKTYPE_TCP_LISTEN:
-            next_sock = exasock_genl_msg_fill_tcp_listen_list(sock_list,
+            next_sock = exasock_genl_msg_fill_tcp_listen_list(sk_list,
                                                               next_sock,
                                                               resp_skb);
             break;
         case EXASOCK_GENL_SOCKTYPE_TCP_CONN:
-            next_sock = exasock_genl_msg_fill_tcp_conn_list(sock_list,
+            next_sock = exasock_genl_msg_fill_tcp_conn_list(sk_list,
                                                             next_sock,
                                                             resp_skb);
             break;
         case EXASOCK_GENL_SOCKTYPE_UDP_LISTEN:
-            next_sock = exasock_genl_msg_fill_udp_list(sock_list, next_sock,
+            next_sock = exasock_genl_msg_fill_udp_list(sk_list, next_sock,
                                         resp_skb, EXASOCK_GENL_CONNSTATE_NONE);
             break;
         case EXASOCK_GENL_SOCKTYPE_UDP_CONN:
-            next_sock = exasock_genl_msg_fill_udp_list(sock_list, next_sock,
+            next_sock = exasock_genl_msg_fill_udp_list(sk_list, next_sock,
                                  resp_skb, EXASOCK_GENL_CONNSTATE_ESTABLISHED);
             break;
         default:
-            mutex_unlock(&sock_list->lock);
+            mutex_unlock(&sk_list->lock);
             err = -EINVAL;
             goto err_nla_put;
         }
@@ -369,7 +347,7 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
     }
     while (next_sock);
 
-    mutex_unlock(&sock_list->lock);
+    mutex_unlock(&sk_list->lock);
 
     /* Send NLMSG_DONE message to indicate end of multipart messages */
     resp_skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
@@ -429,61 +407,50 @@ static struct genl_family exasock_genl_family =
  * ExaSock statistics API
  **************************************/
 
-struct exasock_stats_sock *exasock_stats_socket_add(enum exasock_socktype type,
-                                          struct exasock_stats_sock_info *info)
+void exasock_stats_socket_add(enum exasock_socktype type,
+                              struct exasock_stats_sock *sk_stats)
 {
-    struct exasock_stats_sock_list *sock_list = get_stats_sock_list(type);
-    struct exasock_stats_sock *sock_stats;
+    struct exasock_stats_sock_list *sk_list = get_stats_sock_list(type);
 
-    sock_stats = kzalloc(sizeof(struct exasock_stats_sock), GFP_KERNEL);
-    if (sock_stats == NULL)
-        return NULL;
-
-    sock_stats->info = *info;
-
-    mutex_lock(&sock_list->lock);
-    list_add_tail(&sock_stats->node, &sock_list->list);
-    mutex_unlock(&sock_list->lock);
-
-    return sock_stats;
+    mutex_lock(&sk_list->lock);
+    list_add_tail(&sk_stats->node, &sk_list->list);
+    mutex_unlock(&sk_list->lock);
 }
 
-void exasock_stats_socket_update(struct exasock_stats_sock *sock_stats,
+void exasock_stats_socket_update(struct exasock_stats_sock *sk_stats,
                                  enum exasock_socktype prev_type,
                                  enum exasock_socktype type,
-                                 struct exasock_stats_sock_info_addr *addr)
+                                 struct exasock_stats_sock_addr *addr)
 {
-    struct exasock_stats_sock_list *sock_list = get_stats_sock_list(type);
-    struct exasock_stats_sock_list *prev_sock_list = NULL;
+    struct exasock_stats_sock_list *sk_list = get_stats_sock_list(type);
+    struct exasock_stats_sock_list *prev_sk_list = NULL;
 
-    mutex_lock(&sock_list->lock);
+    mutex_lock(&sk_list->lock);
 
     if (type != prev_type)
     {
-        prev_sock_list = get_stats_sock_list(prev_type);
-        mutex_lock(&prev_sock_list->lock);
-        list_del(&sock_stats->node);
-        list_add_tail(&sock_stats->node, &sock_list->list);
+        prev_sk_list = get_stats_sock_list(prev_type);
+        mutex_lock(&prev_sk_list->lock);
+        list_del(&sk_stats->node);
+        list_add_tail(&sk_stats->node, &sk_list->list);
     }
 
-    sock_stats->info.addr = *addr;
+    sk_stats->addr = *addr;
 
     if (type != prev_type)
-        mutex_unlock(&prev_sock_list->lock);
+        mutex_unlock(&prev_sk_list->lock);
 
-    mutex_unlock(&sock_list->lock);
+    mutex_unlock(&sk_list->lock);
 }
 
-void exasock_stats_socket_del(struct exasock_stats_sock *sock_stats,
+void exasock_stats_socket_del(struct exasock_stats_sock *sk_stats,
                               enum exasock_socktype type)
 {
-    struct exasock_stats_sock_list *sock_list = get_stats_sock_list(type);
+    struct exasock_stats_sock_list *sk_list = get_stats_sock_list(type);
 
-    mutex_lock(&sock_list->lock);
-    list_del(&sock_stats->node);
-    mutex_unlock(&sock_list->lock);
-
-    kfree(sock_stats);
+    mutex_lock(&sk_list->lock);
+    list_del(&sk_stats->node);
+    mutex_unlock(&sk_list->lock);
 }
 
 int __init exasock_stats_init(void)

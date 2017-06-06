@@ -44,7 +44,13 @@ enum exasock_socktype
     EXASOCK_SOCKTYPE_UDP_CONN,
 };
 
-struct exasock_stats_sock_info_addr
+struct exasock_stats_sock_snapshot
+{
+    uint32_t recv_q;
+    uint32_t send_q;
+};
+
+struct exasock_stats_sock_addr
 {
     uint32_t local_ip;
     uint32_t peer_ip;
@@ -52,21 +58,20 @@ struct exasock_stats_sock_info_addr
     uint16_t peer_port;
 };
 
-struct exasock_stats_sock_info
-{
-    struct exasock_stats_sock_info_addr addr;
+struct exasock_stats_sock;
 
-    uint32_t *recv_q_read_seq;
-    uint32_t *recv_q_recv_seq;
-    uint32_t *send_q_sent_seq;
-    uint32_t *send_q_ack_seq;
-    uint8_t *state;
+struct exasock_stats_sock_ops
+{
+    uint8_t (*get_state)(struct exasock_stats_sock *sk_stats);
+    void    (*get_snapshot)(struct exasock_stats_sock *sk_stats,
+                            struct exasock_stats_sock_snapshot *snapshot);
 };
 
 struct exasock_stats_sock
 {
-    struct exasock_stats_sock_info  info;
-    struct list_head                node;
+    struct exasock_stats_sock_addr addr;
+    struct exasock_stats_sock_ops  ops;
+    struct list_head               node;
 };
 
 /* Return 1 if lock successful, 0 if unsuccessful */
@@ -152,11 +157,11 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify);
 /* exasock-stats.c */
 int __init exasock_stats_init(void);
 void exasock_stats_exit(void);
-struct exasock_stats_sock *exasock_stats_socket_add(enum exasock_socktype type,
-                                         struct exasock_stats_sock_info *info);
-void exasock_stats_socket_update(struct exasock_stats_sock *sock_stats,
+void exasock_stats_socket_add(enum exasock_socktype type,
+                              struct exasock_stats_sock *sk_stats);
+void exasock_stats_socket_update(struct exasock_stats_sock *sk_stats,
                                  enum exasock_socktype prev_type,
                                  enum exasock_socktype type,
-                                 struct exasock_stats_sock_info_addr *addr);
-void exasock_stats_socket_del(struct exasock_stats_sock *sock_stats,
+                                 struct exasock_stats_sock_addr *addr);
+void exasock_stats_socket_del(struct exasock_stats_sock *sk_stats,
                               enum exasock_socktype type);

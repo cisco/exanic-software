@@ -71,7 +71,7 @@ struct exasock_tcp
     /* Semaphore stays down until refcount goes to 0 */
     struct semaphore                dead_sema;
 
-    struct exasock_stats_sock *     stats;
+    struct exasock_stats_sock       stats;
 };
 
 struct exasock_tcp_req
@@ -128,6 +128,71 @@ static void exasock_tcp_send_ack(struct exasock_tcp *tcp);
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp);
 static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req);
 
+static inline struct exasock_tcp *stats_to_tcp(struct exasock_stats_sock *stats)
+{
+    return container_of(stats, struct exasock_tcp, stats);
+}
+
+static inline void exasock_tcp_stats_fill_addr(
+                                     struct exasock_stats_sock_addr *addr,
+                                     struct exasock_tcp *tcp)
+{
+    addr->local_ip   = tcp->local_addr;
+    addr->peer_ip    = tcp->peer_addr;
+    addr->local_port = tcp->local_port;
+    addr->peer_port  = tcp->peer_port;
+}
+
+static uint8_t exasock_tcp_stats_get_state(struct exasock_stats_sock *stats)
+{
+    struct exasock_tcp *tcp = stats_to_tcp(stats);
+
+    return tcp->user_page->p.tcp.state;
+}
+
+static void exasock_tcp_stats_get_snapshot(struct exasock_stats_sock *stats,
+                                         struct exasock_stats_sock_snapshot *s)
+{
+    struct exasock_tcp *tcp = stats_to_tcp(stats);
+    struct exa_tcp_state *tcp_state = &tcp->user_page->p.tcp;
+
+    if (tcp_state->state == EXA_TCP_LISTEN)
+    {
+        s->recv_q = (tcp_state->recv_seq - tcp_state->read_seq) /
+                    sizeof(struct exa_tcp_new_connection);
+        s->send_q = 0;
+    }
+    else
+    {
+        s->recv_q = tcp_state->recv_seq - tcp_state->read_seq;
+        s->send_q = tcp_state->send_seq - tcp_state->send_ack;
+    }
+}
+
+static void exasock_tcp_stats_init(struct exasock_tcp *tcp)
+{
+    struct exasock_stats_sock *stats = &tcp->stats;
+
+    memset(stats, 0, sizeof(struct exasock_stats_sock));
+
+    exasock_tcp_stats_fill_addr(&stats->addr, tcp);
+
+    stats->ops.get_state    = exasock_tcp_stats_get_state;
+    stats->ops.get_snapshot = exasock_tcp_stats_get_snapshot;
+
+    exasock_stats_socket_add(EXASOCK_SOCKTYPE_TCP, stats);
+}
+
+static void exasock_tcp_stats_update(struct exasock_tcp *tcp)
+{
+    struct exasock_stats_sock_addr addr;
+
+    exasock_tcp_stats_fill_addr(&addr, tcp);
+
+    exasock_stats_socket_update(&tcp->stats, EXASOCK_SOCKTYPE_TCP,
+                                EXASOCK_SOCKTYPE_TCP, &addr);
+}
+
 static unsigned exasock_tcp_hash(uint32_t local_addr, uint32_t peer_addr,
                                  uint16_t local_port, uint16_t peer_port)
 {
@@ -144,49 +209,6 @@ static void exasock_tcp_update_hashtbl(struct exasock_tcp *tcp)
     hlist_del_rcu(&tcp->hash_node);
     hlist_add_head_rcu(&tcp->hash_node, &tcp_buckets[hash]);
     spin_unlock(&tcp_bucket_lock);
-}
-
-static inline void exasock_tcp_stats_set_addr(
-                                     struct exasock_stats_sock_info_addr *addr,
-                                     struct exasock_tcp *tcp)
-{
-    addr->local_ip   = ntohl(tcp->local_addr);
-    addr->peer_ip    = ntohl(tcp->peer_addr);
-    addr->local_port = ntohs(tcp->local_port);
-    addr->peer_port  = ntohs(tcp->peer_port);
-}
-
-static inline void exasock_tcp_stats_set_info(
-                                          struct exasock_stats_sock_info *info,
-                                          struct exasock_tcp *tcp)
-{
-    exasock_tcp_stats_set_addr(&info->addr, tcp);
-
-    info->recv_q_recv_seq = &tcp->user_page->p.tcp.recv_seq;
-    info->recv_q_read_seq = &tcp->user_page->p.tcp.read_seq;
-    info->send_q_sent_seq = &tcp->user_page->p.tcp.send_seq;
-    info->send_q_ack_seq  = &tcp->user_page->p.tcp.send_ack;
-    info->state           = &tcp->user_page->p.tcp.state;
-}
-
-static struct exasock_stats_sock *exasock_tcp_stats_init(
-                                                    struct exasock_tcp *tcp)
-{
-    struct exasock_stats_sock_info info;
-
-    exasock_tcp_stats_set_info(&info, tcp);
-
-    return exasock_stats_socket_add(EXASOCK_SOCKTYPE_TCP, &info);
-}
-
-static void exasock_tcp_stats_update(struct exasock_tcp *tcp)
-{
-    struct exasock_stats_sock_info_addr info_addr;
-
-    exasock_tcp_stats_set_addr(&info_addr, tcp);
-
-    exasock_stats_socket_update(tcp->stats, EXASOCK_SOCKTYPE_TCP,
-                                EXASOCK_SOCKTYPE_TCP, &info_addr);
 }
 
 struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
@@ -235,12 +257,7 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock)
     tcp->retransmit_countdown = -1;
     tcp->dead_node = false;
 
-    tcp->stats = exasock_tcp_stats_init(tcp);
-    if (tcp->stats == NULL)
-    {
-        err = -ENOMEM;
-        goto err_alloc;
-    }
+    exasock_tcp_stats_init(tcp);
 
     kref_init(&tcp->refcount);
     sema_init(&tcp->dead_sema, 0);
@@ -371,7 +388,7 @@ void exasock_tcp_free(struct exasock_tcp *tcp)
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     /* Close stats */
-    exasock_stats_socket_del(tcp->stats, EXASOCK_SOCKTYPE_TCP);
+    exasock_stats_socket_del(&tcp->stats, EXASOCK_SOCKTYPE_TCP);
 
     /* Send reset packet */
     exasock_tcp_send_reset(tcp);
