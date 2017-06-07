@@ -10,8 +10,6 @@
 
 #include <exasock/exasock-genl.h>
 
-#define EXASOCK_STAT_VERSION "0.01"
-
 #define EXASOCK_STAT_ADDR_BUF_SIZE 24
 
 struct exasock_stat_config
@@ -334,7 +332,7 @@ static void show_stats(struct exasock_stat_config *cfg)
 
 static void print_usage(char *name)
 {
-    fprintf(stderr, "\nexasock-stat version %s\n", EXASOCK_STAT_VERSION);
+    fprintf(stderr, "\nexasock-stat (ExaSock version @EXANIC_VERSION@)\n");
     fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n");
     fprintf(stderr, "\nUsage:\n");
     fprintf(stderr, "   %s [-cltu]\n", name);
