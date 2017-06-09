@@ -251,7 +251,7 @@ exa_hashtable_remove(struct exa_hashtable * restrict ht, int remove_fd)
 
 static inline int
 exa_hashtable_lookup(struct exa_hashtable * restrict ht,
-                     struct exa_endpoint * restrict e, bool allow_any)
+                     struct exa_endpoint * restrict e)
 {
     struct exa_endpoint ep = *e;
     uint32_t idx;
@@ -272,9 +272,6 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
 
         fd = sock->hashtable_next_fd;
     }
-
-    if (!allow_any)
-        return -1;
 
     /* Look up by (local addr, local port) */
     ep.addr.peer = htonl(INADDR_ANY);

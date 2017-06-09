@@ -118,7 +118,7 @@ exa_udp_remove(int fd)
 static inline int
 exa_udp_lookup(struct exa_endpoint * restrict ep)
 {
-    return exa_hashtable_lookup(&__exa_udp_sockfds, ep, true);
+    return exa_hashtable_lookup(&__exa_udp_sockfds, ep);
 }
 
 static inline void

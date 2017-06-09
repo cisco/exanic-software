@@ -80,7 +80,7 @@ exa_tcp_remove(int fd)
 static inline int
 exa_tcp_lookup(struct exa_endpoint * restrict ep)
 {
-    return exa_hashtable_lookup(&__exa_tcp_sockfds, ep, true);
+    return exa_hashtable_lookup(&__exa_tcp_sockfds, ep);
 }
 
 static inline void
