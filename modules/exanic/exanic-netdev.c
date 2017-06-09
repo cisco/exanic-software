@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/kobject.h>
 #include <linux/netdevice.h>
+#include <linux/ethtool.h>
 #include <linux/miscdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/net_tstamp.h>
@@ -44,6 +45,17 @@ MODULE_PARM_DESC(disable_exasock, "Disable loading of exasock module");
 #define tx_hw_tstamp_flag(skb) skb_tx(skb)->hardware
 #else
 #define tx_hw_tstamp_flag(skb) (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 32)
+#define netdev_tx_t int
+#endif
+
+#ifndef SUPPORTED_1000baseKX_Full
+#define SUPPORTED_1000baseKX_Full	(1 << 17)
+#endif
+#ifndef SUPPORTED_10000baseKR_Full
+#define SUPPORTED_10000baseKR_Full	(1 << 19)
 #endif
 
 #ifndef SIOCGHWTSTAMP

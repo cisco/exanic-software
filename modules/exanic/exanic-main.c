@@ -10,6 +10,7 @@
 #include <linux/kobject.h>
 #include <linux/miscdevice.h>
 #include <linux/netdevice.h>
+#include <linux/ethtool.h>
 #include <linux/etherdevice.h>
 #include <linux/nodemask.h>
 #include <linux/pci.h>

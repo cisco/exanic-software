@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/kobject.h>
 #include <linux/netdevice.h>
+#include <linux/ethtool.h>
 #include <linux/miscdevice.h>
 
 #include "../../libs/exanic/pcie_if.h"
