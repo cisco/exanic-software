@@ -66,6 +66,9 @@ exa_socket_init(struct exa_socket * restrict sock, int domain, int type,
     /* Default socket options */
     sock->ip_multicast_if = htonl(INADDR_ANY);
     sock->ip_multicast_ttl = 1;
+    sock->ip_membership.mcast_ep_valid = false;
+    sock->ip_membership.mcast_ep.interface = htonl(INADDR_ANY);
+    sock->ip_membership.mcast_ep.multiaddr = htonl(INADDR_ANY);
 }
 
 static void
@@ -95,7 +98,19 @@ exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr)
         /* already bound to a specific device with SO_BINDTODEVICE */
         return 0;
     }
-    else if (addr == htonl(INADDR_ANY) || IN_MULTICAST(ntohl(addr)))
+
+    if (IN_MULTICAST(ntohl(addr)))
+    {
+        /* In case of sockets bound to a multicast address acquiring
+         * of interfaces is performed as a part of IP_ADD_MEMBERSHIP socket
+         * option handling with an address of an interface with which
+         * the group is being joined. Now just release held interfaces, if any.
+         */
+        exa_socket_release_interfaces(sock);
+        return 0;
+    }
+
+    if (addr == htonl(INADDR_ANY))
     {
         if (!sock->all_if)
             exanic_ip_acquire_all();
@@ -253,7 +268,7 @@ exa_socket_udp_enable_bypass(struct exa_socket * restrict sock)
         sock->connected = true;
     }
 
-    if (sock->bound)
+    if (sock->bound && !IN_MULTICAST(ntohl(sock->bind.ip.addr.local)))
         exa_udp_insert(fd);
 
     exa_notify_udp_init(sock);
@@ -380,12 +395,69 @@ err_sys_exasock_open:
     return -1;
 }
 
+static int
+exa_socket_add_mcast_interface(struct exa_socket * restrict sock,
+                               struct exa_mcast_endpoint * restrict mc_ep,
+                               in_addr_t addr_local)
+{
+    if (addr_local == htonl(INADDR_ANY) || addr_local == mc_ep->multiaddr)
+    {
+        if (exa_socket_update_interfaces(sock, mc_ep->interface) == -1)
+            return -1;
+        sock->listen_mcast = true;
+    }
+    return 0;
+}
+
+int
+exa_socket_add_mcast(struct exa_socket * restrict sock,
+                     struct exa_mcast_endpoint * restrict mc_ep)
+{
+    int fd = exa_socket_fd(sock);
+
+    assert(exa_write_locked(&sock->lock));
+    assert(sock->bound);
+
+    if (exa_socket_add_mcast_interface(sock, mc_ep,
+                                       sock->bind.ip.addr.local) == -1)
+        return -1;
+    if (sock->listen_mcast)
+    {
+        if (sock->bind.ip.addr.local == htonl(INADDR_ANY))
+            exa_udp_remove(fd);
+        exa_udp_mcast_insert(fd, mc_ep);
+    }
+    return 0;
+}
+
+int
+exa_socket_del_mcast(struct exa_socket * restrict sock,
+                     struct exa_mcast_endpoint * restrict mc_ep)
+{
+    int fd = exa_socket_fd(sock);
+
+    assert(exa_write_locked(&sock->lock));
+    assert(sock->bound);
+
+    if (sock->listen_mcast)
+    {
+        if (exa_socket_update_interfaces(sock, sock->bind.ip.addr.local) == -1)
+            return -1;
+        sock->listen_mcast = false;
+        exa_udp_mcast_remove(fd, mc_ep);
+        if (sock->bind.ip.addr.local == htonl(INADDR_ANY))
+            exa_udp_insert(fd);
+    }
+    return 0;
+}
+
 int
 exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
                     in_port_t port)
 {
     int fd = exa_socket_fd(sock);
     struct exa_endpoint endpoint;
+    struct exa_mcast_endpoint *mc_ep = &sock->ip_membership.mcast_ep;
 
     /* Socket lock is held, socket is not bound */
     assert(exa_write_locked(&sock->lock));
@@ -394,6 +466,10 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
     /* Acquire interfaces for bind address */
     if (exa_socket_update_interfaces(sock, addr) == -1)
         goto err_update_interfaces;
+
+    if (sock->ip_membership.mcast_ep_valid)
+        if (exa_socket_add_mcast_interface(sock, mc_ep, addr) == -1)
+            goto err_add_mcast_interface;
 
     sock->bound = true;
 
@@ -406,13 +482,17 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
         goto err_sys_bind;
 
     sock->bind.ip = endpoint;
-    exa_udp_insert(fd);
+    if (sock->listen_mcast)
+        exa_udp_mcast_insert(fd, mc_ep);
+    else if (!IN_MULTICAST(ntohl(addr)))
+        exa_udp_insert(fd);
 
     return 0;
 
 err_sys_bind:
-    exa_socket_release_interfaces(sock);
     sock->bound = false;
+err_add_mcast_interface:
+    exa_socket_release_interfaces(sock);
 err_update_interfaces:
     return -1;
 }
@@ -484,7 +564,9 @@ exa_socket_udp_close(struct exa_socket * restrict sock)
     assert(exa_write_locked(&sock->lock));
     assert(!sock->all_if || sock->listen_if == NULL);
 
-    if (sock->bound)
+    if (sock->listen_mcast)
+        exa_udp_mcast_remove(fd, &sock->ip_membership.mcast_ep);
+    else if (sock->bound)
         exa_udp_remove(fd);
 
     exa_socket_release_interfaces(sock);

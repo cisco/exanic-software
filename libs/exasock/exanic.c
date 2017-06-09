@@ -902,7 +902,7 @@ exanic_poll(void)
                     goto abort_frame;
 
                 /* Find socket matching this packet */
-                if ((fd = exa_udp_lookup(&ep)) == -1)
+                if ((fd = exa_udp_lookup(&ep, ctx->ifaddr.address)) == -1)
                     goto abort_frame;
                 sock = exa_socket_get(fd);
                 exa_lock(&sock->state->rx_lock);

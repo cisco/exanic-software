@@ -68,19 +68,19 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
 static inline void
 exa_tcp_insert(int fd)
 {
-    exa_hashtable_insert(&__exa_tcp_sockfds, fd);
+    exa_hashtable_ucast_insert(&__exa_tcp_sockfds, fd);
 }
 
 static inline void
 exa_tcp_remove(int fd)
 {
-    exa_hashtable_remove(&__exa_tcp_sockfds, fd);
+    exa_hashtable_ucast_remove(&__exa_tcp_sockfds, fd);
 }
 
 static inline int
 exa_tcp_lookup(struct exa_endpoint * restrict ep)
 {
-    return exa_hashtable_lookup(&__exa_tcp_sockfds, ep);
+    return exa_hashtable_ucast_lookup(&__exa_tcp_sockfds, ep);
 }
 
 static inline void

@@ -8,6 +8,10 @@ void exa_socket_init(struct exa_socket * restrict sock, int domain,
 int exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr);
 void exa_socket_update_timestamping(struct exa_socket * restrict sock);
 int exa_socket_enable_bypass(struct exa_socket * restrict sock);
+int exa_socket_del_mcast(struct exa_socket * restrict sock,
+                         struct exa_mcast_endpoint * restrict mc_ep);
+int exa_socket_add_mcast(struct exa_socket * restrict sock,
+                         struct exa_mcast_endpoint * restrict mc_ep);
 
 int exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
                         in_port_t port);
