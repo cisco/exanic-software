@@ -4,7 +4,6 @@
 #define EXA_TCP_RETRANSMIT_NS 1000000000
 
 extern struct exa_hashtable __exa_tcp_sockfds;
-extern uint32_t __exa_tcp_sockfds_write_lock;
 
 struct exa_tcp_conn
 {
