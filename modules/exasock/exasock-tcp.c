@@ -386,6 +386,50 @@ static void exasock_tcp_stats_update(struct exasock_tcp *tcp)
                                 EXASOCK_SOCKTYPE_TCP, &addr);
 }
 
+static inline uint32_t exasock_tcp_get_send_ack(struct exa_tcp_state *s)
+{
+    return (after(s->kernel.send_ack, s->send_ack) ?
+            s->kernel.send_ack : s->send_ack);
+}
+
+static inline void exasock_tcp_catchup_send_ack(struct exa_socket_state *state)
+{
+    struct exa_tcp_state *tcp = &state->p.tcp;
+
+    if (after(tcp->send_ack, tcp->kernel.send_ack))
+    {
+        /* Backup TCP state fields are not going to be updated most of the time
+         * so kernel.send_ack might get overlapped by the lib tracked send_ack.
+         * To prevent it the backup state needs to catch up if left too far
+         * behind.
+         */
+        if ((tcp->send_ack - tcp->kernel.send_ack) > 0x3FFFFFFF)
+        {
+            tcp->kernel.send_ack = tcp->send_ack;
+            tcp->kernel.rwnd = tcp->rwnd;
+        }
+    }
+    else if ((tcp->kernel.send_ack - tcp->send_ack) > 0x3FFFFFFF)
+    {
+        /* Although unlikely, we should assume that application might not poll
+         * receive buffer leaving send_ack not updated for a long time.
+         * Such rare cases get detected here with updates performed to prevent
+         * overlapping.
+         */
+        if (exasock_trylock(&state->rx_lock) == 0)
+        {
+            /* Lock failed, try again next time. More likely though there
+             * will be no need to, since the library has got the rx_lock now
+             * and should make the updates by itself.
+             */
+            return;
+        }
+        tcp->send_ack = tcp->kernel.send_ack;
+        tcp->rwnd = tcp->kernel.rwnd;
+        exasock_unlock(&state->rx_lock);
+    }
+}
+
 static unsigned exasock_tcp_hash(uint32_t local_addr, uint32_t peer_addr,
                                  uint16_t local_port, uint16_t peer_port)
 {
@@ -822,6 +866,15 @@ static int exasock_tcp_conn_process(struct exasock_tcp *tcp,
             }
 
             state->p.tcp.cwnd = cwnd;
+            if (after(ack_seq, state->p.tcp.send_ack))
+            {
+                /* This packet has not been processed by user space yet.
+                 * Kernel needs to store the latest TCP state update then.
+                 */
+                state->p.tcp.kernel.send_ack = ack_seq;
+                state->p.tcp.kernel.rwnd =
+                        ntohs(th->window) << state->p.tcp.wscale;
+            }
 
             tcp->num_dup_acks = 0;
         }
@@ -834,7 +887,7 @@ static int exasock_tcp_conn_process(struct exasock_tcp *tcp,
             uint32_t flight_size, ssthresh, send_seq, send_ack;
 
             send_seq = state->p.tcp.send_seq;
-            send_ack = state->p.tcp.send_ack;
+            send_ack = exasock_tcp_get_send_ack(&state->p.tcp);
 
             /* Adjust cwnd and ssthresh */
             flight_size = send_seq - send_ack;
@@ -1174,7 +1227,8 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     kref_get(&tcp->refcount);
     rcu_read_unlock();
 
-    send_ack = state->p.tcp.send_ack;
+    exasock_tcp_catchup_send_ack(state);
+    send_ack = exasock_tcp_get_send_ack(&state->p.tcp);
     send_seq = state->p.tcp.send_seq;
     tcp_state = state->p.tcp.state;
 
@@ -1281,7 +1335,7 @@ static int exasock_tcp_tx_buffer_get(struct exasock_tcp *tcp, char *data,
                tcp->tx_buffer, (seq_end & TX_BUFFER_MASK));
     }
 
-    if (before(seq, state->p.tcp.send_ack))
+    if (before(seq, exasock_tcp_get_send_ack(&state->p.tcp)))
         return -1;
 
     return 0;

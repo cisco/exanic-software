@@ -59,10 +59,10 @@ struct exa_udp_state
  *   (Must check read_seq after read)
  *
  * tx_lock is needed for:
- * - Updating send_seq and send_ack
+ * - Updating send_seq
  *
  * rx_lock is needed for:
- * - Updating read_seq and recv_seq
+ * - Updating read_seq, recv_seq and send_ack
  * - Reading or updating recv_seg
  */
 
@@ -114,7 +114,17 @@ struct exa_tcp_state
     /* Slow start threshold */
     uint32_t ssthresh;
 
-    uint8_t __reserved2[56];
+    /* Backup TCP state fields updated in kernel in case a packet gets received
+     * which has not been processed by the library yet */
+    struct
+    {
+        /* Next unacknowledged sent sequence number */
+        uint32_t send_ack;
+        /* Receiver window */
+        uint32_t rwnd;
+    } kernel;
+
+    uint8_t __reserved2[52];
 
     /* 192 */
     /* user write-mostly, kernel read-write */

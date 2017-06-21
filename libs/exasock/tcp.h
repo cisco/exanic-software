@@ -41,6 +41,7 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
     uint32_t unacked_len, window_size;
+    uint32_t rwnd, send_ack;
 
     if (state->state != EXA_TCP_ESTABLISHED &&
         state->state != EXA_TCP_CLOSE_WAIT)
@@ -51,8 +52,22 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
 
     *seq = state->send_seq;
 
-    unacked_len = state->send_seq - state->send_ack;
-    window_size = state->rwnd < state->cwnd ? state->rwnd : state->cwnd;
+    if (seq_compare(state->send_ack, state->kernel.send_ack) < 0)
+    {
+        /* Kernel is ahead with acknowledged sequence numbers tracking
+         * (might happen when application does not poll receive buffer for
+         * a while)
+         */
+        send_ack = state->kernel.send_ack;
+        rwnd = state->kernel.rwnd;
+    }
+    else
+    {
+        send_ack = state->send_ack;
+        rwnd = state->rwnd;
+    }
+    unacked_len = state->send_seq - send_ack;
+    window_size = rwnd < state->cwnd ? rwnd : state->cwnd;
 
     if (window_size < unacked_len)
         *len = 0;
@@ -138,7 +153,8 @@ exa_tcp_connect(struct exa_tcp_conn * restrict ctx,
     ctx->ph_csum = csum(NULL, 0, addr_csum + htons(IPPROTO_TCP));
 
     /* Generate initial sequence number */
-    state->send_ack = state->send_seq = exa_tcp_init_seq();
+    state->send_seq = exa_tcp_init_seq();
+    state->send_ack = state->kernel.send_ack = state->send_seq;
 
     state->state = EXA_TCP_SYN_SENT;
 
@@ -169,8 +185,9 @@ exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
 
     ctx->ph_csum = csum(NULL, 0, addr_csum + htons(IPPROTO_TCP));
 
-    state->send_ack = state->send_seq = tcp_state->local_seq;
-    state->rwnd = tcp_state->peer_window;
+    state->send_seq = tcp_state->local_seq;
+    state->send_ack = state->kernel.send_ack = state->send_seq;
+    state->rwnd = state->kernel.rwnd = tcp_state->peer_window;
     state->rmss = tcp_state->peer_mss;
     state->wscale = tcp_state->peer_wscale;
 
@@ -626,6 +643,15 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         /* Got ACK for more of our sent data */
         state->send_ack = ack_seq;
         state->rwnd = (win << state->wscale);
+    }
+    if (seq_compare(state->send_ack, state->kernel.send_ack) < 0)
+    {
+        /* Kernel is ahead with acknowledged sequence numbers tracking
+         * (might happen if application has not been polling receive buffer
+         * for a while)
+         */
+        state->send_ack = state->kernel.send_ack;
+        state->rwnd = state->kernel.rwnd;
     }
 
     if ((flags & TH_RST) && seq_compare(data_seq, state->recv_seq) <= 0)
