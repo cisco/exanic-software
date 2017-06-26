@@ -15,7 +15,7 @@ extern "C" {
 enum
 {
     EXANIC_FILTER_STRING_MAX_LEN = 256,
-    EXANIC_FILTER_SIZE           = 40,
+    EXANIC_FILTER_SIZE           = 44,
 };
 
 /**

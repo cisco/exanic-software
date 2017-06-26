@@ -680,6 +680,8 @@ int check_target_hardware(char *header, exanic_t *regs)
   hw_id = exanic_register_read(regs, REG_EXANIC_INDEX(REG_EXANIC_HW_ID));
   if ((strncmp(header, ";exanic_x4,", 11) == 0) && (hw_id == EXANIC_HW_X4))
     return 0;
+  if ((strncmp(header, ";exanic_x4_firewall", 19) == 0) && (hw_id == EXANIC_HW_X4))
+    return 0;
   if ((strncmp(header, ";exanic_x2,", 11) == 0) && (hw_id == EXANIC_HW_X2))
     return 0;
   if ((strncmp(header, ";exanic_x10,", 12) == 0) && (hw_id == EXANIC_HW_X10))

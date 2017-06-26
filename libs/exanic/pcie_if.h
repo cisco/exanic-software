@@ -48,7 +48,7 @@ enum
     EXANIC_TX_REGION_MAX_NUM_PAGES  = 512,  /* 2M */
 
     /** Number of DWORDs for a filter component. */
-    EXANIC_FILTER_NUM_DWORDS        = 10,   /* 40 bytes */
+    EXANIC_FILTER_NUM_DWORDS        = 11,   /* 44 bytes */
 
     /** The size of an RX chunk including the metadata (in bytes) */
     EXANIC_RX_CHUNK_SIZE            = 128,
