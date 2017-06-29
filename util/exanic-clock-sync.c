@@ -203,8 +203,8 @@ int main(int argc, char *argv[])
         }
         else
         {
-            char *p, *q;
-            char sync_target[16], sync_src[16];
+            char *p, *q, *r;
+            char sync_target[16], sync_src[64];
             int64_t offset = 0;
             int require_exanic_target = 0, maybe_exanic_src = 0;
             int require_phc_target = 0, require_phc_src = 0;
@@ -219,7 +219,18 @@ int main(int argc, char *argv[])
             strncpy(sync_target, argv[i],
                     MIN(sizeof(sync_target) - 1, p - argv[i]));
             q = p + 1;
-            p = strpbrk(q, "+-");
+            r = q;
+            while (*r != '\0')
+            {
+                p = strpbrk(r, "+-");
+                if (p == NULL)
+                    break;
+                r = p + 1;
+                if (*r >= '0' && *r <= '9')
+                    break;
+            }
+            if (*r == '\0')
+                goto usage_error;
             if (p == NULL)
                 p = q + strlen(q);
             strncpy(sync_src, q, MIN(sizeof(sync_src) - 1, p - q));
