@@ -183,6 +183,9 @@ static int exanic_map_info(struct exanic *exanic, struct vm_area_struct *vma)
     struct device *dev = &exanic->pci_dev->dev;
     size_t map_size = vma->vm_end - vma->vm_start;
 
+    if (!exanic->info_page) /* no info page allocated (e.g. unsupported card) */
+        return -EINVAL;
+
     if (vma->vm_flags & VM_WRITE)
         return -EACCES;
 
