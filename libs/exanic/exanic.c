@@ -243,19 +243,19 @@ void exanic_release_handle(exanic_t *exanic)
 
     /* Unmap buffers and free the exanic struct */
     if (exanic->devkit_mem_region != NULL)
-        munmap(exanic->devkit_mem_region, exanic->devkit_mem_size);
+        munmap((void *)exanic->devkit_mem_region, exanic->devkit_mem_size);
     if (exanic->devkit_regs_region != NULL)
-        munmap(exanic->devkit_regs_region, exanic->devkit_regs_size);
+        munmap((void *)exanic->devkit_regs_region, exanic->devkit_regs_size);
     if (exanic->filters != NULL)
-        munmap(exanic->filters, exanic->filters_size);
+        munmap((void *)exanic->filters, exanic->filters_size);
     if (exanic->tx_buffer != NULL)
-        munmap(exanic->tx_buffer, exanic->tx_buffer_size);
+        munmap((void *)exanic->tx_buffer, exanic->tx_buffer_size);
     if (exanic->tx_feedback_slots != NULL)
-        munmap(exanic->tx_feedback_slots,
+        munmap((void *)exanic->tx_feedback_slots,
                 EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE);
     if (exanic->info_page != NULL)
-        munmap(exanic->info_page, EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
-    munmap(exanic->registers, EXANIC_REGS_NUM_PAGES * PAGE_SIZE);
+        munmap((void *)exanic->info_page, EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
+    munmap((void *)exanic->registers, EXANIC_REGS_NUM_PAGES * PAGE_SIZE);
     close(exanic->fd);
 
     free(exanic);
