@@ -150,7 +150,7 @@ static inline void exasock_tcp_stats_fill_info(
     info->pid = task_tgid_nr(current);
     get_task_comm(info->prog_name, current);
     info->fd = fd;
-    info->uid = from_kuid(current_user_ns(), current_uid());
+    info->uid = exasock_current_uid();
 }
 
 static uint8_t exasock_tcp_stats_get_state(struct exasock_stats_sock *stats)

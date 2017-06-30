@@ -82,7 +82,7 @@ static inline void exasock_udp_stats_fill_info(
     info->pid = task_tgid_nr(current);
     get_task_comm(info->prog_name, current);
     info->fd = fd;
-    info->uid = from_kuid(current_user_ns(), current_uid());
+    info->uid = exasock_current_uid();
 }
 
 static void exasock_udp_stats_get_snapshot(struct exasock_stats_sock *stats,

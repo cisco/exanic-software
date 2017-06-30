@@ -3,6 +3,8 @@
  * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
+#include <linux/version.h>
+#include <linux/sched.h>
 #include <net/neighbour.h>
 
 enum exasock_type
@@ -82,6 +84,12 @@ struct exasock_stats_sock
     struct exasock_stats_sock_ops  ops;
     struct list_head               node;
 };
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
+#define exasock_current_uid()  from_kuid(current_user_ns(), current_uid())
+#else
+#define exasock_current_uid()  current_uid()
+#endif
 
 /* Return 1 if lock successful, 0 if unsuccessful */
 static inline int exasock_trylock(volatile uint32_t *flag)
