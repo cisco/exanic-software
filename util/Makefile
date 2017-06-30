@@ -36,12 +36,15 @@ exanic-clock-check: exanic-clock-check.c
 exasock-stat: exasock-stat.c
 ifneq ($(CFLAGS_LIBNL3),)
 	$(CC) $(EXASOCK_STAT_CFLAGS) $^ -o $@ $(EXASOCK_STAT_LDLIBS)
-else ifeq (${shell pkg-config --version},)
-	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package pkg-config))
-else ifneq (${wildcard /etc/debian_version},)
-	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl-3-dev))
 else
-	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl3-devel))
+ifeq (${shell pkg-config --version},)
+	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package pkg-config).)
+else ifneq (${wildcard /etc/debian_version},)
+	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl-3-dev).)
+else
+	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl3-devel).)
+endif
+	$(info ${shell echo "         If exasock-stat is needed, please install the required package and rebuild."})
 endif
 
 install: all
