@@ -374,12 +374,8 @@ static inline bool
 exa_tcp_tx_buffer_empty(struct exa_socket * restrict sock)
 {
     struct exa_tcp_state * restrict tcp = &sock->state->p.tcp;
-    uint32_t send_ack;
 
-    send_ack = seq_compare(tcp->send_ack, tcp->kernel.send_ack) >= 0 ?
-               tcp->send_ack : tcp->kernel.send_ack;
-
-    return (send_ack == tcp->send_seq);
+    return (tcp->send_ack == tcp->send_seq);
 }
 
 #endif /* TCP_BUFFER_H_23FE16BB58874EA5A781BFA0F29B324A */
