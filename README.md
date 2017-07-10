@@ -26,7 +26,7 @@ Repository Contents
 - **scripts** - exasock wrapper script
 - **perf_test** - tools for performing performance tests with ExaNICs as well as with devices from other vendors
 - **examples** 
-	- **exanic** - example that demonstrates advanced usage with preloaded frames
+	- **exanic** - advanced usage with preloaded frames and a demonstration of a high resolution timing/measurement application
 	- **exasock** - exasock related examples (multicast receive, timestamping, extensions API)
 	- **filters** - filtering and traffic steering examples
 	- **devkit** - software examples that are paired with the Firmware Development Kit (FDK)
