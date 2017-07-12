@@ -907,6 +907,9 @@ int main(int argc, char *argv[])
     if (err)
     {
         fprintf(stderr, "netlink initialization failed: %s\n", strerror(-err));
+        if (err == -EADDRNOTAVAIL)
+            fprintf(stderr,
+                    "Please make sure that exasock kernel module (ver. @EXANIC_VERSION@ or newer) is loaded.\n");
         return EXIT_FAILURE;
     }
 
