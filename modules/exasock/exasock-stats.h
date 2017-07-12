@@ -107,6 +107,10 @@ struct exasock_stats_sock
 #define exasock_current_uid()  current_uid()
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 7, 0)
+#define nla_put_u64_64bit(msg, attr, val, pad)  nla_put_u64(msg, attr, val)
+#endif
+
 int __init exasock_stats_init(void);
 void exasock_stats_exit(void);
 void exasock_stats_socket_add(enum exasock_socktype type,
