@@ -13,6 +13,12 @@
 
 #define EXASOCK_STAT_BUF_SIZE 24
 
+struct exasock_stat_sock_id
+{
+    uint32_t pid;
+    uint32_t fd;
+};
+
 struct exasock_stat_config
 {
     bool show_connected;
@@ -21,6 +27,8 @@ struct exasock_stat_config
     bool show_udp;
     bool show_more;
     bool show_tcp_diags;
+    bool single_socket;
+    struct exasock_stat_sock_id sock_id;
 };
 
 struct exasock_stat_genl
@@ -74,7 +82,7 @@ static inline char * print_sock_state(enum exasock_genl_conn_state state)
         return "TIME-WAIT";
     case EXASOCK_GENL_CONNSTATE_NONE:
     default:
-        return "";
+        return "-";
     }
 }
 
@@ -105,7 +113,7 @@ static inline char * print_pid_fd(char buf[], uint32_t pid, uint32_t fd)
     return buf;
 }
 
-static void print_socket_info_internal_conn(struct nlattr *attr[])
+static void print_socket_info_internal_conn(struct nlattr *attr[], bool single)
 {
     uint64_t tx_bytes;
     uint64_t tx_acked_bytes;
@@ -122,6 +130,7 @@ static void print_socket_info_internal_conn(struct nlattr *attr[])
     uint16_t mss_local;
     uint32_t cwnd;
     uint32_t ssthresh;
+    int indent;
 
     tx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINTC_TX_BYTES]);
     tx_acked_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINTC_TX_ACK_BYTES]);
@@ -139,37 +148,38 @@ static void print_socket_info_internal_conn(struct nlattr *attr[])
     cwnd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_CWND]);
     ssthresh = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_SSTHRESH]);
 
-    printf(" internal diagnostics:\n");
-    printf("     Rx Bytes: %llu (Delivered: %llu)\n",
+    indent = single ? 4 : 1;
+    printf("%*cinternal diagnostics:\n", indent, ' ');
+    printf("%*c    Rx Bytes: %llu (Delivered: %llu)\n", indent, ' ',
            (unsigned long long)rx_bytes,
            (unsigned long long)rx_deliv_bytes);
-    printf("     Tx Bytes: %llu (Acked: %llu)\n",
+    printf("%*c    Tx Bytes: %llu (Acked: %llu)\n", indent, ' ',
            (unsigned long long)tx_bytes, (unsigned long long)tx_acked_bytes);
-    printf("     Retransmitted Segments: %u (Fast Retransmit: %u, Timeouts: %u)\n",
-           (retr_segs_f + retr_segs_t), retr_segs_f, retr_segs_t);
-    printf("     Retransmitted Bytes: %u\n", retr_bytes);
-    printf("     Window (peer,local): %u,%u  Scale (peer,local): %u,%u\n",
-           window_peer, window_local, wscale_peer, wscale_local);
-    printf("     Congestion Window: %u  Slow Start Threshold: %u  MSS (Tx,Rx): %u,%u\n",
-           cwnd, ssthresh, mss_peer, mss_local);
-    printf("\n");
+    printf("%*c    Retransmitted Segments: %u (Fast Retransmit: %u, Timeouts: %u)\n",
+           indent, ' ', (retr_segs_f + retr_segs_t), retr_segs_f, retr_segs_t);
+    printf("%*c    Retransmitted Bytes: %u\n", indent, ' ', retr_bytes);
+    printf("%*c    Window (peer,local): %u,%u  Scale (peer,local): %u,%u\n",
+           indent, ' ', window_peer, window_local, wscale_peer, wscale_local);
+    printf("%*c    Congestion Window: %u  Slow Start Threshold: %u  MSS (Tx,Rx): %u,%u\n",
+           indent, ' ', cwnd, ssthresh, mss_peer, mss_local);
 }
 
-static void print_socket_info_internal_listen(struct nlattr *attr[])
+static void print_socket_info_internal_listen(struct nlattr *attr[], bool single)
 {
     uint32_t reqs_recv;
     uint32_t reqs_estab;
+    int indent;
 
     reqs_recv = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTL_REQS_RCV]);
     reqs_estab = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTL_REQS_ESTAB]);
 
-    printf(" internal diagnostics:\n");
-    printf("     Connection Requests: %u (Established: %u)\n",
+    indent = single ? 4 : 1;
+    printf("%*cinternal diagnostics:\n", indent, ' ');
+    printf("%*c    Connection Requests: %u (Established: %u)\n", indent, ' ',
            reqs_recv, reqs_estab);
-    printf("\n");
 }
 
-static void print_socket_info_extend(struct nlattr *attr[])
+static void print_socket_info_extend(struct nlattr *attr[], bool single)
 {
     char buf_u[EXASOCK_STAT_BUF_SIZE];
     char buf_p[EXASOCK_STAT_BUF_SIZE];
@@ -179,18 +189,30 @@ static void print_socket_info_extend(struct nlattr *attr[])
     char *prog_name;
 
     uid = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_UID]);
-    pid = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_PID]);
-    fd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_FD]);
     prog_name = nla_get_string(attr[EXASOCK_GENL_A_SKINFOEXT_PROG]);
 
-    printf(" | %-12s | %-10s | %s",
-           print_username(buf_u, uid),      /* User */
-           print_pid_fd(buf_p, pid, fd),    /* PID:FD */
-           prog_name);                      /* Program */
+    if (single)
+    {
+        /* Single socket format */
+        printf("    User: %s  Program: %s\n",
+               print_username(buf_u, uid), prog_name);
+    }
+    else
+    {
+        /* Socket list format */
+        pid = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_PID]);
+        fd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOEXT_FD]);
+
+        printf(" | %-12s | %-10s | %s",
+               print_username(buf_u, uid),      /* User */
+               print_pid_fd(buf_p, pid, fd),    /* PID:FD */
+               prog_name);                      /* Program */
+    }
 }
 
 static void print_socket_info(struct nlattr *attr[],
-                              enum exasock_genl_sock_type sock_type)
+                              enum exasock_genl_sock_type sock_type,
+                              struct exasock_stat_sock_id *sock_id)
 {
     char buf_la[EXASOCK_STAT_BUF_SIZE];
     char buf_pa[EXASOCK_STAT_BUF_SIZE];
@@ -210,13 +232,215 @@ static void print_socket_info(struct nlattr *attr[],
     send_q = nla_get_u32(attr[EXASOCK_GENL_A_SKINFO_SEND_Q]);
     state = nla_get_u8(attr[EXASOCK_GENL_A_SKINFO_STATE]);
 
-    printf(" %-5s | %-8i | %-8i | %-24s | %-24s | %-12s",
-           print_sock_proto(sock_type),                     /* Proto */
-           recv_q,                                          /* Recv-Q */
-           send_q,                                          /* Send-Q */
-           print_sock_addr(buf_la, local_ip, local_port),   /* Local Address */
-           print_sock_addr(buf_pa, peer_ip, peer_port),     /* Foreign Address */
-           print_sock_state(state));                        /* State */
+    if (sock_id)
+    {
+        /* Single socket format */
+        printf("Socket (PID:FD): %i:%i\n", sock_id->pid, sock_id->fd);
+        printf("    Proto: %s  State: %s\n",
+               print_sock_proto(sock_type), print_sock_state(state));
+        printf("    Local Address: %s\n",
+               print_sock_addr(buf_la, local_ip, local_port));
+        printf("    Foreign Address: %s\n",
+               print_sock_addr(buf_pa, peer_ip, peer_port));
+        printf("    Recv-Q: %i", recv_q);
+        if (sock_type == EXASOCK_GENL_SOCKTYPE_TCP_CONN)
+            printf("  Send-Q: %i", send_q);
+        printf("\n");
+    }
+    else
+    {
+        /* Socket list format */
+        printf(" %-5s | %-8i | %-8i | %-24s | %-24s | %-12s",
+               print_sock_proto(sock_type),                     /* Proto */
+               recv_q,                                          /* Recv-Q */
+               send_q,                                          /* Send-Q */
+               print_sock_addr(buf_la, local_ip, local_port),   /* Local Address */
+               print_sock_addr(buf_pa, peer_ip, peer_port),     /* Foreign Address */
+               print_sock_state(state));                        /* State */
+    }
+}
+
+static int get_single_socket_cb(struct nl_msg *msg, void *arg)
+{
+    struct exasock_stat_sock_id *sock_id = arg;
+    enum exasock_genl_sock_type sock_type;
+    struct nlattr *attr[EXASOCK_GENL_A_MAX + 1];
+    struct nlattr *attr_sock[EXASOCK_GENL_A_SKINFO_MAX + 1];
+    struct nlattr *attr_sockext[EXASOCK_GENL_A_SKINFOEXT_MAX + 1];
+    struct nlattr *attr_sockintc[EXASOCK_GENL_A_SKINFOINTC_MAX + 1];
+    struct nlattr *attr_sockintl[EXASOCK_GENL_A_SKINFOINTL_MAX + 1];
+    int err;
+
+    err = genlmsg_parse(nlmsg_hdr(msg), 0, attr, EXASOCK_GENL_A_MAX, NULL);
+    if (err)
+    {
+        fprintf(stderr, "failed to parse netlink message (%s: err=%i)\n",
+                __func__, err);
+        return NL_SKIP;
+    }
+
+    if (!attr[EXASOCK_GENL_A_SOCK_PID])
+    {
+        fprintf(stderr, "netlink message error (%s: socket PID not found)\n",
+                __func__);
+        return NL_SKIP;
+    }
+    if (!attr[EXASOCK_GENL_A_SOCK_FD])
+    {
+        fprintf(stderr, "netlink message error (%s: socket FD not found)\n",
+                __func__);
+        return NL_SKIP;
+    }
+
+    if (nla_get_u32(attr[EXASOCK_GENL_A_SOCK_PID]) != sock_id->pid)
+    {
+        fprintf(stderr, "netlink message error (%s: socket PID mismatch)\n",
+                __func__);
+        return NL_SKIP;
+    }
+    if (nla_get_u32(attr[EXASOCK_GENL_A_SOCK_FD]) != sock_id->fd)
+    {
+        fprintf(stderr, "netlink message error (%s: socket FD mismatch)\n",
+                __func__);
+        return NL_SKIP;
+    }
+
+    if (!attr[EXASOCK_GENL_A_SINGLE_SOCK])
+    {
+        /* This is not an error but legitimate notification that such a socket
+         * has not been found.
+         */
+        printf("Socket %i:%i not found (not an active accelerated socket)\n\n",
+               sock_id->pid, sock_id->fd);
+        return NL_SKIP;
+    }
+
+    if (!attr[EXASOCK_GENL_A_SOCK_TYPE])
+    {
+        fprintf(stderr, "netlink message error (%s: socket type not found)\n",
+                __func__);
+        return NL_SKIP;
+    }
+
+    sock_type = nla_get_u8(attr[EXASOCK_GENL_A_SOCK_TYPE]);
+
+    err = nla_parse_nested(attr_sock, EXASOCK_GENL_A_SKINFO_MAX,
+                           attr[EXASOCK_GENL_A_SINGLE_SOCK], NULL);
+    if (err)
+    {
+        fprintf(stderr,
+                "failed to parse netlink nested attributes (%s: err=%i)\n",
+                __func__, err);
+        return NL_SKIP;
+    }
+    print_socket_info(attr_sock, sock_type, sock_id);
+
+    if (attr_sock[EXASOCK_GENL_A_SKINFO_EXTENDED])
+    {
+        err = nla_parse_nested(attr_sockext, EXASOCK_GENL_A_SKINFOEXT_MAX,
+                               attr_sock[EXASOCK_GENL_A_SKINFO_EXTENDED],
+                               NULL);
+        if (err)
+        {
+            fprintf(stderr,
+                    "failed to parse netlink nested attributes (%s: err=%i)\n",
+                    __func__, err);
+            return NL_SKIP;
+        }
+        print_socket_info_extend(attr_sockext, true);
+    }
+
+    if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_CONN])
+    {
+        err = nla_parse_nested(attr_sockintc, EXASOCK_GENL_A_SKINFOINTC_MAX,
+                               attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_CONN],
+                               NULL);
+        if (err)
+        {
+            fprintf(stderr,
+                    "failed to parse netlink nested attributes (%s: err=%i)\n",
+                    __func__, err);
+            return NL_SKIP;
+        }
+        print_socket_info_internal_conn(attr_sockintc, true);
+    }
+    else if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_LISTEN])
+    {
+        err = nla_parse_nested(attr_sockintl, EXASOCK_GENL_A_SKINFOINTL_MAX,
+                               attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_LISTEN],
+                               NULL);
+        if (err)
+        {
+            fprintf(stderr,
+                    "failed to parse netlink nested attributes (%s: err=%i)\n",
+                    __func__, err);
+            return NL_SKIP;
+        }
+        print_socket_info_internal_listen(attr_sockintl, true);
+    }
+
+    printf("\n");
+
+    return NL_SKIP;
+}
+
+static int get_single_socket(struct exasock_stat_sock_id sock_id,
+                             bool extended, bool internal)
+{
+    struct nl_msg *msg;
+    int ret;
+
+    msg = nlmsg_alloc();
+    if (msg == NULL)
+    {
+        fprintf(stderr, "failed to allocate netlink message (%s)\n", __func__);
+        return -ENOMEM;
+    }
+
+    genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ,
+            exasock_genl.family, 0, 0,
+            EXASOCK_GENL_C_GET_SOCKET, 0);
+
+    NLA_PUT_U32(msg, EXASOCK_GENL_A_SOCK_PID, sock_id.pid);
+    NLA_PUT_U32(msg, EXASOCK_GENL_A_SOCK_FD, sock_id.fd);
+    if (extended)
+        NLA_PUT_FLAG(msg, EXASOCK_GENL_A_SOCK_EXTENDED);
+    if (internal)
+        NLA_PUT_FLAG(msg, EXASOCK_GENL_A_SOCK_INTERNAL);
+
+    ret = nl_send_auto(exasock_genl.sock, msg);
+    nlmsg_free(msg);
+    if (ret < 0)
+    {
+        fprintf(stderr, "failed to send netlink message (%s): %s\n",
+                __func__, nl_geterror(ret));
+        return -ECOMM;
+    }
+
+    ret = nl_socket_modify_cb(exasock_genl.sock, NL_CB_VALID, NL_CB_CUSTOM,
+                              get_single_socket_cb, &sock_id);
+    if (ret != 0)
+    {
+        fprintf(stderr, "failed to set netlink callback (%s): %s\n",
+                __func__, nl_geterror(ret));
+        return -ECANCELED;
+    }
+
+    ret = nl_recvmsgs_default(exasock_genl.sock);
+    if (ret != 0)
+    {
+        fprintf(stderr, "failed to receive netlink reply (%s): %s\n",
+                __func__, nl_geterror(ret));
+        return -ENODATA;
+    }
+
+    return 0;
+
+nla_put_failure:
+    fprintf(stderr, "failed to add attribute to netlink message (%s)\n",
+            __func__);
+    nlmsg_free(msg);
+    return -ENOBUFS;
 }
 
 static int get_sockets_cb(struct nl_msg *msg, void *arg)
@@ -271,7 +495,7 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
                     __func__, err);
             return NL_SKIP;
         }
-        print_socket_info(attr_sock, *sock_type);
+        print_socket_info(attr_sock, *sock_type, NULL);
 
         if (attr_sock[EXASOCK_GENL_A_SKINFO_EXTENDED])
         {
@@ -285,7 +509,7 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
                         __func__, err);
                 return NL_SKIP;
             }
-            print_socket_info_extend(attr_sockext);
+            print_socket_info_extend(attr_sockext, false);
         }
 
         printf("\n");
@@ -302,7 +526,8 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
                         __func__, err);
                 return NL_SKIP;
             }
-            print_socket_info_internal_conn(attr_sockintc);
+            print_socket_info_internal_conn(attr_sockintc, false);
+            printf("\n");
         }
         else if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_LISTEN])
         {
@@ -316,9 +541,9 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
                         __func__, err);
                 return NL_SKIP;
             }
-            print_socket_info_internal_listen(attr_sockintl);
+            print_socket_info_internal_listen(attr_sockintl, false);
+            printf("\n");
         }
-
     }
 
     return NL_SKIP;
@@ -422,6 +647,18 @@ static void cleanup_genl(void)
         nl_socket_free(exasock_genl.sock);
 }
 
+static void show_socket(struct exasock_stat_config *cfg)
+{
+    int err;
+
+    err = get_single_socket(cfg->sock_id, cfg->show_more,
+                            cfg->show_tcp_diags);
+    if (err)
+        fprintf(stderr, "failed to get socket %u:%u from exasock: %s\n",
+                cfg->sock_id.pid, cfg->sock_id.fd, strerror(-err));
+    return;
+}
+
 static void show_tcp(struct exasock_stat_config *cfg)
 {
     int err;
@@ -495,12 +732,49 @@ static void show_stats(struct exasock_stat_config *cfg)
     printf("\n");
 }
 
+static int parse_arg_socket(char *arg, struct exasock_stat_config *cfg)
+{
+    unsigned long int val;
+    char *p, *endp;
+
+    p = strtok(arg, ":");
+    if (p == NULL)
+    {
+        fprintf(stderr, "invalid socket identifier\n");
+        return -EINVAL;
+    }
+    val = strtoul(p, &endp, 0);
+    if (*p == '\0' || *endp != '\0' || val > UINT32_MAX)
+    {
+        fprintf(stderr, "invalid PID value in socket identifier\n");
+        return -EINVAL;
+    }
+    cfg->sock_id.pid = (uint32_t)val;
+
+    p = strtok(NULL, "");
+    if (p == NULL)
+    {
+        fprintf(stderr, "invalid socket identifier\n");
+        return -EINVAL;
+    }
+    val = strtoul(p, &endp, 0);
+    if (*p == '\0' || *endp != '\0' || val > UINT32_MAX)
+    {
+        fprintf(stderr, "invalid FD value in socket identifier\n");
+        return -EINVAL;
+    }
+    cfg->sock_id.fd = (uint32_t)val;
+
+    return 0;
+}
+
 static void print_usage(char *name)
 {
     fprintf(stderr, "\nexasock-stat (ExaSock version @EXANIC_VERSION@)\n");
     fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n");
     fprintf(stderr, "\nUsage:\n");
     fprintf(stderr, "   %s [-cltuei]\n", name);
+    fprintf(stderr, "   %s -s <socket> [-ei]\n", name);
     fprintf(stderr, "   %s [-h]\n", name);
     fprintf(stderr, "    -c, --connected    display connected sockets (default: all)\n");
     fprintf(stderr, "    -l, --listening    display listening server sockets\n");
@@ -508,6 +782,9 @@ static void print_usage(char *name)
     fprintf(stderr, "    -u, --udp          display UDP sockets\n");
     fprintf(stderr, "    -e, --extend       display more information (user, program, fd)\n");
     fprintf(stderr, "    -i, --internal     display internal TCP diagnostics\n");
+    fprintf(stderr, "    -s, --socket       specify socket to display information about\n");
+    fprintf(stderr, "                       (<socket> defined as PID:FD, where PID is the process ID\n");
+    fprintf(stderr, "                       and FD is the file descriptor)\n");
     fprintf(stderr, "    -h, --help         display this usage info\n");
     fprintf(stderr, "\nOutput:\n");
     fprintf(stderr, "   Proto:\n");
@@ -542,6 +819,7 @@ static struct option longopts[] =
     {"udp",       0, 0, 'u'},
     {"extend",    0, 0, 'e'},
     {"internal",  0, 0, 'i'},
+    {"socket",    0, 0, 's'},
     {"help",      0, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -559,8 +837,10 @@ int main(int argc, char *argv[])
     cfg.show_udp = false;
     cfg.show_more = false;
     cfg.show_tcp_diags = false;
+    cfg.single_socket = false;
+    cfg.sock_id.pid = cfg.sock_id.fd = 0;
 
-    while ((opt = getopt_long(argc, argv, ":cltueih", longopts, NULL)) != -1)
+    while ((opt = getopt_long(argc, argv, ":cltueis:h", longopts, NULL)) != -1)
     {
         switch (opt)
         {
@@ -582,26 +862,40 @@ int main(int argc, char *argv[])
         case 'i':
             cfg.show_tcp_diags = true;
             break;
+        case 's':
+            err = parse_arg_socket(optarg, &cfg);
+            if (err)
+                goto usage_error;
+            cfg.single_socket = true;
+            break;
         case 'h':
             print_usage(argv[0]);
             return EXIT_SUCCESS;
         case '?':
         default:
-            print_usage(argv[0]);
-            return EXIT_FAILURE;
+            goto usage_error;
         }
     }
 
+    /* validate options */
+    if (cfg.single_socket)
+        if (cfg.show_connected || cfg.show_listening ||
+            cfg.show_tcp || cfg.show_udp)
+            goto usage_error;
+
     /* set not configured options to defaults */
-    if (!cfg.show_connected && !cfg.show_listening)
+    if (!cfg.single_socket)
     {
-        cfg.show_connected = true;
-        cfg.show_listening = true;
-    }
-    if (!cfg.show_tcp && !cfg.show_udp)
-    {
-        cfg.show_tcp = true;
-        cfg.show_udp = true;
+        if (!cfg.show_connected && !cfg.show_listening)
+        {
+            cfg.show_connected = true;
+            cfg.show_listening = true;
+        }
+        if (!cfg.show_tcp && !cfg.show_udp)
+        {
+            cfg.show_tcp = true;
+            cfg.show_udp = true;
+        }
     }
 
     err = init_genl();
@@ -611,9 +905,16 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    show_stats(&cfg);
+    if (cfg.single_socket)
+        show_socket(&cfg);
+    else
+        show_stats(&cfg);
 
     cleanup_genl();
 
     return EXIT_SUCCESS;
+
+usage_error:
+    print_usage(argv[0]);
+    return EXIT_FAILURE;
 }

@@ -46,6 +46,7 @@ enum exasock_genl_conn_state
 enum
 {
     EXASOCK_GENL_C_GET_SOCKLIST,
+    EXASOCK_GENL_C_GET_SOCKET,
 
     __EXASOCK_GENL_C_MAX,
 };
@@ -59,7 +60,10 @@ enum
     EXASOCK_GENL_A_SOCK_TYPE,       /* u8 (enum exasock_genl_sock_type) */
     EXASOCK_GENL_A_SOCK_EXTENDED,   /* flag */
     EXASOCK_GENL_A_SOCK_INTERNAL,   /* flag */
+    EXASOCK_GENL_A_SOCK_PID,        /* u32 */
+    EXASOCK_GENL_A_SOCK_FD,         /* u32 */
     EXASOCK_GENL_A_LIST_SOCK,       /* nest */
+    EXASOCK_GENL_A_SINGLE_SOCK,     /* nest */
 
     __EXASOCK_GENL_A_MAX,
 };

@@ -11,7 +11,10 @@ enum exasock_socktype
     EXASOCK_SOCKTYPE_TCP,
     EXASOCK_SOCKTYPE_UDP,
     EXASOCK_SOCKTYPE_UDP_CONN,
+
+    __EXASOCK_SOCKTYPE_MAX,
 };
+#define EXASOCK_SOCKTYPE_MAX (__EXASOCK_SOCKTYPE_MAX - 1)
 
 struct exasock_stats_sock_snapshot_brf
 {
@@ -47,10 +50,21 @@ struct exasock_stats_sock_snapshot_intlis
     uint32_t    reqs_estab;
 };
 
-union exasock_stats_sock_snapshot_int
+enum exasock_stats_sock_snapshotint_contents
 {
-    struct exasock_stats_sock_snapshot_intconn conn;
-    struct exasock_stats_sock_snapshot_intlis listen;
+    EXASOCK_STATS_SOCK_SSINT_NONE,
+    EXASOCK_STATS_SOCK_SSINT_CONN,
+    EXASOCK_STATS_SOCK_SSINT_LISTEN,
+};
+
+struct exasock_stats_sock_snapshot_int
+{
+    enum exasock_stats_sock_snapshotint_contents contents;
+    union
+    {
+        struct exasock_stats_sock_snapshot_intconn conn;
+        struct exasock_stats_sock_snapshot_intlis listen;
+    } c;
 };
 
 struct exasock_stats_sock_addr
@@ -76,7 +90,7 @@ struct exasock_stats_sock_ops
     uint8_t (*get_state)(struct exasock_stats_sock *sk_stats);
     void    (*get_snapshot)(struct exasock_stats_sock *sk_stats,
                             struct exasock_stats_sock_snapshot_brf *ssbrf,
-                            union exasock_stats_sock_snapshot_int *ssint);
+                            struct exasock_stats_sock_snapshot_int *ssint);
 };
 
 struct exasock_stats_sock

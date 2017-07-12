@@ -335,17 +335,30 @@ static void exasock_tcp_stats_get_snapshot_listen(struct exasock_tcp *tcp,
 
 static void exasock_tcp_stats_get_snapshot(struct exasock_stats_sock *stats,
                                  struct exasock_stats_sock_snapshot_brf *ssbrf,
-                                 union exasock_stats_sock_snapshot_int *ssint)
+                                 struct exasock_stats_sock_snapshot_int *ssint)
 {
     struct exasock_tcp *tcp = stats_to_tcp(stats);
     struct exa_tcp_state *tcp_st = &tcp->user_page->p.tcp;
+    void *ssintc = NULL;
 
     if (tcp_st->state == EXA_TCP_LISTEN)
-        exasock_tcp_stats_get_snapshot_listen(tcp, ssbrf, &ssint->listen,
-                                              tcp_st);
+    {
+        if (ssint != NULL)
+        {
+            ssint->contents = EXASOCK_STATS_SOCK_SSINT_LISTEN;
+            ssintc = &ssint->c.listen;
+        }
+        exasock_tcp_stats_get_snapshot_listen(tcp, ssbrf, ssintc, tcp_st);
+    }
     else
-        exasock_tcp_stats_get_snapshot_conn(tcp, ssbrf, &ssint->conn,
-                                            tcp_st);
+    {
+        if (ssint != NULL)
+        {
+            ssint->contents = EXASOCK_STATS_SOCK_SSINT_CONN;
+            ssintc = &ssint->c.conn;
+        }
+        exasock_tcp_stats_get_snapshot_conn(tcp, ssbrf, ssintc, tcp_st);
+    }
 }
 
 static void exasock_tcp_stats_init(struct exasock_tcp *tcp, int fd)
