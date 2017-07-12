@@ -105,7 +105,7 @@ static inline char * print_pid_fd(char buf[], uint32_t pid, uint32_t fd)
     return buf;
 }
 
-static void print_socket_info_int(struct nlattr *attr[])
+static void print_socket_info_internal_conn(struct nlattr *attr[])
 {
     uint64_t tx_bytes;
     uint64_t tx_acked_bytes;
@@ -123,21 +123,21 @@ static void print_socket_info_int(struct nlattr *attr[])
     uint32_t cwnd;
     uint32_t ssthresh;
 
-    tx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_TX_BYTES]);
-    tx_acked_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_TX_ACK_BYTES]);
-    rx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_RX_BYTES]);
-    rx_deliv_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_RX_DLVR_BYTES]);
-    retr_segs_f = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_FAST]);
-    retr_segs_t = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_TO]);
-    retr_bytes = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_RETRANS_BYTES]);
-    wscale_peer = nla_get_u8(attr[EXASOCK_GENL_A_SKINFOINT_PEER_WSCALE]);
-    wscale_local = nla_get_u8(attr[EXASOCK_GENL_A_SKINFOINT_LOCAL_WSCALE]);
-    window_peer = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_PEER_WIN]);
-    window_local = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_LOCAL_WIN]);
-    mss_peer = nla_get_u16(attr[EXASOCK_GENL_A_SKINFOINT_PEER_MSS]);
-    mss_local = nla_get_u16(attr[EXASOCK_GENL_A_SKINFOINT_LOCAL_MSS]);
-    cwnd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_CWND]);
-    ssthresh = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_SSTHRESH]);
+    tx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINTC_TX_BYTES]);
+    tx_acked_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINTC_TX_ACK_BYTES]);
+    rx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINTC_RX_BYTES]);
+    rx_deliv_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINTC_RX_DLVR_BYTES]);
+    retr_segs_f = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_RETRANS_SEGS_FAST]);
+    retr_segs_t = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_RETRANS_SEGS_TO]);
+    retr_bytes = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_RETRANS_BYTES]);
+    wscale_peer = nla_get_u8(attr[EXASOCK_GENL_A_SKINFOINTC_PEER_WSCALE]);
+    wscale_local = nla_get_u8(attr[EXASOCK_GENL_A_SKINFOINTC_LOCAL_WSCALE]);
+    window_peer = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_PEER_WIN]);
+    window_local = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_LOCAL_WIN]);
+    mss_peer = nla_get_u16(attr[EXASOCK_GENL_A_SKINFOINTC_PEER_MSS]);
+    mss_local = nla_get_u16(attr[EXASOCK_GENL_A_SKINFOINTC_LOCAL_MSS]);
+    cwnd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_CWND]);
+    ssthresh = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTC_SSTHRESH]);
 
     printf(" internal diagnostics:\n");
     printf("     Rx Bytes: %llu (Delivered: %llu)\n",
@@ -152,6 +152,20 @@ static void print_socket_info_int(struct nlattr *attr[])
            window_peer, window_local, wscale_peer, wscale_local);
     printf("     Congestion Window: %u  Slow Start Threshold: %u  MSS (Tx,Rx): %u,%u\n",
            cwnd, ssthresh, mss_peer, mss_local);
+    printf("\n");
+}
+
+static void print_socket_info_internal_listen(struct nlattr *attr[])
+{
+    uint32_t reqs_recv;
+    uint32_t reqs_estab;
+
+    reqs_recv = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTL_REQS_RCV]);
+    reqs_estab = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINTL_REQS_ESTAB]);
+
+    printf(" internal diagnostics:\n");
+    printf("     Connection Requests: %u (Established: %u)\n",
+           reqs_recv, reqs_estab);
     printf("\n");
 }
 
@@ -212,7 +226,8 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
     struct nlattr *attr_sockelem;
     struct nlattr *attr_sock[EXASOCK_GENL_A_SKINFO_MAX + 1];
     struct nlattr *attr_sockext[EXASOCK_GENL_A_SKINFOEXT_MAX + 1];
-    struct nlattr *attr_sockint[EXASOCK_GENL_A_SKINFOINT_MAX + 1];
+    struct nlattr *attr_sockintc[EXASOCK_GENL_A_SKINFOINTC_MAX + 1];
+    struct nlattr *attr_sockintl[EXASOCK_GENL_A_SKINFOINTL_MAX + 1];
     int i;
     int err;
 
@@ -275,10 +290,10 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
 
         printf("\n");
 
-        if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERNAL])
+        if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_CONN])
         {
-            err = nla_parse_nested(attr_sockint, EXASOCK_GENL_A_SKINFOINT_MAX,
-                                   attr_sock[EXASOCK_GENL_A_SKINFO_INTERNAL],
+            err = nla_parse_nested(attr_sockintc, EXASOCK_GENL_A_SKINFOINTC_MAX,
+                                   attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_CONN],
                                    NULL);
             if (err)
             {
@@ -287,7 +302,21 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
                         __func__, err);
                 return NL_SKIP;
             }
-            print_socket_info_int(attr_sockint);
+            print_socket_info_internal_conn(attr_sockintc);
+        }
+        else if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_LISTEN])
+        {
+            err = nla_parse_nested(attr_sockintl, EXASOCK_GENL_A_SKINFOINTL_MAX,
+                                   attr_sock[EXASOCK_GENL_A_SKINFO_INTERN_LISTEN],
+                                   NULL);
+            if (err)
+            {
+                fprintf(stderr,
+                        "failed to parse netlink nested attributes (%s: err=%i)\n",
+                        __func__, err);
+                return NL_SKIP;
+            }
+            print_socket_info_internal_listen(attr_sockintl);
         }
 
     }
@@ -400,7 +429,7 @@ static void show_tcp(struct exasock_stat_config *cfg)
     if (cfg->show_listening)
     {
         err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_LISTEN,
-                          cfg->show_more, false);
+                          cfg->show_more, cfg->show_tcp_diags);
         if (err)
             goto get_sockets_failure;
     }

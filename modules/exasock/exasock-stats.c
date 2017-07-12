@@ -166,59 +166,84 @@ static const struct nla_policy exasock_genl_policy[EXASOCK_GENL_A_MAX + 1] =
     [EXASOCK_GENL_A_LIST_SOCK]      = { .type = NLA_NESTED },
 };
 
-static inline int exasock_genl_msg_set_sockelem_intern(struct sk_buff *msg,
-                                 struct exasock_stats_sock_snapshot_int *ssint)
+static inline int exasock_genl_msg_set_sockelem_intconn(struct sk_buff *msg,
+                                 struct exasock_stats_sock_snapshot_intconn *ss)
 {
     struct nlattr *attr;
 
-    attr = nla_nest_start(msg, EXASOCK_GENL_A_SKINFO_INTERNAL);
+    attr = nla_nest_start(msg, EXASOCK_GENL_A_SKINFO_INTERN_CONN);
     if (attr == NULL)
         return -EMSGSIZE;
 
-    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_TX_BYTES,
-                          ssint->tx_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINTC_TX_BYTES,
+                          ss->tx_bytes, EXASOCK_GENL_A_SKINFOINTC_PAD))
         goto err_nla_put;
-    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_TX_ACK_BYTES,
-                          ssint->tx_acked_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINTC_TX_ACK_BYTES,
+                          ss->tx_acked_bytes, EXASOCK_GENL_A_SKINFOINTC_PAD))
         goto err_nla_put;
-    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_RX_BYTES,
-                          ssint->rx_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINTC_RX_BYTES,
+                          ss->rx_bytes, EXASOCK_GENL_A_SKINFOINTC_PAD))
         goto err_nla_put;
-    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_RX_DLVR_BYTES,
-                          ssint->rx_deliv_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINTC_RX_DLVR_BYTES,
+                          ss->rx_deliv_bytes, EXASOCK_GENL_A_SKINFOINTC_PAD))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_FAST,
-                    ssint->retrans_segs_fast))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_RETRANS_SEGS_FAST,
+                    ss->retrans_segs_fast))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_TO,
-                    ssint->retrans_segs_to))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_RETRANS_SEGS_TO,
+                    ss->retrans_segs_to))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_RETRANS_BYTES,
-                    ssint->retrans_bytes))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_RETRANS_BYTES,
+                    ss->retrans_bytes))
         goto err_nla_put;
-    if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFOINT_PEER_WSCALE,
-                   ssint->wscale_peer))
+    if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFOINTC_PEER_WSCALE,
+                   ss->wscale_peer))
         goto err_nla_put;
-    if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFOINT_LOCAL_WSCALE,
-                   ssint->wscale_local))
+    if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFOINTC_LOCAL_WSCALE,
+                   ss->wscale_local))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_PEER_WIN,
-                    ssint->window_peer))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_PEER_WIN,
+                    ss->window_peer))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_LOCAL_WIN,
-                    ssint->window_local))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_LOCAL_WIN,
+                    ss->window_local))
         goto err_nla_put;
-    if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFOINT_PEER_MSS,
-                    ssint->mss_peer))
+    if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFOINTC_PEER_MSS,
+                    ss->mss_peer))
         goto err_nla_put;
-    if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFOINT_LOCAL_MSS,
-                    ssint->mss_local))
+    if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFOINTC_LOCAL_MSS,
+                    ss->mss_local))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_CWND,
-                    ssint->cwnd))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_CWND,
+                    ss->cwnd))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_SSTHRESH,
-                    ssint->ssthresh))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTC_SSTHRESH,
+                    ss->ssthresh))
+        goto err_nla_put;
+
+    nla_nest_end(msg, attr);
+
+    return 0;
+
+err_nla_put:
+    nla_nest_cancel(msg, attr);
+    return -EMSGSIZE;
+}
+
+static inline int exasock_genl_msg_set_sockelem_intlis(struct sk_buff *msg,
+                                  struct exasock_stats_sock_snapshot_intlis *ss)
+{
+    struct nlattr *attr;
+
+    attr = nla_nest_start(msg, EXASOCK_GENL_A_SKINFO_INTERN_LISTEN);
+    if (attr == NULL)
+        return -EMSGSIZE;
+
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTL_REQS_RCV,
+                    ss->reqs_rcvd))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINTL_REQS_ESTAB,
+                    ss->reqs_estab))
         goto err_nla_put;
 
     nla_nest_end(msg, attr);
@@ -268,7 +293,7 @@ static inline int exasock_genl_msg_set_sockelem(struct sk_buff *msg,
 {
     struct nlattr *attr;
     struct exasock_stats_sock_snapshot_brf ssbrf;
-    struct exasock_stats_sock_snapshot_int ssint;
+    union exasock_stats_sock_snapshot_int ssint;
     int err = -EMSGSIZE;
 
     sk_stats->ops.get_snapshot(sk_stats, &ssbrf,
@@ -306,7 +331,10 @@ static inline int exasock_genl_msg_set_sockelem(struct sk_buff *msg,
 
     if (internal)
     {
-        err = exasock_genl_msg_set_sockelem_intern(msg, &ssint);
+        if (state == EXASOCK_GENL_CONNSTATE_LISTEN)
+            err = exasock_genl_msg_set_sockelem_intlis(msg, &ssint.listen);
+        else
+            err = exasock_genl_msg_set_sockelem_intconn(msg, &ssint.conn);
         if (err)
             goto err_nla_put;
     }
@@ -323,7 +351,8 @@ err_nla_put:
 static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_listen_list(
                                      struct exasock_stats_sock_list *sk_list,
                                      struct exasock_stats_sock *sk_stats,
-                                     struct sk_buff *msg, bool extended)
+                                     struct sk_buff *msg, bool extended,
+                                     bool internal)
 {
     uint8_t state;
 
@@ -335,7 +364,7 @@ static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_listen_list(
             continue;
 
         if (exasock_genl_msg_set_sockelem(msg, sk_stats, state,
-                                          extended, false) == -EMSGSIZE)
+                                          extended, internal) == -EMSGSIZE)
             return sk_stats;
     }
     return NULL;
@@ -443,7 +472,8 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
             next_sock = exasock_genl_msg_fill_tcp_listen_list(sk_list,
                                                               next_sock,
                                                               resp_skb,
-                                                              extended);
+                                                              extended,
+                                                              internal);
             break;
         case EXASOCK_GENL_SOCKTYPE_TCP_CONN:
             next_sock = exasock_genl_msg_fill_tcp_conn_list(sk_list,

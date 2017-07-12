@@ -19,7 +19,7 @@ struct exasock_stats_sock_snapshot_brf
     uint32_t send_q;
 };
 
-struct exasock_stats_sock_snapshot_int
+struct exasock_stats_sock_snapshot_intconn
 {
     uint64_t tx_bytes;
     uint64_t tx_acked_bytes;
@@ -39,6 +39,18 @@ struct exasock_stats_sock_snapshot_int
     uint16_t mss_local;
     uint32_t cwnd;
     uint32_t ssthresh;
+};
+
+struct exasock_stats_sock_snapshot_intlis
+{
+    uint32_t    reqs_rcvd;
+    uint32_t    reqs_estab;
+};
+
+union exasock_stats_sock_snapshot_int
+{
+    struct exasock_stats_sock_snapshot_intconn conn;
+    struct exasock_stats_sock_snapshot_intlis listen;
 };
 
 struct exasock_stats_sock_addr
@@ -64,7 +76,7 @@ struct exasock_stats_sock_ops
     uint8_t (*get_state)(struct exasock_stats_sock *sk_stats);
     void    (*get_snapshot)(struct exasock_stats_sock *sk_stats,
                             struct exasock_stats_sock_snapshot_brf *ssbrf,
-                            struct exasock_stats_sock_snapshot_int *ssint);
+                            union exasock_stats_sock_snapshot_int *ssint);
 };
 
 struct exasock_stats_sock
