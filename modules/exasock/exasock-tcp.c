@@ -23,6 +23,7 @@
 
 #include "../exanic/exanic.h"
 #include "exasock.h"
+#include "exasock-stats.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
 #define __HAS_OLD_HLIST_ITERATOR

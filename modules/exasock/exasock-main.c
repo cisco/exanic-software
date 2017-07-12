@@ -21,6 +21,7 @@
 
 #include "../exanic/exanic.h"
 #include "exasock.h"
+#include "exasock-stats.h"
 
 static struct exasock_kernel_info *exasock_info_page;
 

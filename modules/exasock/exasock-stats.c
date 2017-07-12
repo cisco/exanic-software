@@ -13,7 +13,7 @@
 
 #include "../../libs/exasock/kernel/structs.h"
 
-#include "exasock.h"
+#include "exasock-stats.h"
 #include "exasock-genl.h"
 
 #ifndef GENLMSG_DEFAULT_SIZE
