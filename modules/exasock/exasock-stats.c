@@ -162,15 +162,80 @@ static const struct nla_policy exasock_genl_policy[EXASOCK_GENL_A_MAX + 1] =
     [EXASOCK_GENL_A_UNSPEC]         = { .type = NLA_UNSPEC },
     [EXASOCK_GENL_A_SOCK_TYPE]      = { .type = NLA_U8 },
     [EXASOCK_GENL_A_SOCK_EXTENDED]  = { .type = NLA_FLAG },
+    [EXASOCK_GENL_A_SOCK_INTERNAL]  = { .type = NLA_FLAG },
     [EXASOCK_GENL_A_LIST_SOCK]      = { .type = NLA_NESTED },
 };
 
-static inline int exasock_genl_msg_set_sockelem_ext(struct sk_buff *msg,
+static inline int exasock_genl_msg_set_sockelem_intern(struct sk_buff *msg,
+                                 struct exasock_stats_sock_snapshot_int *ssint)
+{
+    struct nlattr *attr;
+
+    attr = nla_nest_start(msg, EXASOCK_GENL_A_SKINFO_INTERNAL);
+    if (attr == NULL)
+        return -EMSGSIZE;
+
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_TX_BYTES,
+                          ssint->tx_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+        goto err_nla_put;
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_TX_ACK_BYTES,
+                          ssint->tx_acked_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+        goto err_nla_put;
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_RX_BYTES,
+                          ssint->rx_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+        goto err_nla_put;
+    if (nla_put_u64_64bit(msg, EXASOCK_GENL_A_SKINFOINT_RX_DLVR_BYTES,
+                          ssint->rx_deliv_bytes, EXASOCK_GENL_A_SKINFOINT_PAD))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_FAST,
+                    ssint->retrans_segs_fast))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_TO,
+                    ssint->retrans_segs_to))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_RETRANS_BYTES,
+                    ssint->retrans_bytes))
+        goto err_nla_put;
+    if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFOINT_PEER_WSCALE,
+                   ssint->wscale_peer))
+        goto err_nla_put;
+    if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFOINT_LOCAL_WSCALE,
+                   ssint->wscale_local))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_PEER_WIN,
+                    ssint->window_peer))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_LOCAL_WIN,
+                    ssint->window_local))
+        goto err_nla_put;
+    if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFOINT_PEER_MSS,
+                    ssint->mss_peer))
+        goto err_nla_put;
+    if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFOINT_LOCAL_MSS,
+                    ssint->mss_local))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_CWND,
+                    ssint->cwnd))
+        goto err_nla_put;
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFOINT_SSTHRESH,
+                    ssint->ssthresh))
+        goto err_nla_put;
+
+    nla_nest_end(msg, attr);
+
+    return 0;
+
+err_nla_put:
+    nla_nest_cancel(msg, attr);
+    return -EMSGSIZE;
+}
+
+static inline int exasock_genl_msg_set_sockelem_extend(struct sk_buff *msg,
                                           struct exasock_stats_sock *sk_stats)
 {
     struct nlattr *attr;
 
-    attr = nla_nest_start(msg, EXASOCK_GENL_A_SKINFO_EXT);
+    attr = nla_nest_start(msg, EXASOCK_GENL_A_SKINFO_EXTENDED);
     if (attr == NULL)
         return -EMSGSIZE;
 
@@ -198,13 +263,16 @@ err_nla_put:
 
 static inline int exasock_genl_msg_set_sockelem(struct sk_buff *msg,
                                           struct exasock_stats_sock *sk_stats,
-                                          uint8_t state, bool is_ext)
+                                          uint8_t state, bool extended,
+                                          bool internal)
 {
     struct nlattr *attr;
-    struct exasock_stats_sock_snapshot snapshot;
+    struct exasock_stats_sock_snapshot_brf ssbrf;
+    struct exasock_stats_sock_snapshot_int ssint;
     int err = -EMSGSIZE;
 
-    sk_stats->ops.get_snapshot(sk_stats, &snapshot);
+    sk_stats->ops.get_snapshot(sk_stats, &ssbrf,
+                               internal ? &ssint : NULL);
 
     attr = nla_nest_start(msg, EXASOCK_GENL_A_ELEM_SOCK);
     if (attr == NULL)
@@ -222,16 +290,23 @@ static inline int exasock_genl_msg_set_sockelem(struct sk_buff *msg,
     if (nla_put_u16(msg, EXASOCK_GENL_A_SKINFO_PEER_PORT,
                     sk_stats->addr.peer_port))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFO_RECV_Q, snapshot.recv_q))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFO_RECV_Q, ssbrf.recv_q))
         goto err_nla_put;
-    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFO_SEND_Q, snapshot.send_q))
+    if (nla_put_u32(msg, EXASOCK_GENL_A_SKINFO_SEND_Q, ssbrf.send_q))
         goto err_nla_put;
     if (nla_put_u8(msg, EXASOCK_GENL_A_SKINFO_STATE, state))
         goto err_nla_put;
 
-    if (is_ext)
+    if (extended)
     {
-        err = exasock_genl_msg_set_sockelem_ext(msg, sk_stats);
+        err = exasock_genl_msg_set_sockelem_extend(msg, sk_stats);
+        if (err)
+            goto err_nla_put;
+    }
+
+    if (internal)
+    {
+        err = exasock_genl_msg_set_sockelem_intern(msg, &ssint);
         if (err)
             goto err_nla_put;
     }
@@ -248,7 +323,7 @@ err_nla_put:
 static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_listen_list(
                                      struct exasock_stats_sock_list *sk_list,
                                      struct exasock_stats_sock *sk_stats,
-                                     struct sk_buff *msg, bool is_ext)
+                                     struct sk_buff *msg, bool extended)
 {
     uint8_t state;
 
@@ -259,8 +334,8 @@ static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_listen_list(
         if (state != EXASOCK_GENL_CONNSTATE_LISTEN)
             continue;
 
-        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state, is_ext) ==
-                -EMSGSIZE)
+        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state,
+                                          extended, false) == -EMSGSIZE)
             return sk_stats;
     }
     return NULL;
@@ -269,7 +344,8 @@ static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_listen_list(
 static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_conn_list(
                                      struct exasock_stats_sock_list *sk_list,
                                      struct exasock_stats_sock *sk_stats,
-                                     struct sk_buff *msg, bool is_ext)
+                                     struct sk_buff *msg, bool extended,
+                                     bool internal)
 {
     uint8_t state;
 
@@ -280,8 +356,8 @@ static struct exasock_stats_sock *exasock_genl_msg_fill_tcp_conn_list(
         if (state == EXASOCK_GENL_CONNSTATE_LISTEN)
             continue;
 
-        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state, is_ext) ==
-                -EMSGSIZE)
+        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state,
+                                          extended, internal) == -EMSGSIZE)
             return sk_stats;
     }
     return NULL;
@@ -292,11 +368,11 @@ static struct exasock_stats_sock *exasock_genl_msg_fill_udp_list(
                                      struct exasock_stats_sock *sk_stats,
                                      struct sk_buff *msg,
                                      enum exasock_genl_conn_state state,
-                                     bool is_ext)
+                                     bool extended)
 {
     list_for_each_entry_from(sk_stats, &sk_list->list, node)
-        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state, is_ext) ==
-                -EMSGSIZE)
+        if (exasock_genl_msg_set_sockelem(msg, sk_stats, state,
+                                          extended, false) == -EMSGSIZE)
             return sk_stats;
     return NULL;
 }
@@ -310,13 +386,15 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
     struct nlattr *attr_socklist;
     struct sk_buff *resp_skb;
     void *resp_hdr;
-    bool is_ext;
+    bool extended;
+    bool internal;
     int err = 0;
 
     if (!info->attrs[EXASOCK_GENL_A_SOCK_TYPE])
         return -EINVAL;
 
-    is_ext = info->attrs[EXASOCK_GENL_A_SOCK_EXTENDED] ? true : false;
+    extended = info->attrs[EXASOCK_GENL_A_SOCK_EXTENDED] ? true : false;
+    internal = info->attrs[EXASOCK_GENL_A_SOCK_INTERNAL] ? true : false;
 
     genl_sock_type = nla_get_u8(info->attrs[EXASOCK_GENL_A_SOCK_TYPE]);
     if ((uint8_t)genl_sock_type > EXASOCK_GENL_SOCKTYPE_MAX)
@@ -365,23 +443,24 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
             next_sock = exasock_genl_msg_fill_tcp_listen_list(sk_list,
                                                               next_sock,
                                                               resp_skb,
-                                                              is_ext);
+                                                              extended);
             break;
         case EXASOCK_GENL_SOCKTYPE_TCP_CONN:
             next_sock = exasock_genl_msg_fill_tcp_conn_list(sk_list,
                                                             next_sock,
                                                             resp_skb,
-                                                            is_ext);
+                                                            extended,
+                                                            internal);
             break;
         case EXASOCK_GENL_SOCKTYPE_UDP_LISTEN:
             next_sock = exasock_genl_msg_fill_udp_list(sk_list, next_sock,
                                         resp_skb, EXASOCK_GENL_CONNSTATE_NONE,
-                                        is_ext);
+                                        extended);
             break;
         case EXASOCK_GENL_SOCKTYPE_UDP_CONN:
             next_sock = exasock_genl_msg_fill_udp_list(sk_list, next_sock,
                                  resp_skb, EXASOCK_GENL_CONNSTATE_ESTABLISHED,
-                                 is_ext);
+                                 extended);
             break;
         default:
             mutex_unlock(&sk_list->lock);

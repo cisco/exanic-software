@@ -86,13 +86,16 @@ static inline void exasock_udp_stats_fill_info(
 }
 
 static void exasock_udp_stats_get_snapshot(struct exasock_stats_sock *stats,
-                                         struct exasock_stats_sock_snapshot *s)
+                  struct exasock_stats_sock_snapshot_brf *ssbrf,
+                  struct exasock_stats_sock_snapshot_int __maybe_unused *ssint)
 {
     struct exasock_udp *udp = stats_to_udp(stats);
     struct exa_udp_state *udp_state = &udp->user_page->p.udp;
 
-    s->recv_q = udp_state->next_write - udp_state->next_read;
-    s->send_q = 0;
+    /* FIXME: for UDP recv_q count of bytes includes headers, footers and
+     *        alignment padding */
+    ssbrf->recv_q = udp_state->next_write - udp_state->next_read;
+    ssbrf->send_q = 0;
 }
 
 static void exasock_udp_stats_init(struct exasock_udp *udp, int fd)

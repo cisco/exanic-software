@@ -20,6 +20,7 @@ struct exasock_stat_config
     bool show_tcp;
     bool show_udp;
     bool show_more;
+    bool show_tcp_diags;
 };
 
 struct exasock_stat_genl
@@ -104,7 +105,57 @@ static inline char * print_pid_fd(char buf[], uint32_t pid, uint32_t fd)
     return buf;
 }
 
-static void print_socket_info_ext(struct nlattr *attr[])
+static void print_socket_info_int(struct nlattr *attr[])
+{
+    uint64_t tx_bytes;
+    uint64_t tx_acked_bytes;
+    uint64_t rx_bytes;
+    uint64_t rx_deliv_bytes;
+    uint32_t retr_segs_f;
+    uint32_t retr_segs_t;
+    uint32_t retr_bytes;
+    uint8_t wscale_peer;
+    uint8_t wscale_local;
+    uint32_t window_peer;
+    uint32_t window_local;
+    uint16_t mss_peer;
+    uint16_t mss_local;
+    uint32_t cwnd;
+    uint32_t ssthresh;
+
+    tx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_TX_BYTES]);
+    tx_acked_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_TX_ACK_BYTES]);
+    rx_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_RX_BYTES]);
+    rx_deliv_bytes = nla_get_u64(attr[EXASOCK_GENL_A_SKINFOINT_RX_DLVR_BYTES]);
+    retr_segs_f = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_FAST]);
+    retr_segs_t = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_RETRANS_SEGS_TO]);
+    retr_bytes = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_RETRANS_BYTES]);
+    wscale_peer = nla_get_u8(attr[EXASOCK_GENL_A_SKINFOINT_PEER_WSCALE]);
+    wscale_local = nla_get_u8(attr[EXASOCK_GENL_A_SKINFOINT_LOCAL_WSCALE]);
+    window_peer = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_PEER_WIN]);
+    window_local = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_LOCAL_WIN]);
+    mss_peer = nla_get_u16(attr[EXASOCK_GENL_A_SKINFOINT_PEER_MSS]);
+    mss_local = nla_get_u16(attr[EXASOCK_GENL_A_SKINFOINT_LOCAL_MSS]);
+    cwnd = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_CWND]);
+    ssthresh = nla_get_u32(attr[EXASOCK_GENL_A_SKINFOINT_SSTHRESH]);
+
+    printf(" internal diagnostics:\n");
+    printf("     Rx Bytes: %llu (Delivered: %llu)\n",
+           (unsigned long long)rx_bytes,
+           (unsigned long long)rx_deliv_bytes);
+    printf("     Tx Bytes: %llu (Acked: %llu)\n",
+           (unsigned long long)tx_bytes, (unsigned long long)tx_acked_bytes);
+    printf("     Retransmitted Segments: %u (Fast Retransmit: %u, Timeouts: %u)\n",
+           (retr_segs_f + retr_segs_t), retr_segs_f, retr_segs_t);
+    printf("     Retransmitted Bytes: %u\n", retr_bytes);
+    printf("     Window (peer,local): %u,%u  Scale (peer,local): %u,%u\n",
+           window_peer, window_local, wscale_peer, wscale_local);
+    printf("     Congestion Window: %u  Slow Start Threshold: %u  MSS (Tx,Rx): %u,%u\n",
+           cwnd, ssthresh, mss_peer, mss_local);
+    printf("\n");
+}
+
+static void print_socket_info_extend(struct nlattr *attr[])
 {
     char buf_u[EXASOCK_STAT_BUF_SIZE];
     char buf_p[EXASOCK_STAT_BUF_SIZE];
@@ -161,6 +212,7 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
     struct nlattr *attr_sockelem;
     struct nlattr *attr_sock[EXASOCK_GENL_A_SKINFO_MAX + 1];
     struct nlattr *attr_sockext[EXASOCK_GENL_A_SKINFOEXT_MAX + 1];
+    struct nlattr *attr_sockint[EXASOCK_GENL_A_SKINFOINT_MAX + 1];
     int i;
     int err;
 
@@ -206,10 +258,11 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
         }
         print_socket_info(attr_sock, *sock_type);
 
-        if (attr_sock[EXASOCK_GENL_A_SKINFO_EXT])
+        if (attr_sock[EXASOCK_GENL_A_SKINFO_EXTENDED])
         {
             err = nla_parse_nested(attr_sockext, EXASOCK_GENL_A_SKINFOEXT_MAX,
-                                   attr_sock[EXASOCK_GENL_A_SKINFO_EXT], NULL);
+                                   attr_sock[EXASOCK_GENL_A_SKINFO_EXTENDED],
+                                   NULL);
             if (err)
             {
                 fprintf(stderr,
@@ -217,16 +270,33 @@ static int get_sockets_cb(struct nl_msg *msg, void *arg)
                         __func__, err);
                 return NL_SKIP;
             }
-            print_socket_info_ext(attr_sockext);
+            print_socket_info_extend(attr_sockext);
         }
 
         printf("\n");
+
+        if (attr_sock[EXASOCK_GENL_A_SKINFO_INTERNAL])
+        {
+            err = nla_parse_nested(attr_sockint, EXASOCK_GENL_A_SKINFOINT_MAX,
+                                   attr_sock[EXASOCK_GENL_A_SKINFO_INTERNAL],
+                                   NULL);
+            if (err)
+            {
+                fprintf(stderr,
+                        "failed to parse netlink nested attributes (%s: err=%i)\n",
+                        __func__, err);
+                return NL_SKIP;
+            }
+            print_socket_info_int(attr_sockint);
+        }
+
     }
 
     return NL_SKIP;
 }
 
-static int get_sockets(enum exasock_genl_sock_type sock_type, bool extended)
+static int get_sockets(enum exasock_genl_sock_type sock_type, bool extended,
+                       bool internal)
 {
     struct nl_msg *msg;
     int ret;
@@ -243,9 +313,10 @@ static int get_sockets(enum exasock_genl_sock_type sock_type, bool extended)
             EXASOCK_GENL_C_GET_SOCKLIST, 0);
 
     NLA_PUT_U8(msg, EXASOCK_GENL_A_SOCK_TYPE, sock_type);
-
     if (extended)
         NLA_PUT_FLAG(msg, EXASOCK_GENL_A_SOCK_EXTENDED);
+    if (internal)
+        NLA_PUT_FLAG(msg, EXASOCK_GENL_A_SOCK_INTERNAL);
 
     ret = nl_send_auto(exasock_genl.sock, msg);
     nlmsg_free(msg);
@@ -328,13 +399,15 @@ static void show_tcp(struct exasock_stat_config *cfg)
 
     if (cfg->show_listening)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_LISTEN, cfg->show_more);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_LISTEN,
+                          cfg->show_more, false);
         if (err)
             goto get_sockets_failure;
     }
     if (cfg->show_connected)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_CONN, cfg->show_more);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_TCP_CONN,
+                          cfg->show_more, cfg->show_tcp_diags);
         if (err)
             goto get_sockets_failure;
     }
@@ -351,13 +424,15 @@ static void show_udp(struct exasock_stat_config *cfg)
 
     if (cfg->show_listening)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_LISTEN, cfg->show_more);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_LISTEN,
+                          cfg->show_more, false);
         if (err)
             goto get_sockets_failure;
     }
     if (cfg->show_connected)
     {
-        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_CONN, cfg->show_more);
+        err = get_sockets(EXASOCK_GENL_SOCKTYPE_UDP_CONN,
+                          cfg->show_more, false);
         if (err)
             goto get_sockets_failure;
     }
@@ -396,13 +471,14 @@ static void print_usage(char *name)
     fprintf(stderr, "\nexasock-stat (ExaSock version @EXANIC_VERSION@)\n");
     fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n");
     fprintf(stderr, "\nUsage:\n");
-    fprintf(stderr, "   %s [-cltue]\n", name);
+    fprintf(stderr, "   %s [-cltuei]\n", name);
     fprintf(stderr, "   %s [-h]\n", name);
     fprintf(stderr, "    -c, --connected    display connected sockets (default: all)\n");
     fprintf(stderr, "    -l, --listening    display listening server sockets\n");
     fprintf(stderr, "    -t, --tcp          display TCP sockets (default: all)\n");
     fprintf(stderr, "    -u, --udp          display UDP sockets\n");
     fprintf(stderr, "    -e, --extend       display more information (user, program, fd)\n");
+    fprintf(stderr, "    -i, --internal     display internal TCP diagnostics\n");
     fprintf(stderr, "    -h, --help         display this usage info\n");
     fprintf(stderr, "\nOutput:\n");
     fprintf(stderr, "   Proto:\n");
@@ -436,6 +512,7 @@ static struct option longopts[] =
     {"tcp",       0, 0, 't'},
     {"udp",       0, 0, 'u'},
     {"extend",    0, 0, 'e'},
+    {"internal",  0, 0, 'i'},
     {"help",      0, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -452,8 +529,9 @@ int main(int argc, char *argv[])
     cfg.show_tcp = false;
     cfg.show_udp = false;
     cfg.show_more = false;
+    cfg.show_tcp_diags = false;
 
-    while ((opt = getopt_long(argc, argv, ":cltueh", longopts, NULL)) != -1)
+    while ((opt = getopt_long(argc, argv, ":cltueih", longopts, NULL)) != -1)
     {
         switch (opt)
         {
@@ -471,6 +549,9 @@ int main(int argc, char *argv[])
             break;
         case 'e':
             cfg.show_more = true;
+            break;
+        case 'i':
+            cfg.show_tcp_diags = true;
             break;
         case 'h':
             print_usage(argv[0]);

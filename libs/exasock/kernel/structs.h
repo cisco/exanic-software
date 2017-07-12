@@ -121,6 +121,23 @@ struct exa_tcp_state
 
     /* Set to true to signal that an ACK is needed */
     uint8_t ack_pending;
+
+    uint8_t __reserved4[63];
+
+    /* 320 */
+    /* Stats related info: user initialize, kernel read-write */
+
+    struct {
+        uint32_t init_send_seq;
+        uint32_t init_recv_seq;
+
+        uint32_t prev_send_seq;
+        uint32_t prev_send_ack;
+        uint32_t prev_recv_seq;
+        uint32_t prev_read_seq;
+
+        uint8_t __reserved[40];
+    } stats;
 };
 
 struct exa_socket_state

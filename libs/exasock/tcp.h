@@ -142,6 +142,11 @@ exa_tcp_connect(struct exa_tcp_conn * restrict ctx,
     state->send_ack = state->send_seq = exa_tcp_init_seq();
 
     state->state = EXA_TCP_SYN_SENT;
+
+    /* Initialize stats */
+    state->stats.init_send_seq = state->send_seq;
+    state->stats.prev_send_seq = state->stats.init_send_seq;
+    state->stats.prev_send_ack = state->stats.init_send_seq;
 }
 
 static inline void
@@ -173,6 +178,14 @@ exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
     state->read_seq = state->recv_seq = tcp_state->peer_seq;
 
     state->state = EXA_TCP_ESTABLISHED;
+
+    /* Initialize stats */
+    state->stats.init_send_seq = state->send_seq;
+    state->stats.init_recv_seq = state->recv_seq;
+    state->stats.prev_send_seq = state->stats.init_send_seq;
+    state->stats.prev_send_ack = state->stats.init_send_seq;
+    state->stats.prev_recv_seq = state->stats.init_recv_seq;
+    state->stats.prev_read_seq = state->stats.init_recv_seq;
 }
 
 static inline void
@@ -577,6 +590,9 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         {
             /* Reset sequence numbers */
             state->read_seq = state->recv_seq = data_seq;
+            state->stats.init_recv_seq = state->recv_seq;
+            state->stats.prev_recv_seq = state->stats.init_recv_seq;
+            state->stats.prev_read_seq = state->stats.init_recv_seq;
 
             /* Parse and apply TCP options */
             exa_tcp_apply_syn_opts(ctx, tcpopt, tcpopt_len);

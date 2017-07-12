@@ -46,10 +46,32 @@ enum exasock_socktype
     EXASOCK_SOCKTYPE_UDP_CONN,
 };
 
-struct exasock_stats_sock_snapshot
+struct exasock_stats_sock_snapshot_brf
 {
     uint32_t recv_q;
     uint32_t send_q;
+};
+
+struct exasock_stats_sock_snapshot_int
+{
+    uint64_t tx_bytes;
+    uint64_t tx_acked_bytes;
+    uint64_t rx_bytes;
+    uint64_t rx_deliv_bytes;
+
+    uint32_t retrans_segs_fast;
+    uint32_t retrans_segs_to;
+    uint32_t retrans_bytes;
+
+    uint8_t wscale_peer;
+    uint8_t wscale_local;
+    uint32_t window_peer;
+    uint32_t window_local;
+
+    uint16_t mss_peer;
+    uint16_t mss_local;
+    uint32_t cwnd;
+    uint32_t ssthresh;
 };
 
 struct exasock_stats_sock_addr
@@ -74,7 +96,8 @@ struct exasock_stats_sock_ops
 {
     uint8_t (*get_state)(struct exasock_stats_sock *sk_stats);
     void    (*get_snapshot)(struct exasock_stats_sock *sk_stats,
-                            struct exasock_stats_sock_snapshot *snapshot);
+                            struct exasock_stats_sock_snapshot_brf *ssbrf,
+                            struct exasock_stats_sock_snapshot_int *ssint);
 };
 
 struct exasock_stats_sock
