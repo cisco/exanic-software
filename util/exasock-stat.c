@@ -770,9 +770,7 @@ static int parse_arg_socket(char *arg, struct exasock_stat_config *cfg)
 
 static void print_usage(char *name)
 {
-    fprintf(stderr, "\nexasock-stat (ExaSock version @EXANIC_VERSION@)\n");
-    fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n");
-    fprintf(stderr, "\nUsage:\n");
+    fprintf(stderr, "Usage:\n");
     fprintf(stderr, "   %s [-cltuei]\n", name);
     fprintf(stderr, "   %s -s <socket> [-ei]\n", name);
     fprintf(stderr, "   %s [-h]\n", name);
@@ -785,8 +783,15 @@ static void print_usage(char *name)
     fprintf(stderr, "    -s, --socket       specify socket to display information about\n");
     fprintf(stderr, "                       (<socket> defined as PID:FD, where PID is the process ID\n");
     fprintf(stderr, "                       and FD is the file descriptor)\n");
-    fprintf(stderr, "    -h, --help         display this usage info\n");
-    fprintf(stderr, "\nOutput:\n");
+    fprintf(stderr, "    -h, --help         display tool usage info\n\n");
+}
+
+static void print_help(char *name)
+{
+    fprintf(stderr, "\nexasock-stat (ExaSock version @EXANIC_VERSION@)\n");
+    fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n\n");
+    print_usage(name);
+    fprintf(stderr, "Output:\n");
     fprintf(stderr, "   Proto:\n");
     fprintf(stderr, "       The protocol used by the socket (TCP or UDP)\n");
     fprintf(stderr, "   Recv-Q:\n");
@@ -869,7 +874,7 @@ int main(int argc, char *argv[])
             cfg.single_socket = true;
             break;
         case 'h':
-            print_usage(argv[0]);
+            print_help(argv[0]);
             return EXIT_SUCCESS;
         case '?':
         default:
