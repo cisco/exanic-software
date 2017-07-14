@@ -144,12 +144,7 @@ struct exa_tcp_state
         uint32_t init_send_seq;
         uint32_t init_recv_seq;
 
-        uint32_t prev_send_seq;
-        uint32_t prev_send_ack;
-        uint32_t prev_recv_seq;
-        uint32_t prev_read_seq;
-
-        uint8_t __reserved[40];
+        uint8_t __reserved[56];
     } stats;
 };
 

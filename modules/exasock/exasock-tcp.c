@@ -32,10 +32,17 @@
 
 struct exasock_tcp_conn_counters
 {
+    bool        initialized;
+
     uint32_t    send_rounds;
     uint32_t    send_ack_rounds;
     uint32_t    recv_rounds;
     uint32_t    recv_read_rounds;
+
+    uint32_t    prev_send_seq;
+    uint32_t    prev_send_ack;
+    uint32_t    prev_recv_seq;
+    uint32_t    prev_read_seq;
 
     uint32_t    retrans_bytes;
     uint32_t    retrans_segs_fast;
@@ -171,26 +178,36 @@ static inline void exasock_tcp_counters_update_locked(
                                           uint32_t send_seq, uint32_t send_ack,
                                           uint32_t recv_seq, uint32_t read_seq)
 {
-    if (SEQNUM_ROLLOVER(tcp_st->stats.init_send_seq,
-                        tcp_st->stats.prev_send_seq, send_seq))
+    if (!cnt->initialized)
+    {
+        cnt->prev_send_seq = tcp_st->stats.init_send_seq;
+        cnt->prev_send_ack = tcp_st->stats.init_send_seq;
+        cnt->prev_recv_seq = tcp_st->stats.init_recv_seq;
+        cnt->prev_read_seq = tcp_st->stats.init_recv_seq;
+
+        cnt->initialized = true;
+    }
+
+    if (SEQNUM_ROLLOVER(tcp_st->stats.init_send_seq, cnt->prev_send_seq,
+                        send_seq))
         cnt->send_rounds++;
 
-    if (SEQNUM_ROLLOVER(tcp_st->stats.init_send_seq,
-                        tcp_st->stats.prev_send_ack, send_ack))
+    if (SEQNUM_ROLLOVER(tcp_st->stats.init_send_seq, cnt->prev_send_ack,
+                        send_ack))
         cnt->send_ack_rounds++;
 
-    if (SEQNUM_ROLLOVER(tcp_st->stats.init_recv_seq,
-                        tcp_st->stats.prev_recv_seq, recv_seq))
+    if (SEQNUM_ROLLOVER(tcp_st->stats.init_recv_seq, cnt->prev_recv_seq,
+                        recv_seq))
         cnt->recv_rounds++;
 
-    if (SEQNUM_ROLLOVER(tcp_st->stats.init_recv_seq,
-                        tcp_st->stats.prev_read_seq, read_seq))
+    if (SEQNUM_ROLLOVER(tcp_st->stats.init_recv_seq, cnt->prev_read_seq,
+                        read_seq))
         cnt->recv_read_rounds++;
 
-    tcp_st->stats.prev_send_seq = send_seq;
-    tcp_st->stats.prev_send_ack = send_ack;
-    tcp_st->stats.prev_recv_seq = recv_seq;
-    tcp_st->stats.prev_read_seq = read_seq;
+    cnt->prev_send_seq = send_seq;
+    cnt->prev_send_ack = send_ack;
+    cnt->prev_recv_seq = recv_seq;
+    cnt->prev_read_seq = read_seq;
 }
 
 static inline void exasock_tcp_counters_update(struct exasock_tcp_counters *cnt,
