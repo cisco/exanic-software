@@ -52,6 +52,160 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
 }
 
 /* Socket read lock must be held on entry */
+#define do_socket_poll_nonblock(sock, ready_func, ret, ...)             \
+    do                                                                  \
+    {                                                                   \
+        assert(exa_read_locked(&sock->lock));                           \
+        if (!ready_func(sock, &ret, __VA_ARGS__))                       \
+        {                                                               \
+            errno = EAGAIN;                                             \
+            ret = -1;                                                   \
+        }                                                               \
+    } while (0)
+
+/* Socket read lock must be held on entry */
+#define do_socket_poll_block(sock, ready_func, ret, ...)                \
+    do                                                                  \
+    {                                                                   \
+        int gen_id = sock->gen_id;                                      \
+        assert(exa_read_locked(&sock->lock));                           \
+        signal_interrupted = false;                                     \
+        while (exa_trylock(&exasock_poll_lock) == 0)                    \
+        {                                                               \
+            if (ready_func(sock, &ret, __VA_ARGS__))                    \
+                goto __do_socket_poll_block_end;                        \
+            if (signal_interrupted)                                     \
+            {                                                           \
+                errno = EINTR;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_block_end;                        \
+            }                                                           \
+            exa_read_unlock(&sock->lock);                               \
+            exa_read_lock(&sock->lock);                                 \
+            if (gen_id != sock->gen_id)                                 \
+            {                                                           \
+                errno = EBADF;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_block_end;                        \
+            }                                                           \
+        }                                                               \
+        while (true)                                                    \
+        {                                                               \
+            if (ready_func(sock, &ret, __VA_ARGS__))                    \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                goto __do_socket_poll_block_end;                        \
+            }                                                           \
+            if (signal_interrupted)                                     \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                errno = EINTR;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_block_end;                        \
+            }                                                           \
+            exa_read_unlock(&sock->lock);                               \
+            exanic_poll();                                              \
+            exa_read_lock(&sock->lock);                                 \
+            if (gen_id != sock->gen_id)                                 \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                errno = EBADF;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_block_end;                        \
+            }                                                           \
+        }                                                               \
+    __do_socket_poll_block_end:                                         \
+        break;                                                          \
+    } while (0)
+
+/* Socket read lock must be held on entry */
+#define do_socket_poll_timeout(sock, to_val, ready_func, ret, ...)      \
+    do                                                                  \
+    {                                                                   \
+        const struct timespec *to = (const struct timespec *)&to_val;   \
+        struct timespec t_limit, t_now;                                 \
+        int gen_id = sock->gen_id;                                      \
+        assert(exa_read_locked(&sock->lock));                           \
+        signal_interrupted = false;                                     \
+        if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_limit))            \
+        {                                                               \
+            ret = -1;                                                   \
+            goto __do_socket_poll_timeout_end;                          \
+        }                                                               \
+        ts_add(&t_limit, to);                                           \
+        while (exa_trylock(&exasock_poll_lock) == 0)                    \
+        {                                                               \
+            if (ready_func(sock, &ret, __VA_ARGS__))                    \
+                goto __do_socket_poll_timeout_end;                      \
+            if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_now))          \
+            {                                                           \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            if (ts_after_eq(&t_now, &t_limit))                          \
+            {                                                           \
+                errno = EAGAIN;                                         \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            if (signal_interrupted)                                     \
+            {                                                           \
+                errno = EINTR;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            exa_read_unlock(&sock->lock);                               \
+            exa_read_lock(&sock->lock);                                 \
+            if (gen_id != sock->gen_id)                                 \
+            {                                                           \
+                errno = EBADF;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+        }                                                               \
+        while (true)                                                    \
+        {                                                               \
+            if (ready_func(sock, &ret, __VA_ARGS__))                    \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_now))          \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            if (ts_after_eq(&t_now, &t_limit))                          \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                errno = EAGAIN;                                         \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            if (signal_interrupted)                                     \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                errno = EINTR;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+            exa_read_unlock(&sock->lock);                               \
+            exanic_poll();                                              \
+            exa_read_lock(&sock->lock);                                 \
+            if (gen_id != sock->gen_id)                                 \
+            {                                                           \
+                exa_unlock(&exasock_poll_lock);                         \
+                errno = EBADF;                                          \
+                ret = -1;                                               \
+                goto __do_socket_poll_timeout_end;                      \
+            }                                                           \
+        }                                                               \
+    __do_socket_poll_timeout_end:                                       \
+        break;                                                          \
+    } while (0)
+
+/* Socket read lock must be held on entry */
 #define do_socket_wait_nonblock(sock, fd, ready_func, ret, ...)         \
     do                                                                  \
     {                                                                   \
@@ -239,171 +393,42 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
     } while (0)
 
 /* Socket read lock must be held on entry */
-#define do_socket_poll_nonblock(sock, ready_func, ret, ...)             \
+#define do_socket_wait_tx_nonblock(sock, ready_func, ret, ...)          \
     do                                                                  \
     {                                                                   \
+        int gen_id = sock->gen_id;                                      \
         assert(exa_read_locked(&sock->lock));                           \
-        if (!ready_func(sock, &ret, __VA_ARGS__))                       \
+        if (ready_func(sock, &ret, __VA_ARGS__))                        \
+            goto __do_socket_wait_tx_nonblock_end;                      \
+        if (exa_trylock(&exasock_poll_lock) == 0)                       \
         {                                                               \
             errno = EAGAIN;                                             \
             ret = -1;                                                   \
+            goto __do_socket_wait_tx_nonblock_end;                      \
         }                                                               \
-    } while (0)
-
-/* Socket read lock must be held on entry */
-#define do_socket_poll_block(sock, ready_func, ret, ...)                \
-    do                                                                  \
-    {                                                                   \
-        int gen_id = sock->gen_id;                                      \
-        assert(exa_read_locked(&sock->lock));                           \
-        signal_interrupted = false;                                     \
-        while (exa_trylock(&exasock_poll_lock) == 0)                    \
+        exa_read_unlock(&sock->lock);                                   \
+        exanic_poll();                                                  \
+        exa_read_lock(&sock->lock);                                     \
+        exa_unlock(&exasock_poll_lock);                                 \
+        if (gen_id != sock->gen_id)                                     \
         {                                                               \
-            if (ready_func(sock, &ret, __VA_ARGS__))                    \
-                goto __do_socket_poll_block_end;                        \
-            if (signal_interrupted)                                     \
-            {                                                           \
-                errno = EINTR;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_block_end;                        \
-            }                                                           \
-            exa_read_unlock(&sock->lock);                               \
-            exa_read_lock(&sock->lock);                                 \
-            if (gen_id != sock->gen_id)                                 \
-            {                                                           \
-                errno = EBADF;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_block_end;                        \
-            }                                                           \
-        }                                                               \
-        while (true)                                                    \
-        {                                                               \
-            if (ready_func(sock, &ret, __VA_ARGS__))                    \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                goto __do_socket_poll_block_end;                        \
-            }                                                           \
-            if (signal_interrupted)                                     \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                errno = EINTR;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_block_end;                        \
-            }                                                           \
-            exa_read_unlock(&sock->lock);                               \
-            exanic_poll();                                              \
-            exa_read_lock(&sock->lock);                                 \
-            if (gen_id != sock->gen_id)                                 \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                errno = EBADF;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_block_end;                        \
-            }                                                           \
-        }                                                               \
-    __do_socket_poll_block_end:                                         \
-        break;                                                          \
-    } while (0)
-
-/* Socket read lock must be held on entry */
-#define do_socket_poll_timeout(sock, to_val, ready_func, ret, ...)      \
-    do                                                                  \
-    {                                                                   \
-        const struct timespec *to = (const struct timespec *)&to_val;   \
-        struct timespec t_limit, t_now;                                 \
-        int gen_id = sock->gen_id;                                      \
-        assert(exa_read_locked(&sock->lock));                           \
-        signal_interrupted = false;                                     \
-        if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_limit))            \
-        {                                                               \
+            errno = EBADF;                                              \
             ret = -1;                                                   \
-            goto __do_socket_poll_timeout_end;                          \
+            goto __do_socket_wait_tx_nonblock_end;                      \
         }                                                               \
-        ts_add(&t_limit, to);                                           \
-        while (exa_trylock(&exasock_poll_lock) == 0)                    \
-        {                                                               \
-            if (ready_func(sock, &ret, __VA_ARGS__))                    \
-                goto __do_socket_poll_timeout_end;                      \
-            if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_now))          \
-            {                                                           \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            if (ts_after_eq(&t_now, &t_limit))                          \
-            {                                                           \
-                errno = EAGAIN;                                         \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            if (signal_interrupted)                                     \
-            {                                                           \
-                errno = EINTR;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            exa_read_unlock(&sock->lock);                               \
-            exa_read_lock(&sock->lock);                                 \
-            if (gen_id != sock->gen_id)                                 \
-            {                                                           \
-                errno = EBADF;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-        }                                                               \
-        while (true)                                                    \
-        {                                                               \
-            if (ready_func(sock, &ret, __VA_ARGS__))                    \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_now))          \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            if (ts_after_eq(&t_now, &t_limit))                          \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                errno = EAGAIN;                                         \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            if (signal_interrupted)                                     \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                errno = EINTR;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-            exa_read_unlock(&sock->lock);                               \
-            exanic_poll();                                              \
-            exa_read_lock(&sock->lock);                                 \
-            if (gen_id != sock->gen_id)                                 \
-            {                                                           \
-                exa_unlock(&exasock_poll_lock);                         \
-                errno = EBADF;                                          \
-                ret = -1;                                               \
-                goto __do_socket_poll_timeout_end;                      \
-            }                                                           \
-        }                                                               \
-    __do_socket_poll_timeout_end:                                       \
+        if (ready_func(sock, &ret, __VA_ARGS__))                        \
+            goto __do_socket_wait_tx_nonblock_end;                      \
+        errno = EAGAIN;                                                 \
+        ret = -1;                                                       \
+    __do_socket_wait_tx_nonblock_end:                                   \
         break;                                                          \
     } while (0)
 
 /* Socket read lock must be held on entry */
-#define do_socket_wait(sock, fd, nonblock, timeo, ready_func, ret, ...)     \
-    do                                                                      \
-    {                                                                       \
-        if (nonblock)                                                       \
-            do_socket_wait_nonblock(sock, fd, ready_func, ret, __VA_ARGS__);\
-        else if (timeo.enabled)                                             \
-            do_socket_wait_timeout(sock, fd, timeo.val, ready_func, ret,    \
-                                   __VA_ARGS__);                            \
-        else                                                                \
-            do_socket_wait_block(sock, fd, ready_func, ret, __VA_ARGS__);   \
-    } while (0)
+#define do_socket_wait_tx_block     do_socket_poll_block
+
+/* Socket read lock must be held on entry */
+#define do_socket_wait_tx_timeout   do_socket_poll_timeout
 
 /* Used for sockets not handled by exanic_poll()
  * Socket read lock must be held on entry */
@@ -417,6 +442,36 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
                                    __VA_ARGS__);                            \
         else                                                                \
             do_socket_poll_block(sock, ready_func, ret, __VA_ARGS__);       \
+    } while (0)
+
+/* Used for sockets handled by exanic_poll() and waiting for updates from
+ * exanic_poll() only.
+ * Socket read lock must be held on entry */
+#define do_socket_wait(sock, fd, nonblock, timeo, ready_func, ret, ...)     \
+    do                                                                      \
+    {                                                                       \
+        if (nonblock)                                                       \
+            do_socket_wait_nonblock(sock, fd, ready_func, ret, __VA_ARGS__);\
+        else if (timeo.enabled)                                             \
+            do_socket_wait_timeout(sock, fd, timeo.val, ready_func, ret,    \
+                                   __VA_ARGS__);                            \
+        else                                                                \
+            do_socket_wait_block(sock, fd, ready_func, ret, __VA_ARGS__);   \
+    } while (0)
+
+/* Used for sockets handled by exanic_poll() waiting for ACKs. Updates in this
+ * case are expected either from exanic_poll() or kernel.
+ * Socket read lock must be held on entry */
+#define do_socket_wait_tx(sock, nonblock, timeo, ready_func, ret, ...)      \
+    do                                                                      \
+    {                                                                       \
+        if (nonblock)                                                       \
+            do_socket_wait_tx_nonblock(sock, ready_func, ret, __VA_ARGS__); \
+        else if (timeo.enabled)                                             \
+            do_socket_wait_tx_timeout(sock, timeo.val, ready_func, ret,     \
+                                      __VA_ARGS__);                         \
+        else                                                                \
+            do_socket_wait_tx_block(sock, ready_func, ret, __VA_ARGS__);    \
     } while (0)
 
 #endif /* SOCKET_COMMON_H_635E3BA536F842F086741FD05818EB70 */
