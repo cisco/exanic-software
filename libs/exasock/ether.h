@@ -109,8 +109,10 @@ exa_eth_parse_hdr(struct exa_eth * restrict ctx, char *hdr,
     /* Check for VLAN tag */
     if (h->h_proto == htons(ETH_P_8021Q))
         return exa_eth_parse_vlan_hdr(ctx, *next_hdr, read_end, next_hdr);
-    else
-        return h->h_proto;
+    else if (ctx->vlan_id != 0)
+        return -1;
+
+    return h->h_proto;
 }
 
 static inline void
