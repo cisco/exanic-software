@@ -220,7 +220,7 @@ int exanic_get_sfp_diag_info(exanic_t *exanic, int port_number,
         rxpwr_1 * rxpwr_ad +
         rxpwr_0;
 
-    /* Convert from 0.1uW to mW */
+    /* Convert from units of 0.1uW to mW */
     info->rx_power = info->rx_power / 10000;
 
     /* TX power */
@@ -233,7 +233,7 @@ int exanic_get_sfp_diag_info(exanic_t *exanic, int port_number,
 
     info->tx_power = txpwr_s * txpwr_ad + txpwr_o;
 
-    /* Convert from 0.1uW to mW */
+    /* Convert from units of 0.1uW to mW */
     info->tx_power = info->tx_power / 10000;
 
     /* Temperature */
@@ -247,7 +247,7 @@ int exanic_get_sfp_diag_info(exanic_t *exanic, int port_number,
 
     info->temp = t_s * t_ad + t_o;
 
-    /* Convert from 1/256 C to C */
+    /* Convert from units of 1/256 deg C to deg C */
     info->temp = info->temp / 256;
 
     return 0;
@@ -270,6 +270,7 @@ int exanic_get_qsfp_diag_info(exanic_t *exanic, int port_number,
     if (sfp_read_short(exanic, port_number, 0xA0, 22, &temp_raw) == -1)
         return -1;
 
+    /* Convert from units of 1/256 deg C to deg C */
     info->temp = temp_raw / 256.0;
 
     for (i = 0; i < 4; i++)
@@ -278,12 +279,14 @@ int exanic_get_qsfp_diag_info(exanic_t *exanic, int port_number,
                     -1)
             return -1;
 
-        info->rx_power[i] = rx_power_raw[i] * 0.1;
+        /* Convert from units of 0.1uW to mW */
+        info->rx_power[i] = rx_power_raw[i] * 0.0001;
 
         if (sfp_read_short(exanic, port_number, 0xA0, 42+2*i, &tx_bias_raw[i]) ==
                     -1)
             return -1;
 
+        /* Convert from units of 2uA to mA */
         info->tx_bias[i] = tx_bias_raw[i] * 0.002;
     }
 
