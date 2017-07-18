@@ -204,12 +204,14 @@ exa_endpoint_hash(struct exa_endpoint * restrict e)
     return c;
 }
 
+#define EXA_HASHTABLE_IDX(ep)   \
+                (exa_endpoint_hash(ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1))
+
 static inline void
 exa_hashtable_insert(struct exa_hashtable * restrict ht, int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
-    uint32_t idx = exa_endpoint_hash(&sock->bind.ip) &
-        ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    uint32_t idx = EXA_HASHTABLE_IDX(&sock->bind.ip);
 
     exa_lock(&ht->write_lock);
     sock->hashtable_next_fd = ht->table[idx];
@@ -221,8 +223,7 @@ static inline void
 exa_hashtable_remove(struct exa_hashtable * restrict ht, int remove_fd)
 {
     struct exa_socket * restrict remove_sock = exa_socket_get(remove_fd);
-    uint32_t idx = exa_endpoint_hash(&remove_sock->bind.ip) &
-        ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    uint32_t idx = EXA_HASHTABLE_IDX(&remove_sock->bind.ip);
     int fd;
 
     exa_lock(&ht->write_lock);
@@ -258,7 +259,7 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
     int fd;
 
     /* Look up by (local addr, local port, peer addr, peer port) */
-    idx = exa_endpoint_hash(&ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    idx = EXA_HASHTABLE_IDX(&ep);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -276,7 +277,7 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
     /* Look up by (local addr, local port) */
     ep.addr.peer = htonl(INADDR_ANY);
     ep.port.peer = 0;
-    idx = exa_endpoint_hash(&ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    idx = EXA_HASHTABLE_IDX(&ep);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -293,7 +294,7 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
 
     /* Look up by local port only */
     ep.addr.local = htonl(INADDR_ANY);
-    idx = exa_endpoint_hash(&ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    idx = EXA_HASHTABLE_IDX(&ep);
     fd = ht->table[idx];
     while (fd != -1)
     {
