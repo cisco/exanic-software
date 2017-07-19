@@ -1050,7 +1050,15 @@ static int exanic_probe(struct pci_dev *dev,
 
     if (unsupported_exanic)
     {
-        /* Minimal support for unsupported cards, to allow firmware update */
+        /* Minimal support for unsupported cards, to allow firmware update.
+         * Register device and increment device counter.
+         * NOTE: exanic_count needs to be incremented before misc_register() is
+         *       called to ensure the device is already available when it gets
+         *       registered.
+         *       exanic_count should be also incremented no sooner than
+         *       exanic->misc_dev.minor is set to avoid unexpected results of
+         *       exanic_find_by_minor().
+         */
         exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
         exanic->misc_dev.name = exanic->name;
         exanic->misc_dev.fops = &exanic_fops;
@@ -1458,7 +1466,14 @@ static int exanic_probe(struct pci_dev *dev,
             (unsigned long)exanic);
     mod_timer(&exanic->link_timer, jiffies + HZ);
 
-    /* Register device */
+    /* Register device and increment device counter
+     * NOTE: exanic_count needs to be incremented before misc_register() is
+     *       called to ensure the device is already available when it gets
+     *       registered.
+     *       exanic_count should be also incremented no sooner than
+     *       exanic->misc_dev.minor is set to avoid unexpected results of
+     *       exanic_find_by_minor().
+     */
     exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
     exanic->misc_dev.name = exanic->name;
     exanic->misc_dev.fops = &exanic_fops;
