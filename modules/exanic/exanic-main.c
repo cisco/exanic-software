@@ -1054,10 +1054,12 @@ static int exanic_probe(struct pci_dev *dev,
         exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
         exanic->misc_dev.name = exanic->name;
         exanic->misc_dev.fops = &exanic_fops;
+        ++exanic_count;
         err = misc_register(&exanic->misc_dev);
         if (err)
         {
             dev_err(&dev->dev, "misc_register failed: %d\n", err);
+            --exanic_count;
             goto err_unsupported_exanic;
         }
 
@@ -1066,7 +1068,6 @@ static int exanic_probe(struct pci_dev *dev,
         dev_info(&dev->dev,
                 "  Unknown exanic version, minimal support enabled\n");
 
-        ++exanic_count;
         return 0;
     }
 
@@ -1421,17 +1422,6 @@ static int exanic_probe(struct pci_dev *dev,
         }
     } 
 
-    /* Register device */
-    exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
-    exanic->misc_dev.name = exanic->name;
-    exanic->misc_dev.fops = &exanic_fops;
-    err = misc_register(&exanic->misc_dev);
-    if (err)
-    {
-        dev_err(&dev->dev, "misc_register failed: %d\n", err);
-        goto err_miscdev;
-    }
-
     /* Register ethernet interface */
     if (exanic->function_id == EXANIC_FUNCTION_NIC ||
         exanic->function_id == EXANIC_FUNCTION_FIREWALL ||
@@ -1467,6 +1457,18 @@ static int exanic_probe(struct pci_dev *dev,
     setup_timer(&exanic->link_timer, exanic_link_timer_callback,
             (unsigned long)exanic);
     mod_timer(&exanic->link_timer, jiffies + HZ);
+
+    /* Register device */
+    exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
+    exanic->misc_dev.name = exanic->name;
+    exanic->misc_dev.fops = &exanic_fops;
+    ++exanic_count;
+    err = misc_register(&exanic->misc_dev);
+    if (err)
+    {
+        dev_err(&dev->dev, "misc_register failed: %d\n", err);
+        goto err_miscdev;
+    }
 
     dev_info(&dev->dev, "Finished probing %s (minor = %u):\n",
         exanic->name, exanic->misc_dev.minor);
@@ -1509,13 +1511,13 @@ static int exanic_probe(struct pci_dev *dev,
         }
     }
 
-    ++exanic_count;
     return 0;
 
+err_miscdev:
+    --exanic_count;
 err_netdev:
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
         exanic_netdev_free(exanic->ndev[port_num]);
-    misc_deregister(&exanic->misc_dev);
 err_flow_steering:
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
     {
@@ -1526,7 +1528,6 @@ err_flow_steering:
         if(exanic->port[port_num].filter_buffers != NULL)
             kfree(exanic->port[port_num].filter_buffers);
     }
-err_miscdev:
     if (exanic->caps & EXANIC_CAP_RX_MSI)
     {
         free_irq(dev->irq, exanic);
