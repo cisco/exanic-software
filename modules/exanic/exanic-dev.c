@@ -32,8 +32,7 @@ static int exanic_open(struct inode *inode, struct file *filp)
     exanic = exanic_find_by_minor(iminor(inode));
     if (exanic == NULL)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
-            ": Failed to locate exanic for minor = %u.\n", iminor(inode));
+        pr_err("Failed to locate exanic for minor = %u.\n", iminor(inode));
         return -ENODEV;
     }
 
