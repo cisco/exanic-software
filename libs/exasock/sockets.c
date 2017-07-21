@@ -76,13 +76,13 @@ exa_socket_release_interfaces(struct exa_socket * restrict sock)
 {
     assert(exa_write_locked(&sock->lock));
 
-    if (sock->all_if)
+    if (sock->listen.all_if)
         exanic_ip_release_all();
-    else if (sock->listen_if)
-        exanic_ip_release(sock->listen_if);
+    else if (sock->listen.interface)
+        exanic_ip_release(sock->listen.interface);
 
-    sock->all_if = false;
-    sock->listen_if = NULL;
+    sock->listen.all_if = false;
+    sock->listen.interface = NULL;
 }
 
 /* Update interfaces according to address */
@@ -112,13 +112,13 @@ exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr)
 
     if (addr == htonl(INADDR_ANY))
     {
-        if (!sock->all_if)
+        if (!sock->listen.all_if)
             exanic_ip_acquire_all();
-        if (sock->listen_if)
-            exanic_ip_release(sock->listen_if);
+        if (sock->listen.interface)
+            exanic_ip_release(sock->listen.interface);
 
-        sock->all_if = true;
-        sock->listen_if = NULL;
+        sock->listen.all_if = true;
+        sock->listen.interface = NULL;
         return 0;
     }
     else
@@ -130,16 +130,19 @@ exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr)
             errno = EADDRNOTAVAIL;
             return -1;
         }
-        if (sock->all_if)
+        if (sock->listen.all_if)
             exanic_ip_release_all();
-        if (sock->listen_if)
-            exanic_ip_release(sock->listen_if);
+        if (sock->listen.interface)
+            exanic_ip_release(sock->listen.interface);
 
-        sock->all_if = false;
-        sock->listen_if = ctx;
+        sock->listen.all_if = false;
+        sock->listen.interface = ctx;
         return 0;
     }
 }
+
+#define exa_socket_holds_interfaces(sk)  \
+                        ((sk)->listen.all_if || (sk)->listen.interface != NULL)
 
 /* Update timestamping flags according to socket options */
 void
@@ -201,10 +204,9 @@ exa_socket_udp_update_tx(struct exa_socket * restrict sock,
     }
 
     /* Source changed, look up new ExaNIC interface context */
-    if (src_addr == sock->bind.ip.addr.local && !sock->all_if)
+    if (src_addr == sock->bind.ip.addr.local && sock->listen.interface != NULL)
     {
-        assert(sock->listen_if);
-        ctx = sock->listen_if;
+        ctx = sock->listen.interface;
         exanic_ip_acquire_ref(ctx);
     }
     else
@@ -268,7 +270,7 @@ exa_socket_udp_enable_bypass(struct exa_socket * restrict sock)
         sock->connected = true;
     }
 
-    if (sock->bound && !IN_MULTICAST(ntohl(sock->bind.ip.addr.local)))
+    if (exa_socket_holds_interfaces(sock))
         exa_udp_insert(fd);
 
     exa_notify_udp_init(sock);
@@ -404,7 +406,7 @@ exa_socket_add_mcast_interface(struct exa_socket * restrict sock,
     {
         if (exa_socket_update_interfaces(sock, mc_ep->interface) == -1)
             return -1;
-        sock->listen_mcast = true;
+        sock->listen.mcast = true;
     }
     return 0;
 }
@@ -418,13 +420,18 @@ exa_socket_add_mcast(struct exa_socket * restrict sock,
     assert(exa_write_locked(&sock->lock));
     assert(sock->bound);
 
-    if (exa_socket_add_mcast_interface(sock, mc_ep,
-                                       sock->bind.ip.addr.local) == -1)
-        return -1;
-    if (sock->listen_mcast)
+    if (sock->bind.ip.addr.local == htonl(INADDR_ANY) ||
+        sock->bind.ip.addr.local == mc_ep->multiaddr)
     {
-        if (sock->bind.ip.addr.local == htonl(INADDR_ANY))
+        if (exa_socket_holds_interfaces(sock))
             exa_udp_remove(fd);
+        if (exa_socket_update_interfaces(sock, mc_ep->interface) == -1)
+        {
+            if (exa_socket_holds_interfaces(sock))
+                exa_udp_insert(fd);
+            return -1;
+        }
+        sock->listen.mcast = true;
         exa_udp_mcast_insert(fd, mc_ep);
     }
     return 0;
@@ -439,13 +446,13 @@ exa_socket_del_mcast(struct exa_socket * restrict sock,
     assert(exa_write_locked(&sock->lock));
     assert(sock->bound);
 
-    if (sock->listen_mcast)
+    if (sock->listen.mcast)
     {
         if (exa_socket_update_interfaces(sock, sock->bind.ip.addr.local) == -1)
             return -1;
-        sock->listen_mcast = false;
+        sock->listen.mcast = false;
         exa_udp_mcast_remove(fd, mc_ep);
-        if (sock->bind.ip.addr.local == htonl(INADDR_ANY))
+        if (exa_socket_holds_interfaces(sock))
             exa_udp_insert(fd);
     }
     return 0;
@@ -482,9 +489,10 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
         goto err_sys_bind;
 
     sock->bind.ip = endpoint;
-    if (sock->listen_mcast)
+
+    if (sock->listen.mcast)
         exa_udp_mcast_insert(fd, mc_ep);
-    else if (!IN_MULTICAST(ntohl(addr)))
+    else if (exa_socket_holds_interfaces(sock))
         exa_udp_insert(fd);
 
     return 0;
@@ -519,6 +527,9 @@ exa_socket_udp_connect(struct exa_socket * restrict sock, in_addr_t addr,
     if (exa_sys_connect(fd, &endpoint) == -1)
         goto err_sys_connect;
 
+    if (exa_socket_holds_interfaces(sock))
+        exa_udp_remove(fd);
+
     /* If socket was bound to INADDR_ANY, connect() would have changed it */
     if (exa_socket_update_interfaces(sock, endpoint.addr.local) == -1)
         goto err_update_interfaces;
@@ -527,15 +538,17 @@ exa_socket_udp_connect(struct exa_socket * restrict sock, in_addr_t addr,
     if (exa_socket_udp_update_tx(sock, addr, port) == -1)
         assert(0);
 
-    exa_udp_remove(fd);
     sock->bind.ip = endpoint;
-    exa_udp_insert(fd);
+    if (exa_socket_holds_interfaces(sock))
+        exa_udp_insert(fd);
 
     sock->connected = true;
 
     return 0;
 
 err_update_interfaces:
+    if (exa_socket_holds_interfaces(sock))
+        exa_udp_insert(fd);
     /* Can't revert to previous state, so just close the fd */
     exasock_override_off();
     close(fd);
@@ -562,11 +575,10 @@ exa_socket_udp_close(struct exa_socket * restrict sock)
     int fd = exa_socket_fd(sock);
 
     assert(exa_write_locked(&sock->lock));
-    assert(!sock->all_if || sock->listen_if == NULL);
 
-    if (sock->listen_mcast)
+    if (sock->listen.mcast)
         exa_udp_mcast_remove(fd, &sock->ip_membership.mcast_ep);
-    else if (sock->bound)
+    else if (exa_socket_holds_interfaces(sock))
         exa_udp_remove(fd);
 
     exa_socket_release_interfaces(sock);
@@ -604,7 +616,8 @@ exa_socket_tcp_bind(struct exa_socket * restrict sock, in_addr_t addr,
         goto err_sys_bind;
 
     sock->bind.ip = endpoint;
-    exa_tcp_insert(fd);
+    if (exa_socket_holds_interfaces(sock))
+        exa_tcp_insert(fd);
 
     return 0;
 
@@ -633,6 +646,9 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
     endpoint.addr.peer = addr;
     endpoint.port.peer = port;
 
+    if (exa_socket_holds_interfaces(sock))
+        exa_tcp_remove(fd);
+
     if (endpoint.addr.local == htonl(INADDR_ANY))
     {
         in_addr_t src_addr;
@@ -653,9 +669,9 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
 
     exanic_tcp_connect(sock, &endpoint);
 
-    exa_tcp_remove(fd);
     sock->bind.ip = endpoint;
-    exa_tcp_insert(fd);
+    if (exa_socket_holds_interfaces(sock))
+        exa_tcp_insert(fd);
 
     sock->connected = true;
 
@@ -666,6 +682,8 @@ err_sys_update:
     exa_socket_update_interfaces(sock, sock->bind.ip.addr.local);
 err_update_interfaces:
 err_dst_lookup:
+    if (exa_socket_holds_interfaces(sock))
+        exa_tcp_insert(fd);
     return -1;
 }
 
@@ -737,7 +755,8 @@ exa_socket_tcp_accept(struct exa_endpoint * restrict endpoint,
     exanic_tcp_accept(sock, endpoint, tcp_state);
 
     sock->bind.ip = *endpoint;
-    exa_tcp_insert(fd);
+    if (exa_socket_holds_interfaces(sock))
+        exa_tcp_insert(fd);
 
     sock->connected = true;
 
@@ -766,12 +785,12 @@ exa_socket_tcp_close(struct exa_socket * restrict sock)
     int fd = exa_socket_fd(sock);
 
     assert(exa_write_locked(&sock->lock));
-    assert(!sock->all_if || sock->listen_if == NULL);
 
-    if (sock->bound)
+    if (exa_socket_holds_interfaces(sock))
+    {
         exa_tcp_remove(fd);
-
-    exa_socket_release_interfaces(sock);
+        exa_socket_release_interfaces(sock);
+    }
     exanic_tcp_free(sock);
 
     sock->bound = false;

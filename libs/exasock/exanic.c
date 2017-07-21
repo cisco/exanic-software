@@ -1322,7 +1322,7 @@ exanic_tcp_connect(struct exa_socket * restrict sock,
                    struct exa_endpoint * restrict ep)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
-    struct exanic_ip * restrict ip_ctx = sock->listen_if;
+    struct exanic_ip * restrict ip_ctx = sock->listen.interface;
 
     assert(ctx != NULL);
     assert(ip_ctx != NULL);
@@ -1362,7 +1362,7 @@ exanic_tcp_accept(struct exa_socket * restrict sock,
                   struct exa_tcp_init_state * restrict tcp_state)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
-    struct exanic_ip * restrict ip_ctx = sock->listen_if;
+    struct exanic_ip * restrict ip_ctx = sock->listen.interface;
 
     assert(ctx != NULL);
     assert(ip_ctx != NULL);

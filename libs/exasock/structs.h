@@ -84,11 +84,18 @@ struct exa_socket
     /* Bound to specific device with SO_BINDTODEVICE */
     bool bound_to_device;
 
-    /* If listening on all interfaces, all_if is true and listen_if is NULL
-     * Otherwise all_if is false and listen_if is not NULL */
-    bool all_if;
-    struct exanic_ip *listen_if;
-    bool listen_mcast;
+    /* Interfaces the socket is listening on.
+     * If bound to all interfaces, listen.all_if is true and listen.interface
+     * is NULL.
+     * If bound to a single interface, listen.all_if is false and
+     * listen.interface is not NULL.
+     * If listening on an interface with which a multicast group has been
+     * joined, listen.mcast is true. */
+    struct {
+        struct exanic_ip *interface;
+        bool all_if;
+        bool mcast;
+    } listen;
 
     /* Protocol context structs */
     union {

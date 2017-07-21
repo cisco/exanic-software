@@ -563,7 +563,7 @@ connect_udp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
     assert(sock->bound);
     assert(!sock->connected);
 
-    if (sock->all_if && exa_dst_lookup_src(addr, NULL) == -1)
+    if (sock->listen.all_if && exa_dst_lookup_src(addr, NULL) == -1)
     {
         /* Destination not reachable on ExaNIC interface */
         errno = EINVAL;
