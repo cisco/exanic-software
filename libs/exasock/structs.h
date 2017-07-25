@@ -161,6 +161,12 @@ struct exa_socket
 
 #define EXA_HASHTABLE_SIZE_LOG2 16
 
+struct exa_hashtable_key
+{
+    in_addr_t addr[2];
+    in_port_t port[2];
+};
+
 struct exa_hashtable
 {
     int table[1 << EXA_HASHTABLE_SIZE_LOG2];
@@ -205,11 +211,11 @@ exa_hashtable_init(struct exa_hashtable * restrict ht)
 }
 
 static inline uint32_t
-exa_endpoint_hash(struct exa_endpoint * restrict e)
+exa_hashtable_hash(struct exa_hashtable_key * restrict key)
 {
-    uint32_t a = e->addr.local;
-    uint32_t b = e->addr.peer;
-    uint32_t c = ((uint32_t)e->port.peer << 16) | e->port.local;
+    uint32_t a = key->addr[0];
+    uint32_t b = key->addr[1];
+    uint32_t c = ((uint32_t)key->port[0] << 16) | key->port[1];
 
     /* Based on final stage of the lookup3 hash function by Bob Jenkins.
      * http://burtleburtle.net/bob/c/lookup3.c */
@@ -226,15 +232,15 @@ exa_endpoint_hash(struct exa_endpoint * restrict e)
     return c;
 }
 
-#define EXA_HASHTABLE_IDX(ep)   \
-                (exa_endpoint_hash(ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1))
+#define EXA_HASHTABLE_IDX(key)   \
+                (exa_hashtable_hash(key) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1))
 
 static inline void
 exa_hashtable_insert(struct exa_hashtable * restrict ht,
                      struct exa_socket * restrict sock, int fd,
-                     struct exa_endpoint * restrict ep)
+                     struct exa_hashtable_key * restrict key)
 {
-    uint32_t idx = EXA_HASHTABLE_IDX(ep);
+    uint32_t idx = EXA_HASHTABLE_IDX(key);
 
     exa_lock(&ht->write_lock);
     sock->hashtable_next_fd = ht->table[idx];
@@ -245,9 +251,9 @@ exa_hashtable_insert(struct exa_hashtable * restrict ht,
 static inline void
 exa_hashtable_remove(struct exa_hashtable * restrict ht,
                      struct exa_socket * restrict remove_sock, int remove_fd,
-                     struct exa_endpoint * restrict ep)
+                     struct exa_hashtable_key * restrict key)
 {
-    uint32_t idx = EXA_HASHTABLE_IDX(ep);
+    uint32_t idx = EXA_HASHTABLE_IDX(key);
     int fd;
 
     exa_lock(&ht->write_lock);
@@ -278,16 +284,28 @@ static inline void
 exa_hashtable_ucast_insert(struct exa_hashtable * restrict ht, int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
+    struct exa_hashtable_key key;
 
-    exa_hashtable_insert(ht, sock, fd, &sock->bind.ip);
+    key.addr[0] = sock->bind.ip.addr.local;
+    key.addr[1] = sock->bind.ip.addr.peer;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = sock->bind.ip.port.peer;
+
+    exa_hashtable_insert(ht, sock, fd, &key);
 }
 
 static inline void
 exa_hashtable_ucast_remove(struct exa_hashtable * restrict ht, int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
+    struct exa_hashtable_key key;
 
-    exa_hashtable_remove(ht, sock, fd, &sock->bind.ip);
+    key.addr[0] = sock->bind.ip.addr.local;
+    key.addr[1] = sock->bind.ip.addr.peer;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = sock->bind.ip.port.peer;
+
+    exa_hashtable_remove(ht, sock, fd, &key);
 }
 
 static inline void
@@ -295,17 +313,18 @@ exa_hashtable_mcast_insert(struct exa_hashtable * restrict ht, int fd,
                            struct exa_mcast_endpoint * restrict mc_ep)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
-    struct exa_endpoint ep;
+    struct exa_hashtable_key key;
 
-    /* Multicast entries use peer addr key for interface address. It is fine
-     * as long as IP_ADD_SOURCE_MEMBERSHIP socket option is not supported.
+    /* For multicast entries peer addr is not used as a hash key
+     * and interface address is used instead. It is fine as long as
+     * IP_ADD_SOURCE_MEMBERSHIP socket option is not supported.
      */
-    ep.addr.local = mc_ep->multiaddr;
-    ep.addr.peer = mc_ep->interface;
-    ep.port.local = sock->bind.ip.port.local;
-    ep.port.peer = 0;
+    key.addr[0] = mc_ep->multiaddr;
+    key.addr[1] = mc_ep->interface;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = 0;
 
-    exa_hashtable_insert(ht, sock, fd, &ep);
+    exa_hashtable_insert(ht, sock, fd, &key);
 }
 
 static inline void
@@ -313,26 +332,31 @@ exa_hashtable_mcast_remove(struct exa_hashtable * restrict ht, int fd,
                            struct exa_mcast_endpoint * restrict mc_ep)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
-    struct exa_endpoint ep;
+    struct exa_hashtable_key key;
 
-    ep.addr.local = mc_ep->multiaddr;
-    ep.addr.peer = mc_ep->interface;
-    ep.port.local = sock->bind.ip.port.local;
-    ep.port.peer = 0;
+    key.addr[0] = mc_ep->multiaddr;
+    key.addr[1] = mc_ep->interface;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = 0;
 
-    exa_hashtable_remove(ht, sock, fd, &ep);
+    exa_hashtable_remove(ht, sock, fd, &key);
 }
 
 static inline int
 exa_hashtable_ucast_lookup(struct exa_hashtable * restrict ht,
                           struct exa_endpoint * restrict e)
 {
-    struct exa_endpoint ep = *e;
+    struct exa_hashtable_key key;
     uint32_t idx;
     int fd;
 
+    key.addr[0] = e->addr.local;
+    key.addr[1] = e->addr.peer;
+    key.port[0] = e->port.local;
+    key.port[1] = e->port.peer;
+
     /* Look up by (local addr, local port, peer addr, peer port) */
-    idx = EXA_HASHTABLE_IDX(&ep);
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -348,9 +372,9 @@ exa_hashtable_ucast_lookup(struct exa_hashtable * restrict ht,
     }
 
     /* Look up by (local addr, local port) */
-    ep.addr.peer = htonl(INADDR_ANY);
-    ep.port.peer = 0;
-    idx = EXA_HASHTABLE_IDX(&ep);
+    key.addr[1] = htonl(INADDR_ANY);    /* peer addr */
+    key.port[1] = 0;                    /* peer port */
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -366,8 +390,8 @@ exa_hashtable_ucast_lookup(struct exa_hashtable * restrict ht,
     }
 
     /* Look up by local port only */
-    ep.addr.local = htonl(INADDR_ANY);
-    idx = EXA_HASHTABLE_IDX(&ep);
+    key.addr[0] = htonl(INADDR_ANY);    /* local addr */
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -390,18 +414,21 @@ exa_hashtable_mcast_lookup(struct exa_hashtable * restrict ht,
                            struct exa_endpoint * restrict e,
                            in_addr_t if_addr)
 {
-    struct exa_endpoint ep = *e;
+    struct exa_hashtable_key key;
     uint32_t idx;
     int fd;
 
-    /* Multicast entries use peer addr key for interface address. It is fine
-     * as long as IP_ADD_SOURCE_MEMBERSHIP socket option is not supported.
+    /* For multicast entries peer addr is not used as a hash key
+     * and interface address is used instead. It is fine as long as
+     * IP_ADD_SOURCE_MEMBERSHIP socket option is not supported.
      */
-    ep.addr.peer = if_addr;
-    ep.port.peer = 0;
+    key.addr[0] = e->addr.local;    /* multicast address */
+    key.addr[1] = if_addr;          /* interface address */
+    key.port[0] = e->port.local;    /* local port */
+    key.port[1] = 0;                /* not used */
 
     /* Look up by (multicast addr, local port, interface addr) */
-    idx = EXA_HASHTABLE_IDX(&ep);
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
