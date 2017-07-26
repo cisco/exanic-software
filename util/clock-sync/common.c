@@ -44,8 +44,11 @@ static int clock_adjtime(clockid_t id, struct timex *tx)
 
 void reset_drift(struct drift *d)
 {
+    int i;
+
     d->n = 0;
-    d->startup = 1;
+    for (i = 0; i < DRIFT_LEN; i++)
+        d->drift[i] = d->weight[i] = 0;
 }
 
 
@@ -53,15 +56,10 @@ void reset_drift(struct drift *d)
 int calc_drift(struct drift *d, double *val)
 {
     double drift, weight;
-    int i, c;
-
-    if (d->startup)
-        c = d->n;
-    else
-        c = DRIFT_LEN;
+    int i;
 
     drift = weight = 0;
-    for (i = 0; i < c; i++)
+    for (i = 0; i < DRIFT_LEN; i++)
     {
         drift += d->drift[i] * d->weight[i];
         weight += d->weight[i];
@@ -82,7 +80,7 @@ void record_drift(struct drift *d, double val, double weight)
     d->drift[d->n] = val;
     d->weight[d->n] = weight;
     if (++d->n >= DRIFT_LEN)
-        d->n = d->startup = 0;
+        d->n = 0;
 }
 
 
@@ -142,6 +140,61 @@ void record_error(struct error *e, double correction, double val)
     e->error[e->n] = val;
     if (++e->n >= ERROR_LEN)
         e->n = e->startup = 0;
+}
+
+
+void reset_rate_error(struct rate_error *r, double bucket_size)
+{
+    int i;
+
+    r->n = 0;
+    r->startup = 1;
+    r->bucket_size = bucket_size;
+    for (i = 0; i < RATE_ERROR_BUCKETS; ++i)
+        r->error[i] = r->interval[i] = 0;
+}
+
+
+int calc_rate_error(struct rate_error *r, double *err)
+{
+    int n;
+
+    if (r->n > 0)
+        n = r->n - 1;
+    else if (r->startup)
+        n = 0;
+    else
+        n = RATE_ERROR_BUCKETS - 1;
+
+    if (r->interval[n] > 0)
+    {
+        *err = r->error[n] / r->interval[n];
+        return 1;
+    }
+    else
+        return 0;
+}
+
+
+void record_rate_error(struct rate_error *r, double err, double interval)
+{
+    while (r->bucket_size - r->interval[r->n] < interval)
+    {
+        double rem = r->bucket_size - r->interval[r->n];
+
+        r->error[r->n] += err * rem / interval;
+        r->interval[r->n] = r->bucket_size;
+
+        err -= err * rem / interval;
+        interval -= rem;
+
+        if (++r->n >= RATE_ERROR_BUCKETS)
+            r->n = r->startup = 0;
+        r->error[r->n] = r->interval[r->n] = 0;
+    }
+
+    r->error[r->n] += err;
+    r->interval[r->n] += interval;
 }
 
 

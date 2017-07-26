@@ -59,6 +59,21 @@ void reset_error(struct error *e);
 int calc_error(struct error *e, double *val);
 void record_error(struct error *e, double correction, double val);
 
+#define RATE_ERROR_BUCKETS 64
+
+struct rate_error
+{
+    double error[RATE_ERROR_BUCKETS];
+    double interval[RATE_ERROR_BUCKETS];
+    int n;
+    int startup;
+    double bucket_size;
+};
+
+void reset_rate_error(struct rate_error *r, double bucket_size);
+int calc_rate_error(struct rate_error *r, double *err);
+void record_rate_error(struct rate_error *r, double err, double interval);
+
 void log_printf(int priority, const char *fmt, ...);
 
 extern int verbose;

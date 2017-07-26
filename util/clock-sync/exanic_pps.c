@@ -16,8 +16,9 @@
 
 #define LEN 8
 #define SKIP_MAX 5
-#define SPURIOUS_MAX 3
 #define TIMEOUT_SECONDS 10
+#define ERROR_MAX 0.001
+#define ERROR_BUCKET_SIZE 64
 
 
 struct exanic_pps_sync_state
@@ -29,12 +30,14 @@ struct exanic_pps_sync_state
     int64_t offset_ns;  /* Offset to add to ExaNIC time (ns) */
     int tai_offset;     /* TAI offset to add to ExaNIC time */
     int auto_tai_offset; /* Get TAI offset from system */
-    uint64_t poll_time_ns; /* Time of last poll (ns since epoch) */
+    uint64_t pps_time_tick; /* Time of last PPS */
+    uint64_t adj_time_tick; /* Time of last change to adjustment value */
+    double tick_adj;    /* Number of extra clock ticks at the last adjustment */
     uint32_t pps_reg;   /* Last seen value of the PPS register */
     time_t pps_time;    /* Time of last PPS pulse (seconds since epoch) */
     double pps_offset;  /* Offset at last PPS pulse (ns) */
     double adj;         /* Currently applied adjustment value */
-    struct drift drift; /* Estimated drift of the underlying clock */
+    struct rate_error rate; /* Clock error measurements */
     int error_mode;     /* Nonzero if there was an error adjusting the clock */
     int pps_signal;     /* 0 = no signal, 1 = signal, -1 = indeterminate */
     int log_next;       /* Make sure next measurement is logged */
@@ -42,7 +45,6 @@ struct exanic_pps_sync_state
     uint64_t last_log_ns; /* Time of last log message (ns since epoch) */
     time_t pps_last_seen; /* Time of last poll that a PPS pulse was detected
                              (CLOCK_MONOTONIC) */
-    int spurious_pps_count; /* Number of consecutive spurious PPS pulses */
 };
 
 
@@ -155,13 +157,24 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), reg);
     }
 
+    /* Don't allow too large adjustments as the algorithm cannot handle it */
+    if (fabs(adj) > ERROR_MAX)
+    {
+        log_printf(LOG_WARNING, "%s: Current adjustment out of range, "
+                "resetting to 0", state->name);
+        set_clock_adj(state->clkfd, 0);
+        adj = 0;
+    }
+
     /* Set up state struct */
-    state->poll_time_ns = time_ns;
+    state->pps_time_tick = 0;
+    state->adj_time_tick = 0;
+    state->tick_adj = 0;
 
     state->pps_reg = exanic_register_read(state->exanic,
             REG_EXANIC_INDEX(REG_EXANIC_PPS_TIMESTAMP));
-    state->pps_time = 0;
     state->pps_offset = 0;
+    state->pps_time = 0;
 
     /* Get current adjustment from exanic */
     state->adj = adj;
@@ -172,8 +185,7 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     state->log_reset = 0;
     state->last_log_ns = 0;
     state->pps_last_seen = ts_mono.tv_sec;
-    state->spurious_pps_count = 0;
-    reset_drift(&state->drift);
+    reset_rate_error(&state->rate, ERROR_BUCKET_SIZE);
 
     return state;
 }
@@ -184,14 +196,16 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     struct timespec ts_mono, ts_sys;
     uint32_t pps_reg;
     uint64_t poll_time_ns = 0;
-    double drift;
-    int drift_known;
+    uint64_t poll_time_tick;
+    int32_t poll_time_tick_hi, poll_time_tick_lo;
+    double rate_error;
+    int rate_error_known;
 
     clock_gettime(CLOCK_MONOTONIC, &ts_mono);
     clock_gettime(CLOCK_REALTIME, &ts_sys);
 
-    /* Get clock drift from measurement history */
-    drift_known = calc_drift(&state->drift, &drift);
+    /* Get rate error from measurement history */
+    rate_error_known = calc_rate_error(&state->rate, &rate_error);
 
     /* Read the latched timestamp value at the last PPS pulse
      * This must be done before reading the current hardware time */
@@ -207,6 +221,12 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
         goto clock_error;
     }
 
+    /* Calculate current time in ticks since epoch */
+    poll_time_tick = (poll_time_ns / 1000000000) * state->tick_hz +
+        (poll_time_ns % 1000000000) * state->tick_hz / 1000000000;
+    poll_time_tick_hi = (poll_time_tick >> 32);
+    poll_time_tick_lo = (poll_time_tick & 0xFFFFFFFF);
+
     if (state->auto_tai_offset)
     {
         if (get_tai_offset(&state->tai_offset) == -1)
@@ -218,23 +238,26 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
         }
     }
 
-    /* Calculate the time of the last PPS pulse */
     if (pps_reg != state->pps_reg)
     {
-        uint64_t poll_time_tick, pps_time_tick, desired_time_tick;
-        uint32_t poll_time_tick_hi, poll_time_tick_lo;
+        uint64_t pps_time_tick, desired_time_tick;
         uint64_t pps_sys_time_ns;
         double pps_offset;
         time_t time_sec;
-        int valid_pps;
+        int good_interval;
+
+        /* Record that we have seen a PPS pulse */
+        if (state->pps_signal != 1)
+        {
+            log_printf(LOG_INFO, "%s: PPS signal detected",
+                    state->name);
+        }
+        state->pps_signal = 1;
+        state->pps_last_seen = ts_mono.tv_sec;
 
         /* Extend the PPS pulse time to 64 bits
          * This calculation assumes the PPS pulse time is before the current
          * hardware time, within one rollover period */
-        poll_time_tick = (poll_time_ns / 1000000000) * state->tick_hz +
-            (poll_time_ns % 1000000000) * state->tick_hz / 1000000000;
-        poll_time_tick_hi = (poll_time_tick >> 32);
-        poll_time_tick_lo = (poll_time_tick & 0xFFFFFFFF);
         if (poll_time_tick_lo < pps_reg)
             pps_time_tick = ((uint64_t)(poll_time_tick_hi - 1) << 32) | pps_reg;
         else
@@ -261,51 +284,66 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             pps_offset = (desired_time_tick - pps_time_tick) * -1000000000.0 /
                 state->tick_hz;
 
-        /* Heuristics to reject spurious PPS pulses */
-        valid_pps = 0;
-        /* If offset small (less than 1ms), assume non-spurious */
-        if (fabs(pps_offset) < 1000000)
-            valid_pps = 1;
-        /* Assume non-spurious for first PPS pulse on startup */
-        if (state->pps_time == 0)
-            valid_pps = 1;
-        /* If too many "spurious" pulses, then we are probably wrong */
-        if (state->spurious_pps_count >= SPURIOUS_MAX)
-            valid_pps = 1;
-
-        if (!valid_pps)
+        /* Measure interval between consecutive PPS in raw ticks */
+        good_interval = 0;
+        if (state->pps_time_tick != 0 && pps_time_tick > state->pps_time_tick)
         {
-            state->spurious_pps_count++;
-            log_printf(LOG_WARNING, "%s: Ignoring possible spurious PPS, "
-                    "clock offset: %.4f us", state->name,
-                    pps_offset * 0.001);
-        }
-        else
-        {
-            state->spurious_pps_count = 0;
+            uint64_t ticks = pps_time_tick - state->pps_time_tick;
+            unsigned seconds = round(1.0 * ticks / state->tick_hz);
+            uint64_t desired_ticks = (uint64_t)seconds * state->tick_hz;
+            int64_t tick_err;
+            double tick_adj, raw_tick_err;
 
-            if ((time_sec - state->pps_time) <= (SKIP_MAX + 1))
+            /* Difference between the expected and actual number of ticks */
+            if (ticks > desired_ticks)
+                tick_err = ticks - desired_ticks;
+            else
+                tick_err = -(int64_t)(desired_ticks - ticks);
+
+            /* Subtract out clock adjustment to get raw tick count */
+            tick_adj = state->tick_adj;
+            if (pps_time_tick > state->adj_time_tick)
             {
-                /* Measure drift */
-                unsigned seconds = time_sec - state->pps_time;
-                double pps_offset_delta = pps_offset - state->pps_offset;
-                double error_ppm = pps_offset_delta / (seconds * 1000000000.0);
-
-                /* Record drift measurement */
-                record_drift(&state->drift, error_ppm - state->adj, seconds);
-
-                /* Update estimate of clock drift */
-                drift_known = calc_drift(&state->drift, &drift);
+                tick_adj += (pps_time_tick - state->adj_time_tick) *
+                    state->adj / (state->adj + 1);
             }
+            raw_tick_err = tick_err - tick_adj;
 
+            if (seconds > SKIP_MAX)
+            {
+                log_printf(LOG_WARNING, "%s: PPS interval too large: %d s",
+                        state->name, seconds);
+            }
+            else if (fabs(raw_tick_err) > ERROR_MAX * seconds * state->tick_hz)
+            {
+                log_printf(LOG_WARNING, "%s: Ignoring possible spurious PPS, "
+                        "error measurement: %.4f ticks",
+                        state->name, raw_tick_err);
+            }
+            else if (fabs(tick_adj) > fabs(raw_tick_err) * 10)
+            {
+                /* Raw tick measurement is inaccurate when clock adjustment
+                 * is large, so don't record it */
+                good_interval = 1;
+            }
+            else
+            {
+                record_rate_error(&state->rate, raw_tick_err / state->tick_hz,
+                        seconds);
+                good_interval = 1;
+            }
+        }
+
+        /* Update state for measuring PPS interval */
+        state->pps_time_tick = pps_time_tick;
+        state->adj_time_tick = pps_time_tick;
+        state->tick_adj = 0;
+
+        /* Record PPS offset measurement if it is good */
+        if (good_interval || state->pps_time == 0)
+        {
             state->pps_offset = pps_offset;
             state->pps_time = time_sec;
-
-            if (state->pps_signal != 1)
-                log_printf(LOG_INFO, "%s: PPS signal detected",
-                        state->name);
-            state->pps_signal = 1;
-            state->pps_last_seen = ts_mono.tv_sec;
 
             /* If offset is more than 1us, make sure status is logged */
             if (fabs(state->pps_offset) > 1000)
@@ -315,9 +353,17 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             if (verbose || state->log_next || state->last_log_ns +
                     LOG_INTERVAL * 1000000000ULL < poll_time_ns)
             {
-                log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: %.4f us "
-                        " drift: %.4f ppm", state->name,
-                        state->pps_offset * 0.001, drift * 1000000);
+                if (!rate_error_known)
+                {
+                    log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
+                            "%.4f us", state->name, state->pps_offset * 0.001);
+                }
+                else
+                {
+                    log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
+                            "%.4f us  drift: %.4f ppm", state->name,
+                            state->pps_offset * 0.001, rate_error * 1000000);
+                }
                 state->last_log_ns = poll_time_ns;
             }
 
@@ -332,21 +378,19 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     /* Check if we haven't seen a PPS pulse for a while */
     if (ts_mono.tv_sec - state->pps_last_seen > TIMEOUT_SECONDS)
     {
-        if (state->pps_signal != 0 || state->last_log_ns +
-                LOG_INTERVAL * 1000000000ULL < poll_time_ns)
+        if (state->pps_signal != 0)
         {
             log_printf(LOG_WARNING, "%s: PPS signal lost",
                     state->name);
-            state->last_log_ns = poll_time_ns;
         }
 
         state->pps_signal = 0;
         state->log_next = 1;
     }
 
-    /* Reset exanic clock if offset is too large (more than 1ms) */
     if (fabs(state->pps_offset) > 1000000)
     {
+        /* Offset is more than 1ms, reset clock */
         uint64_t time_ns;
 
         if (state->log_reset)
@@ -364,23 +408,25 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             goto clock_error;
         }
 
+        state->pps_time_tick = 0;
+        state->adj_time_tick = 0;
+        state->tick_adj = 0;
         state->pps_offset = 0;
         state->pps_time = 0;
         state->adj = 0;
         state->log_next = 1;
         state->log_reset = 1;
         state->last_log_ns = poll_time_ns;
-        state->spurious_pps_count = 0;
-        reset_drift(&state->drift);
+        /* Rate error history is not reset because rate error measurements
+         * should still be valid */
         return SYNC_OK;
     }
-
-    state->log_reset = 1;
-
-    if (drift_known)
+    else
     {
+        /* Adjust clock rate to compensate for offset and rate error */
         double offset_correction;
         int64_t time_since_pps_ns;
+        double adj;
 
         /* Measure time since last PPS pulse */
         time_since_pps_ns = poll_time_ns - state->pps_time * 1000000000ULL;
@@ -392,9 +438,8 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             /* Don't add offset correction, it should be corrected by now */
             offset_correction = 0;
 
-        /* Set adjustment to compensate for drift and to correct offset */
-        state->adj = offset_correction - drift;
-        if (set_clock_adj(state->clkfd, state->adj) == -1)
+        adj = offset_correction - (rate_error_known ? rate_error : 0);
+        if (set_clock_adj(state->clkfd, adj) == -1)
         {
             if (!state->error_mode)
                 log_printf(LOG_ERR, "%s: Error adjusting clock: %s",
@@ -402,19 +447,29 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             goto clock_error;
         }
 
+        /* Record adjustment and update raw tick counters */
+        if (poll_time_tick > state->adj_time_tick)
+        {
+            state->tick_adj += (poll_time_tick - state->adj_time_tick) *
+                state->adj / (state->adj + 1);
+            state->adj_time_tick = poll_time_tick;
+        }
+        state->adj = adj;
+
         /* If we get here, everything is working correctly */
         if (state->error_mode)
         {
             log_printf(LOG_INFO, "%s: Error state cleared", state->name);
             state->error_mode = 0;
         }
+
+        return SYNC_OK;
     }
 
-    state->poll_time_ns = poll_time_ns;
-
-    return SYNC_OK;
-
 clock_error:
+    state->pps_time_tick = 0;
+    state->adj_time_tick = 0;
+    state->tick_adj = 0;
     state->pps_offset = 0;
     state->pps_time = 0;
     state->adj = 0;
@@ -422,24 +477,24 @@ clock_error:
     state->log_next = 1;
     state->log_reset = 1;
     state->last_log_ns = 0;
-    state->spurious_pps_count = 0;
-    reset_drift(&state->drift);
+    reset_rate_error(&state->rate, ERROR_BUCKET_SIZE);
     return SYNC_FAILED;
 }
 
 
 void shutdown_exanic_pps_sync(struct exanic_pps_sync_state *state)
 {
-    double drift;
+    double rate_error = 0;
 
     log_printf(LOG_INFO, "%s: Stopping clock discipline using PPS",
             state->name);
 
-    /* Set adjustment to compensate for drift only */
-    calc_drift(&state->drift, &drift);
-    set_clock_adj(state->clkfd, -drift);
+    /* Set adjustment to compensate for rate error only */
+    calc_rate_error(&state->rate, &rate_error);
+    set_clock_adj(state->clkfd, -rate_error);
 
     exanic_release_handle(state->exanic);
 
     free(state);
+
 }

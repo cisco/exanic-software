@@ -28,7 +28,7 @@ exanic-capture: exanic-capture.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS) -lrt
 
 exanic-clock-sync: exanic-clock-sync.c clock-sync/common.c clock-sync/phc_sys.c clock-sync/exanic_pps.c clock-sync/phc_phc.c clock-sync/sys_phc.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) $^ -o $@ $(LDLIBS) -lrt
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) $^ -o $@ $(LDLIBS) -lm -lrt
 
 exanic-clock-check: exanic-clock-check.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
