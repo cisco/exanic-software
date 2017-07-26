@@ -26,6 +26,8 @@
 
 #include <linux/sockios.h>
 
+#include <exasock/socket.h>
+
 #include "../kernel/api.h"
 #include "../kernel/consts.h"
 #include "../kernel/structs.h"
@@ -282,7 +284,8 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 static int
-bind_to_device(struct exa_socket * restrict sock, const char *ifnamein, socklen_t ifnamelen)
+bind_to_device(struct exa_socket * restrict sock, const char *ifnamein,
+               socklen_t ifnamelen)
 {
     char ifname[IFNAMSIZ];
     in_addr_t address;
@@ -294,7 +297,7 @@ bind_to_device(struct exa_socket * restrict sock, const char *ifnamein, socklen_
     memcpy(ifname, ifnamein, ifnamelen);
     ifname[ifnamelen] = 0;
 
-    if (exanic_ip_find_by_interface(ifname, &address))
+    if (exanic_ip_find_by_interface(ifname, &address) && !sock->disable_bypass)
     {
         if (!sock->bypass)
         {
@@ -1343,6 +1346,55 @@ getsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
     return ret;
 }
 
+static int
+getsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
+                   void *optval, socklen_t *optlen)
+{
+    int val;
+    int ret;
+    bool out_int = false;
+
+    if (sock == NULL)
+    {
+        /* Unfortunatelly Exasock has no control over this file descriptor,
+         * so there is no way to obtain state of its options at this level */
+        errno = EBADFD;
+        return -1;
+    }
+
+    exa_read_lock(&sock->lock);
+
+    switch (optname)
+    {
+    case SO_EXA_NO_ACCEL:
+        val = sock->disable_bypass;
+        out_int = true;
+        ret = 0;
+        break;
+    default:
+        errno = ENOPROTOOPT;
+        ret = -1;
+    }
+
+    exa_read_unlock(&sock->lock);
+
+    if (out_int)
+    {
+        if (*optlen >= sizeof(int))
+        {
+            *(int *)optval = val;
+            *optlen = sizeof(int);
+        }
+        else if (*optlen >= sizeof(unsigned char))
+        {
+            *(unsigned char *)optval = val;
+            *optlen = sizeof(unsigned char);
+        }
+    }
+
+    return ret;
+}
+
 __attribute__((visibility("default")))
 int
 getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
@@ -1356,12 +1408,14 @@ getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
     TRACE_ARG(ENUM, optname, sockopt);
     TRACE_FLUSH();
 
-    if ((sock != NULL) && (level == IPPROTO_IP))
+    if (level == SOL_EXASOCK)
+        ret = getsockopt_exasock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == SOL_SOCKET))
+        ret = getsockopt_sock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == IPPROTO_IP))
         ret = getsockopt_ip(sock, sockfd, optname, optval, optlen);
     else if ((sock != NULL) && (level == IPPROTO_TCP))
         ret = getsockopt_tcp(sock, sockfd, optname, optval, optlen);
-    else if ((sock != NULL) && (level == SOL_SOCKET))
-        ret = getsockopt_sock(sock, sockfd, optname, optval, optlen);
     else
         ret = libc_getsockopt(sockfd, level, optname, optval, optlen);
 
@@ -1769,6 +1823,59 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
     return ret;
 }
 
+static int
+setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
+                   const void *optval, socklen_t optlen)
+{
+    int val = 0;
+    int ret;
+
+    if (sock == NULL)
+    {
+        /* Unfortunatelly Exasock has no control over this file descriptor,
+         * so there is no way to manipulate its options at this level */
+        errno = EBADFD;
+        return -1;
+    }
+
+    if (optname == SO_EXA_NO_ACCEL)
+    {
+        if (optlen >= sizeof(int))
+            val = *(int *)optval;
+        else if (optlen >= sizeof(unsigned char))
+            val = *(unsigned char *)optval;
+        else
+        {
+            errno = EINVAL;
+            return -1;
+        }
+    }
+
+    exa_write_lock(&sock->lock);
+
+    switch (optname)
+    {
+        case SO_EXA_NO_ACCEL:
+            if ((val && sock->bypass) || (val == 0 && sock->disable_bypass))
+            {
+                errno = EPERM;
+                ret = -1;
+            }
+            else
+            {
+                sock->disable_bypass = (val != 0);
+                ret = 0;
+            }
+            break;
+        default:
+            errno = ENOPROTOOPT;
+            ret = -1;
+    }
+
+    exa_write_unlock(&sock->lock);
+    return ret;
+}
+
 __attribute__((visibility("default")))
 int
 setsockopt(int sockfd, int level, int optname, const void *optval,
@@ -1785,12 +1892,14 @@ setsockopt(int sockfd, int level, int optname, const void *optval,
     TRACE_LAST_ARG(INT, optlen);
     TRACE_FLUSH();
 
-    if ((sock != NULL) && (level == IPPROTO_IP))
+    if (level == SOL_EXASOCK)
+        ret = setsockopt_exasock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == SOL_SOCKET))
+        ret = setsockopt_sock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == IPPROTO_IP))
         ret = setsockopt_ip(sock, sockfd, optname, optval, optlen);
     else if ((sock != NULL) && (level == IPPROTO_TCP))
         ret = setsockopt_tcp(sock, sockfd, optname, optval, optlen);
-    else if ((sock != NULL) && (level == SOL_SOCKET))
-        ret = setsockopt_sock(sock, sockfd, optname, optval, optlen);
     else
         ret = libc_setsockopt(sockfd, level, optname, optval, optlen);
 

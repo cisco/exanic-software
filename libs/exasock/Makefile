@@ -18,6 +18,7 @@ PRELOAD_SRCS=$(CORE_SRCS) $(SOCK_SRCS) $(EXT_SRCS)
 
 EXT_STUB_SRCS=extensions/stub.c
 
+SOCK_INCLUDES=include/exasock/socket.h
 EXT_INCLUDES=include/exasock/extensions.h
 
 DEBUG_PRELOAD_LIB=build/libexasock_preload_debug.so
@@ -73,7 +74,7 @@ install: all
 	install -m 0755 -D $(EXT_STUB_LIB) $(LIBDIR)/$(EXT_STUB_LIB_FULLNAME)
 	ln -sf $(EXT_STUB_LIB_FULLNAME) $(LIBDIR)/$(EXT_STUB_LIB_SONAME)
 	ln -sf $(EXT_STUB_LIB_SONAME) $(DEVLIBDIR)/$(EXT_STUB_LIB_LINKNAME)
-	install -m 0644 -D $(EXT_INCLUDES) $(INCDIR)/exasock
+	install -m 0644 -D $(SOCK_INCLUDES) $(EXT_INCLUDES) $(INCDIR)/exasock
 
 uninstall:
 	rm -f $(LIBDIR)/exasock/*
