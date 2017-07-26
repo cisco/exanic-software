@@ -4,6 +4,7 @@
  *
  * Socket ioctls which can be used on the ethernet interface:
  * - \ref EXAIOCGIFINFO
+ * - \ref EXAIOCGHWTSTAMP
  *
  * Ioctls which can be used on /dev/exanic*:
  * - \ref EXANICCTL_INFO
