@@ -468,12 +468,37 @@ accept4_tcp(struct exa_socket * restrict sock, struct sockaddr *addr,
     return fd;
 }
 
+static void
+accept_native_init(int fd, struct exa_socket * restrict ls_sock, int flags)
+{
+    struct exa_socket * restrict sock = exa_socket_get(fd);
+
+    if (sock != NULL)
+    {
+        exa_write_lock(&sock->lock);
+
+        exa_socket_zero(sock);
+
+        if (ls_sock != NULL)
+        {
+            exa_socket_init(sock, ls_sock->domain, ls_sock->type & 0xF,
+                            ls_sock->protocol);
+            sock->disable_bypass = ls_sock->disable_bypass;
+        }
+
+        sock->flags = flags;
+
+        exa_write_unlock(&sock->lock);
+    }
+}
+
 __attribute__((visibility("default")))
 int
 accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     struct exa_socket * restrict sock = exa_socket_get(sockfd);
-    int ret;
+    bool native = false;
+    int fd;
 
     TRACE_CALL("accept");
     TRACE_ARG(INT, sockfd);
@@ -486,28 +511,35 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_accept(sockfd, addr, addrlen);
+            native = true;
+            fd = libc_accept(sockfd, addr, addrlen);
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
-            ret = accept4_tcp(sock, addr, addrlen, 0);
+            fd = accept4_tcp(sock, addr, addrlen, 0);
             exa_read_unlock(&sock->lock);
         }
         else
         {
             exa_read_unlock(&sock->lock);
             errno = EOPNOTSUPP;
-            ret = -1;
+            fd = -1;
         }
     }
     else
-        ret = libc_accept(sockfd, addr, addrlen);
+    {
+        native = true;
+        fd = libc_accept(sockfd, addr, addrlen);
+    }
+
+    if (native && fd != -1)
+        accept_native_init(fd, sock, 0);
 
     TRACE_ARG(SOCKADDR_PTR, addr);
     TRACE_LAST_ARG(INT_PTR, addrlen);
-    TRACE_RETURN(INT, ret);
+    TRACE_RETURN(INT, fd);
 
-    return ret;
+    return fd;
 }
 
 __attribute__((visibility("default")))
@@ -515,7 +547,8 @@ int
 accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     struct exa_socket * restrict sock = exa_socket_get(sockfd);
-    int ret;
+    bool native = false;
+    int fd;
 
     TRACE_CALL("accept4");
     TRACE_ARG(INT, sockfd);
@@ -528,29 +561,36 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_accept4(sockfd, addr, addrlen, flags);
+            native = true;
+            fd = libc_accept4(sockfd, addr, addrlen, flags);
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
-            ret = accept4_tcp(sock, addr, addrlen, flags);
+            fd = accept4_tcp(sock, addr, addrlen, flags);
             exa_read_unlock(&sock->lock);
         }
         else
         {
             exa_read_unlock(&sock->lock);
             errno = EOPNOTSUPP;
-            ret = -1;
+            fd = -1;
         }
     }
     else
-        ret = libc_accept4(sockfd, addr, addrlen, flags);
+    {
+        native = true;
+        fd = libc_accept4(sockfd, addr, addrlen, flags);
+    }
+
+    if (native && fd != -1)
+        accept_native_init(fd, sock, flags);
 
     TRACE_ARG(SOCKADDR_PTR, addr);
     TRACE_ARG(INT_PTR, addrlen);
     TRACE_LAST_ARG(BITS, flags, sock_flags);
-    TRACE_RETURN(INT, ret);
+    TRACE_RETURN(INT, fd);
 
-    return ret;
+    return fd;
 }
 
 /* This function will release rx_lock, tx_lock and socket lock */
