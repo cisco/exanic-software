@@ -154,15 +154,12 @@ int main (int argc, char *argv[])
     exanic_t *nic;
     exanic_tx_t *tx;
     exanic_rx_t *rx;
-    exanic_cycles32_t old_start, start, end;
     double *stats;
     char rx_buffer[RX_BUFFER_SIZE];
     char *data;
     ssize_t size;
     FILE *savefp = NULL;
-    int err = 0;
-    int cable_est = 0;
-    int raw = 0;
+    int c, data_size, samples, err = 0;
 
     /* Configure sensible defaults */
     const char *device = NULL;
@@ -171,19 +168,17 @@ int main (int argc, char *argv[])
     int rx_port = 0;
     float tx_cable_len = 0;
     float rx_cable_len = 0;
-    int timeout_ns = 100 * 1000; /* 10us */
     media_type tx_type = MEDIA_TYPE_UNKNOWN;
     media_type rx_type = MEDIA_TYPE_UNKNOWN;
     int packet_size = 64;
     int count = 1000;
+    int cable_est = 0;
+    int raw = 0;
 
     /* No args supplied */
     if (argc < 2)
-    {
         goto usage_error;
-    }
 
-    int c;
     while ((c = getopt (argc, argv, "d:w:p:P:l:L:t:T:s:c:EROh")) != -1)
     {
         switch (c)
@@ -235,7 +230,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: Cannot estimate cable length in raw "
                      "mode\n\n");
-            err = 1;
             goto usage_error;
         }
 
@@ -243,7 +237,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: Cannot estimate cable length for mixed "
                      "media types\n\n");
-            err = 1;
             goto usage_error;
         }
 
@@ -251,7 +244,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: Cannot estimate cable length if length "
                      "already specified\n\n");
-            err = 1;
             goto usage_error;
         }
 
@@ -259,24 +251,19 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: Cannot estimate cable length without a "
                      "media type\n\n");
-            err = 1;
             goto usage_error;
         }
     }
-    else if (raw){
+    else if (raw)
+    {
         if (rx_cable_len > 0 || tx_cable_len > 0)
-        {
             fprintf (stderr, "Warning: Ignorning cable length in raw mode\n\n");
-        }
 
         if (tx_type != MEDIA_TYPE_UNKNOWN)
-        {
             fprintf (stderr, "Warning: Ignoring tx media type in raw mode\n\n");
-        }
+
         if (rx_type != MEDIA_TYPE_UNKNOWN)
-        {
             fprintf (stderr, "Warning: Ignoring rx media type in raw mode\n\n");
-        }
     }
     else
     {
@@ -284,7 +271,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: RX media type required for latency "
                      "measurement\n\n");
-            err = 1;
             goto usage_error;
         }
 
@@ -292,7 +278,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: TX media type required for latency "
                      "measurement\n\n");
-            err = 1;
             goto usage_error;
         }
 
@@ -300,7 +285,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: Cannot set RXx media type with zero cable "
                      "length\n\n");
-            err = 1;
             goto usage_error;
         }
 
@@ -308,7 +292,6 @@ int main (int argc, char *argv[])
         {
             fprintf (stderr, "Error: Cannot set TX media type with zero cable "
                      "length\n\n");
-            err = 1;
             goto usage_error;
         }
     }
@@ -328,7 +311,7 @@ int main (int argc, char *argv[])
         }
     }
 
-    int data_size = packet_size - 4;
+    data_size = packet_size - 4;
     data = malloc (data_size);
     init_packet (data, data_size);
 
@@ -366,59 +349,48 @@ int main (int argc, char *argv[])
         goto err_acquire_tx;
     }
 
-    int samples = 0;
+    samples = 0;
     stats = malloc (count * sizeof(double));
     while (samples < count)
     {
+        exanic_cycles32_t old_start, start, end;
+        exanic_cycles_t start_expanded, end_expanded, time_delta_cycles;
+        struct exanic_timespecps tsps;
+        double time_delta_ns;
+
         old_start = exanic_get_tx_timestamp (tx);
         exanic_transmit_frame (tx, data, data_size);
 
-        struct timespec now;
-        clock_gettime(CLOCK_REALTIME,&now);
-        int64_t start_ns = now.tv_sec * 1000 * 1000 * 1000 + now.tv_nsec;
-        int64_t now_ns = start_ns;
         do
         {
             /* Wait for TX frame to leave the NIC */
             start = exanic_get_tx_timestamp (tx);
-            clock_gettime(CLOCK_REALTIME,&now);
-            now_ns = now.tv_sec * 1000 * 1000 * 1000 + now.tv_nsec;
         }
         while (old_start == start);
-        const uint64_t start_expanded = exanic_expand_timestamp (nic, start);
+        start_expanded = exanic_expand_timestamp (nic, start);
 
 
-        clock_gettime(CLOCK_REALTIME,&now);
-        start_ns = now.tv_sec * 1000 * 1000 * 1000 + now.tv_nsec;
-        now_ns = start_ns;
         do
         {
+            /* Wait for RX frame to arive at the NIC */
             size = exanic_receive_frame (rx, rx_buffer, sizeof(rx_buffer),
                                          &end);
-            clock_gettime(CLOCK_REALTIME,&now);
-            now_ns = now.tv_sec * 1000 * 1000 * 1000 + now.tv_nsec;
         }
         while (size <= 0);
-
-        const uint64_t end_expanded = exanic_expand_timestamp (nic, end);
 
         if (size != data_size + 4)
             fprintf (stderr, "packet %i did not match (size=%d data_size=%d)\n",
                      samples, (int) size, data_size + 4);
-
 
         if ( memcmp (rx_buffer, data, data_size) )
             fprintf (stderr, "packet %i contents has changed\n", samples);
 
         bump_packet_seq(data);
 
-
-        const exanic_cycles_t end_expanded = exanic_expand_timestamp (nic, end);
-
-        const exanic_cycles_t time_delta_cycles = end_expanded - start_expanded;
-        struct exanic_timespecps tsps = {};
+        end_expanded = exanic_expand_timestamp (nic, end);
+        time_delta_cycles = end_expanded - start_expanded;
         exanic_cycles_to_timespecps (nic, time_delta_cycles, &tsps);
-        const double time_delta_ns = (double) tsps.tv_psec / 1000
+        time_delta_ns = (double) tsps.tv_psec / 1000
                 + (double) tsps.tv_sec * 1000000000;
 
         if (raw)
@@ -436,8 +408,6 @@ int main (int argc, char *argv[])
             printf("Taken %i samples\n", samples);
         }
         samples++;
-
-
     }
 
     if (savefp)
@@ -454,20 +424,17 @@ int main (int argc, char *argv[])
     if (count >= 1000)
     {
         int i = 0;
-        double sum = 0;
+        double sum = 0, average;
+        float percentiles[11] = { 99.999, 99, 95, 90, 75, 50, 25, 10, 5, 1, 0 };
+
         for(i = 0; i < count; i++)
-        {
             sum += stats[i];
-        }
-        const double average = sum / count;
+        average = sum / count;
         printf("Average: %.2f\n", average);
 
-
-        float percentiles[11] = { 99.999, 99, 95, 90, 75, 50, 25, 10, 5, 1, 0 };
-        float ordinal_rank;
         for (i = 0; i < 11; i++)
         {
-            ordinal_rank = (percentiles[i] / 100 * count);
+            float ordinal_rank = (percentiles[i] / 100 * count);
             printf ("Percentile %.2f = %.2f ns\n", percentiles[i],
                     stats[(int) ordinal_rank]);
         }
@@ -492,8 +459,7 @@ int main (int argc, char *argv[])
             }
             case MEDIA_TYPE_AWG24:
             {
-                float length = (float) stats[count / 2] /
-                NANOS_PER_METER_TWINAX_AWG24;
+                float length = (float) stats[count / 2] / NANOS_PER_METER_TWINAX_AWG24;
                 printf ("Twinax length estimated to be %.2fm    (assuming AWG24"
                         " cable, typically used for 3m or less)\n",
                         length);
@@ -501,8 +467,7 @@ int main (int argc, char *argv[])
             }
             case MEDIA_TYPE_AWG30:
             {
-                float length = (float) stats[count / 2] /
-                NANOS_PER_METER_TWINAX_AWG30;
+                float length = (float) stats[count / 2] / NANOS_PER_METER_TWINAX_AWG30;
                 printf ("Twinax length estimated to be %.2fm    (assuming AWG30 "
                         "cable, typically used for 3m or more)\n\n",
                         length);
