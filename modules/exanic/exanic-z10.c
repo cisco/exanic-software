@@ -15,7 +15,7 @@
 #include "../../libs/exanic/pcie_if.h"
 #include "../../libs/exanic/const.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 /* Read a word from the CPLD's memory map */
 static uint32_t zpu_read(struct exanic *exanic, uint32_t addr)

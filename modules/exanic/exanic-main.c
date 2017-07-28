@@ -29,7 +29,7 @@
 #include "../../libs/exanic/pcie_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 #if defined(__BYTE_ORDER) ? __BYTE_ORDER == __BIG_ENDIAN : defined(__BIG_ENDIAN)
   #error "This ExaNIC driver version does not support big-endian platforms. Please contact support@exablaze.com for assistance."

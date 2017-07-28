@@ -16,7 +16,7 @@
 #include "../../libs/exanic/pcie_if.h"
 #include "../../libs/exanic/const.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 /* Lookup I2C bus and slave addresses for the PHYs */
 static struct {

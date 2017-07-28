@@ -18,7 +18,7 @@
 #include "../../libs/exanic/pcie_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
 #define __HAS_OLD_HLIST_ITERATOR
