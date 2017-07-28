@@ -3,8 +3,8 @@
  * \brief This file defines the format of the RX and TX buffers for sending
  * and receiving data on an ExaNIC.
  */
-#ifndef FIFO_IF_H_18F91A9BFF974FFDAB2A46663B1803E6
-#define FIFO_IF_H_18F91A9BFF974FFDAB2A46663B1803E6
+#ifndef EXANIC_FIFO_IF_H
+#define EXANIC_FIFO_IF_H
 
 #include "pcie_if.h"
 
@@ -169,4 +169,4 @@ static inline unsigned exanic_payload_padding_bytes(exanic_tx_type_id_t type)
 }
 #endif
 
-#endif /* FIFO_IF_H_18F91A9BFF974FFDAB2A46663B1803E6 */
+#endif /* EXANIC_FIFO_IF_H */

@@ -3,6 +3,9 @@
  * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
  */
 
+#ifndef _EXANIC_H_
+#define _EXANIC_H_
+
 #define DRV_VERSION "1.8.1-git"
 #define DRV_NAME    "exanic"
 
@@ -131,3 +134,5 @@ int exanic_x4_x2_set_speed(struct exanic *exanic, unsigned port_number,
 /* exanic-z10.c */
 int exanic_z10_poweron_port(struct exanic *exanic, unsigned port_num);
 int exanic_z10_poweroff_port(struct exanic *exanic, unsigned port_num);
+
+#endif /* _EXANIC_H_ */

@@ -12,8 +12,8 @@
  * - \ref EXANICCTL_TX_FEEDBACK_ALLOC
  * - \ref EXANICCTL_TX_FEEDBACK_FREE
  */
-#ifndef IOCTL_H_BECED8B0D0E24F4A8915A4A8912C04D0
-#define IOCTL_H_BECED8B0D0E24F4A8915A4A8912C04D0
+#ifndef EXANIC_IOCTL_H
+#define EXANIC_IOCTL_H
 
 #include "const.h"
 
@@ -259,4 +259,4 @@ struct exanic_info_page
     uint64_t hw_time;
 };
 
-#endif /* IOCTL_H_BECED8B0D0E24F4A8915A4A8912C04D0 */
+#endif /* EXANIC_IOCTL_H */

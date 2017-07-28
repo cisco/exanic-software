@@ -2,8 +2,8 @@
  * \file
  * \brief Functions for retrieving network configuration for ExaNIC interfaces
  */
-#ifndef CONFIG_H_1346A1EC709AEBEDF20851EFAA8E13D9
-#define CONFIG_H_1346A1EC709AEBEDF20851EFAA8E13D9
+#ifndef EXANIC_CONFIG_H
+#define EXANIC_CONFIG_H
 
 #include <arpa/inet.h>
 
@@ -159,4 +159,4 @@ ssize_t exanic_get_ip_routes(exanic_t *exanic, int port_number,
 }
 #endif
 
-#endif /* CONFIG_H_1346A1EC709AEBEDF20851EFAA8E13D9 */
+#endif /* EXANIC_CONFIG_H */

@@ -8,8 +8,8 @@
  *
  * This documentation describes \ref REG_EXANIC_PCIE_IF_VER = 1.
  */
-#ifndef PCIE_IF_H_444319FB44A54F3CA89B95C248BAA2E3
-#define PCIE_IF_H_444319FB44A54F3CA89B95C248BAA2E3
+#ifndef EXANIC_PCIE_IF_H
+#define EXANIC_PCIE_IF_H
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 4096UL
@@ -1484,4 +1484,4 @@ enum ptp_best_master_state
     EXANIC_PTP_PORT_STATE_SLAVE = 9,
 };
 
-#endif /* PCIE_IF_H_444319FB44A54F3CA89B95C248BAA2E3 */
+#endif /* EXANIC_PCIE_IF_H */

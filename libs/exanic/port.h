@@ -2,8 +2,8 @@
  * \file
  * \brief ExaNIC port configuration functions.
  */
-#ifndef PORT_H_85FAB6494A8B462DB645ECEE06318D2F
-#define PORT_H_85FAB6494A8B462DB645ECEE06318D2F
+#ifndef EXANIC_PORT_H
+#define EXANIC_PORT_H
 
 #include "exanic.h"
 
@@ -189,4 +189,4 @@ int exanic_get_port_stats(exanic_t *exanic, int port_number,
 }
 #endif
 
-#endif /* PORT_H_85FAB6494A8B462DB645ECEE06318D2F */
+#endif /* EXANIC_PORT_H */

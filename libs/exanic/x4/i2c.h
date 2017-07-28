@@ -1,5 +1,5 @@
-#ifndef EXANIC_X4_I2C_H_C1DB963AD8E84BB08EAFDE59BA272177
-#define EXANIC_X4_I2C_H_C1DB963AD8E84BB08EAFDE59BA272177
+#ifndef EXANIC_X4_I2C_H
+#define EXANIC_X4_I2C_H
 
 int exanic_x4_i2c_phy_read(exanic_t *exanic, int phy_number, uint8_t regaddr,
                     char *buffer, size_t size);
@@ -37,4 +37,4 @@ int exanic_x4_i2c_eeprom_write(exanic_t *exanic, uint8_t regaddr, char *buffer,
 int exanic_x2_i2c_eeprom_write(exanic_t *exanic, uint8_t regaddr, char *buffer,
                     size_t size);
 
-#endif /* EXANIC_X4_I2C_H_C1DB963AD8E84BB08EAFDE59BA272177 */
+#endif /* EXANIC_X4_I2C_H */

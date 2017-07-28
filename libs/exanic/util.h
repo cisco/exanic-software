@@ -2,8 +2,8 @@
  * \file
  * \brief Miscellaneous exanic utility functions.
  */
-#ifndef UTIL_H_55F659D9DE8743EAB317C3779C6125D1
-#define UTIL_H_55F659D9DE8743EAB317C3779C6125D1
+#ifndef EXANIC_UTIL_H
+#define EXANIC_UTIL_H
 
 #include "pcie_if.h"
 
@@ -88,4 +88,4 @@ int exanic_is_devkit_demo(exanic_t *exanic);
 }
 #endif
 
-#endif /* UTIL_H_55F659D9DE8743EAB317C3779C6125D1 */
+#endif /* EXANIC_UTIL_H */

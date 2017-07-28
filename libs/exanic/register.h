@@ -7,8 +7,8 @@
  * Most users should \b NOT include this header.  It's only necessary for
  * ExaNIC configuration, debugging and/or hacking.
  */
-#ifndef REGISTER_H_50AEFACAE2BF4D70B71627175C75DBB3
-#define REGISTER_H_50AEFACAE2BF4D70B71627175C75DBB3
+#ifndef EXANIC_REGISTER_H
+#define EXANIC_REGISTER_H
 
 #include "pcie_if.h"
 
@@ -52,4 +52,4 @@ static inline void exanic_register_write(exanic_t *exanic, int reg, uint32_t val
 }
 #endif
 
-#endif /* REGISTER_H_50AEFACAE2BF4D70B71627175C75DBB3 */
+#endif /* EXANIC_REGISTER_H */

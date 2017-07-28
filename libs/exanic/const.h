@@ -2,8 +2,8 @@
  * \file
  * \brief Common ExaNIC constants.
  */
-#ifndef CONST_H_88E031CC8D1A435482CD924D3E8EE513
-#define CONST_H_88E031CC8D1A435482CD924D3E8EE513
+#ifndef EXANIC_CONST_H
+#define EXANIC_CONST_H
 
 enum
 {
@@ -11,4 +11,4 @@ enum
     EXANIC_MAX_PORTS                = 8,
 };
 
-#endif /* CONST_H_88E031CC8D1A435482CD924D3E8EE513 */
+#endif /* EXANIC_CONST_H */

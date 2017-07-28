@@ -5,8 +5,8 @@
  *
  * Functions for storing and retrieving a set of filter rules
  */
-#ifndef FILTER_RULES_H_2638AED0B742D8D16A01DDEEC54AA102
-#define FILTER_RULES_H_2638AED0B742D8D16A01DDEEC54AA102
+#ifndef EXANIC_FILTER_RULES_H
+#define EXANIC_FILTER_RULES_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,4 +67,4 @@ int exanic_clear_all_filter_strings(const char *ruleset);
 }
 #endif
 
-#endif /* FILTER_RULES_H_2638AED0B742D8D16A01DDEEC54AA102 */
+#endif /* EXANIC_FILTER_RULES_H */
