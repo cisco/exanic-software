@@ -1,5 +1,5 @@
-#ifndef CHECKSUM_AMD64_H_CF218785073C485CAB720BCF01566CC3
-#define CHECKSUM_AMD64_H_CF218785073C485CAB720BCF01566CC3
+#ifndef EXASOCK_CHECKSUM_AMD64_H
+#define EXASOCK_CHECKSUM_AMD64_H
 
 static inline uint64_t
 csum_part(const void *buf, size_t len, uint64_t sum)
@@ -112,4 +112,4 @@ csum_part(const void *buf, size_t len, uint64_t sum)
     return sum;
 }
 
-#endif /* CHECKSUM_AMD64_H_CF218785073C485CAB720BCF01566CC3 */
+#endif /* EXASOCK_CHECKSUM_AMD64_H */

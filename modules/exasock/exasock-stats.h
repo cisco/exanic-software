@@ -3,6 +3,9 @@
  * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
+#ifndef _EXASOCK_STATS_H_
+#define _EXASOCK_STATS_H_
+
 #include <linux/version.h>
 #include <linux/sched.h>
 
@@ -121,3 +124,5 @@ void exasock_stats_socket_update(struct exasock_stats_sock *sk_stats,
                                  struct exasock_stats_sock_addr *addr);
 void exasock_stats_socket_del(struct exasock_stats_sock *sk_stats,
                               enum exasock_socktype type);
+
+#endif /* _EXASOCK_STATS_H_ */

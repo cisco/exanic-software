@@ -1,5 +1,5 @@
-#ifndef EXANIC_IPV4_H_EA74DC662005405B9A5F89ECA811566A
-#define EXANIC_IPV4_H_EA74DC662005405B9A5F89ECA811566A
+#ifndef EXASOCK_EXANIC_H
+#define EXASOCK_EXANIC_H
 
 struct exanic_ip;
 struct exanic_udp;
@@ -55,4 +55,4 @@ ssize_t exanic_tcp_send_iov(struct exa_socket *sock, const struct iovec *iov,
                             size_t iovcnt, size_t skip_len, size_t data_len);
 ssize_t exanic_tcp_build_hdr(struct exa_socket *sock, void *buf, size_t len);
 
-#endif /* EXANIC_IPV4_H_EA74DC662005405B9A5F89ECA811566A */
+#endif /* EXASOCK_EXANIC_H */

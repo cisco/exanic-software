@@ -1,5 +1,5 @@
-#ifndef ETHER_H_D593FD9C788949B78EC67715F5ED77EC
-#define ETHER_H_D593FD9C788949B78EC67715F5ED77EC
+#ifndef EXASOCK_ETHER_H
+#define EXASOCK_ETHER_H
 
 struct vlan_hdr
 {
@@ -142,4 +142,4 @@ exa_eth_build_hdr(struct exa_eth_tx * restrict ctx, char ** restrict hdr,
     }
 }
 
-#endif /* ETHER_H_D593FD9C788949B78EC67715F5ED77EC */
+#endif /* EXASOCK_ETHER_H */

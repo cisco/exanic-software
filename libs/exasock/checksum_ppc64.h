@@ -1,5 +1,5 @@
-#ifndef CHECKSUM_PPC64_H_9DA1A7C8105CD507593E72F1F9D414B3
-#define CHECKSUM_PPC64_H_9DA1A7C8105CD507593E72F1F9D414B3
+#ifndef EXASOCK_CHECKSUM_PPC64_H
+#define EXASOCK_CHECKSUM_PPC64_H
 
 static inline uint64_t
 csum_part(const void *buf, size_t len, uint64_t sum)
@@ -133,4 +133,4 @@ csum_part(const void *buf, size_t len, uint64_t sum)
     return sum;
 }
 
-#endif /* CHECKSUM_PPC64_H_9DA1A7C8105CD507593E72F1F9D414B3 */
+#endif /* EXASOCK_CHECKSUM_PPC64_H */

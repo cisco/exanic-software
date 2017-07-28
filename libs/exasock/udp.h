@@ -1,5 +1,5 @@
-#ifndef UDP_H_4BE92D5C13EB4F928BD94768F9023DC2
-#define UDP_H_4BE92D5C13EB4F928BD94768F9023DC2
+#ifndef EXASOCK_UDP_H
+#define EXASOCK_UDP_H
 
 extern struct exa_hashtable __exa_udp_sockfds;
 
@@ -152,4 +152,4 @@ exa_udp_build_hdr(struct exa_udp_tx * restrict ctx, char ** restrict hdr,
     *hdr_len += sizeof(struct udphdr);
 }
 
-#endif /* UDP_H_4BE92D5C13EB4F928BD94768F9023DC2 */
+#endif /* EXASOCK_UDP_H */

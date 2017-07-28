@@ -1,5 +1,5 @@
-#ifndef SOCKET_COMMON_H_635E3BA536F842F086741FD05818EB70
-#define SOCKET_COMMON_H_635E3BA536F842F086741FD05818EB70
+#ifndef EXASOCK_SOCKET_COMMON_H
+#define EXASOCK_SOCKET_COMMON_H
 
 /* d = a - b */
 static inline void
@@ -474,4 +474,4 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
             do_socket_wait_tx_block(sock, ready_func, ret, __VA_ARGS__);    \
     } while (0)
 
-#endif /* SOCKET_COMMON_H_635E3BA536F842F086741FD05818EB70 */
+#endif /* EXASOCK_SOCKET_COMMON_H */

@@ -1,5 +1,5 @@
-#ifndef TCP_H_91AA6993BAEF42038D3D83FF3AD82D31
-#define TCP_H_91AA6993BAEF42038D3D83FF3AD82D31
+#ifndef EXASOCK_TCP_H
+#define EXASOCK_TCP_H
 
 #define EXA_TCP_RETRANSMIT_NS 1000000000
 
@@ -732,4 +732,4 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
     }
 }
 
-#endif /* TCP_H_91AA6993BAEF42038D3D83FF3AD82D31 */
+#endif /* EXASOCK_TCP_H */

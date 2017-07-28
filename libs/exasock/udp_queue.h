@@ -1,5 +1,5 @@
-#ifndef UDP_QUEUE_H_E8848B9EAABD485E90D801352C704F0D
-#define UDP_QUEUE_H_E8848B9EAABD485E90D801352C704F0D
+#ifndef EXASOCK_UDP_QUEUE_H
+#define EXASOCK_UDP_QUEUE_H
 
 /* Add header and footer size and align to next 64 byte boundary */
 static inline size_t
@@ -178,4 +178,4 @@ exa_udp_queue_read_abort(struct exa_socket * restrict sock)
 {
 }
 
-#endif /* UDP_QUEUE_H_E8848B9EAABD485E90D801352C704F0D */
+#endif /* EXASOCK_UDP_QUEUE_H */

@@ -1,5 +1,5 @@
-#ifndef LOCK_H_808890E5B04A4EEE95EBF703CB6E6A6A
-#define LOCK_H_808890E5B04A4EEE95EBF703CB6E6A6A
+#ifndef EXASOCK_LOCK_H
+#define EXASOCK_LOCK_H
 
 /* Return 1 if lock successful, 0 if unsuccessful */
 static inline int
@@ -33,4 +33,4 @@ exa_unlock(volatile uint32_t *flag)
     __sync_lock_release(flag);
 }
 
-#endif /* LOCK_H_808890E5B04A4EEE95EBF703CB6E6A6A */
+#endif /* EXASOCK_LOCK_H */

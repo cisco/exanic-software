@@ -1,5 +1,5 @@
-#ifndef STRUCTS_H_562CD82818334BCAAEA0F7C939E7DDA3
-#define STRUCTS_H_562CD82818334BCAAEA0F7C939E7DDA3
+#ifndef EXASOCK_STRUCTS_H
+#define EXASOCK_STRUCTS_H
 
 struct exa_endpoint_ipaddr
 {
@@ -446,4 +446,4 @@ exa_hashtable_mcast_lookup(struct exa_hashtable * restrict ht,
     return -1;
 }
 
-#endif /* STRUCTS_H_562CD82818334BCAAEA0F7C939E7DDA3 */
+#endif /* EXASOCK_STRUCTS_H */

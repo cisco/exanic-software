@@ -3,6 +3,9 @@
  * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
+#ifndef _EXASOCK_H_
+#define _EXASOCK_H_
+
 #include <net/neighbour.h>
 
 enum exasock_type
@@ -116,3 +119,5 @@ void exasock_epoll_free(struct exasock_epoll *epoll);
 int exasock_epoll_state_mmap(struct exasock_epoll *epoll,
                              struct vm_area_struct *vma);
 void exasock_epoll_update(struct exasock_epoll_notify *notify);
+
+#endif /* _EXASOCK_H_ */

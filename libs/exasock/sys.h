@@ -1,5 +1,5 @@
-#ifndef SYS_H_22D9F0DEB4214559B1B05D3BFA116C9F
-#define SYS_H_22D9F0DEB4214559B1B05D3BFA116C9F
+#ifndef EXASOCK_SYS_H
+#define EXASOCK_SYS_H
 
 extern unsigned int             exa_dst_table_size;
 extern struct exa_dst_entry *   exa_dst_table;
@@ -40,4 +40,4 @@ void exa_sys_epoll_munmap(int fd, struct exasock_epoll_state **state);
 int exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd,
                       struct exa_endpoint * restrict endpoint);
 
-#endif /* SYS_H_22D9F0DEB4214559B1B05D3BFA116C9F */
+#endif /* EXASOCK_SYS_H */

@@ -2,8 +2,8 @@
  * \file
  * \brief Exasock extension API
  */
-#ifndef EXASOCK_EXTENSIONS_H_B641FA62394F3123F166F4DCF1786A5C
-#define EXASOCK_EXTENSIONS_H_B641FA62394F3123F166F4DCF1786A5C
+#ifndef EXASOCK_API_EXTENSIONS_H
+#define EXASOCK_API_EXTENSIONS_H
 
 #include <stdlib.h>
 
@@ -115,4 +115,4 @@ int exasock_tcp_send_advance(int fd, const void *buf, size_t len);
 }
 #endif
 
-#endif /* EXASOCK_EXTENSIONS_H_B641FA62394F3123F166F4DCF1786A5C */
+#endif /* EXASOCK_API_EXTENSIONS_H */

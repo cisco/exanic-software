@@ -1,5 +1,5 @@
-#ifndef NOTIFY_H_66E233BF29384BDEB8983BF248D2C6FB
-#define NOTIFY_H_66E233BF29384BDEB8983BF248D2C6FB
+#ifndef EXASOCK_NOTIFY_H
+#define EXASOCK_NOTIFY_H
 
 #define EXA_NOTIFY_MAX_QUEUE 32
 
@@ -384,4 +384,4 @@ exa_notify_update(struct exa_socket * restrict sock)
         exa_notify_tcp_update(sock);
 }
 
-#endif /* NOTIFY_H_66E233BF29384BDEB8983BF248D2C6FB */
+#endif /* EXASOCK_NOTIFY_H */
