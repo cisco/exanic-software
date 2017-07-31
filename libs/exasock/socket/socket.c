@@ -1071,7 +1071,7 @@ ioctl(int fd, unsigned long int request, ...)
     {
     case FIONBIO:
         {
-            if (sock != NULL && sock->bypass)
+            if (sock != NULL)
             {
                 if (*va_arg(ap, int *) == 0)
                     sock->flags &= ~O_NONBLOCK;
