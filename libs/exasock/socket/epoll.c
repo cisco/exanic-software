@@ -94,6 +94,7 @@ epoll_fd_init(int fd)
     exa_write_lock(&sock->lock);
 
     exa_socket_zero(sock);
+    sock->valid = true;
     sock->notify = no;
 
     exa_write_unlock(&sock->lock);

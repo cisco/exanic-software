@@ -74,6 +74,7 @@ struct exa_socket
     int flags;
 
     /* Bypass socket state */
+    bool valid;
     bool bypass;
     bool bound;
     bool connected;

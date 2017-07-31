@@ -75,6 +75,7 @@ socket(int domain, int type, int protocol)
 
         exa_socket_zero(sock);
         exa_socket_init(sock, domain, type & 0xF, protocol);
+        sock->valid = true;
 
         ret = libc_fcntl(fd, F_GETFL);
         if (ret != -1)
@@ -478,6 +479,7 @@ accept_native_init(int fd, struct exa_socket * restrict ls_sock, int flags)
         exa_write_lock(&sock->lock);
 
         exa_socket_zero(sock);
+        sock->valid = true;
 
         if (ls_sock != NULL)
         {
@@ -1401,6 +1403,12 @@ getsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
         errno = EBADFD;
         return -1;
     }
+    if (!sock->valid)
+    {
+        /* Not a valid socket */
+        errno = ENOTSOCK;
+        return -1;
+    }
 
     exa_read_lock(&sock->lock);
 
@@ -1875,6 +1883,12 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
         /* Unfortunatelly Exasock has no control over this file descriptor,
          * so there is no way to manipulate its options at this level */
         errno = EBADFD;
+        return -1;
+    }
+    if (!sock->valid)
+    {
+        /* Not a valid socket */
+        errno = ENOTSOCK;
         return -1;
     }
 

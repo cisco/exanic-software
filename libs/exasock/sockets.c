@@ -734,6 +734,7 @@ exa_socket_tcp_accept(struct exa_endpoint * restrict endpoint,
 
     exa_socket_zero(sock);
     exa_socket_init(sock, AF_INET, SOCK_STREAM, 0);
+    sock->valid = true;
 
     if (exa_socket_enable_bypass(sock) == -1)
         goto err_socket_enable_bypass;
