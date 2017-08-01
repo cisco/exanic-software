@@ -149,7 +149,7 @@ enum
 {
     FEEDBACK_INTERVAL = 512,
 
-    MAX_RX_PACKET_SIZE = 1522,
+    MAX_ETH_OVERHEAD_BYTES = 26, /* header + 2 VLAN tags + FCS */
 
     /* Additional RX error codes */
     EXANIC_RX_FRAME_SWOVFL = 256,
@@ -496,7 +496,11 @@ void exanic_netdev_rx_irq_handler(struct net_device *ndev)
 static int exanic_netdev_kernel_start(struct net_device *ndev)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
-    size_t tx_buf_size = PAGE_SIZE;
+    size_t max_frame_size = ndev->mtu + MAX_ETH_OVERHEAD_BYTES;
+    size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
+    size_t max_chunk_size = ALIGN(max_frame_size + padding
+                                  + sizeof(struct tx_chunk), 8);
+    size_t tx_buf_size = PAGE_ALIGN((max_chunk_size + FEEDBACK_INTERVAL) * 2);
     size_t tx_buf_offset;
     unsigned feedback_slot;
     int queue_len;
@@ -857,6 +861,18 @@ static int exanic_netdev_set_mac_addr(struct net_device *ndev, void *p)
 }
 
 /**
+ * Handle user setting the MTU on an ExaNIC interface.
+ */
+static int exanic_netdev_change_mtu(struct net_device *ndev, int new_mtu)
+{
+    if (netif_running(ndev))
+        return -EBUSY;
+
+    ndev->mtu = new_mtu;
+    return 0;
+}
+
+/**
  * Handle ioctl request on a ExaNIC interface.
  */
 int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
@@ -961,6 +977,7 @@ static struct net_device_ops exanic_ndos = {
     .ndo_start_xmit         = exanic_netdev_xmit,
     .ndo_set_rx_mode        = exanic_netdev_set_rx_mode,
     .ndo_set_mac_address    = exanic_netdev_set_mac_addr,
+    .ndo_change_mtu         = exanic_netdev_change_mtu,
     .ndo_do_ioctl           = exanic_netdev_ioctl,
 };
 
@@ -1299,6 +1316,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         container_of(napi, struct exanic_netdev_priv, napi);
     struct exanic_netdev_rx *rx = &priv->rx;
     struct net_device *ndev = priv->ndev;
+    size_t max_frame_size = ndev->mtu + MAX_ETH_OVERHEAD_BYTES;
     int received = 0, chunk_count = 0;
     ssize_t len;
     uint32_t chunk_id = 0, tstamp;
@@ -1311,7 +1329,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         if (priv->skb == NULL)
         {
             /* New packet */
-            priv->skb = netdev_alloc_skb(ndev, MAX_RX_PACKET_SIZE + 2);
+            priv->skb = netdev_alloc_skb(ndev, max_frame_size + NET_IP_ALIGN);
             if (priv->skb == NULL)
                 break;
             skb_reserve(priv->skb, NET_IP_ALIGN);
