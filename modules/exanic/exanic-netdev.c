@@ -353,9 +353,9 @@ static struct tx_chunk *exanic_prepare_tx_chunk(struct exanic_netdev_tx *tx,
             return NULL;
 
         if (--timeout == 0)
-           return NULL; 
+           return NULL;
     }
-    
+
     return (struct tx_chunk *)(tx->buffer + tx->next_offset);
 }
 
@@ -536,7 +536,7 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
     hrtimer_init(&priv->rx_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     priv->rx_hrtimer.function = &exanic_hrtimer_callback;
     priv->rx_coalesce_timeout_ns = DEFAULT_RX_COALESCE_US * 1000;
-    
+
     napi_enable(&priv->napi);
     netif_start_queue(ndev);
 
@@ -966,6 +966,10 @@ static int exanic_netdev_get_settings(struct net_device *ndev,
         cmd->supported |= SUPPORTED_1000baseT_Full | SUPPORTED_1000baseKX_Full | SUPPORTED_Autoneg;
     if (reg & EXANIC_CAP_10G)
         cmd->supported |= SUPPORTED_10000baseKR_Full;
+    if (reg & EXANIC_CAP_40G)
+         cmd->supported |= SUPPORTED_40000baseCR4_Full |
+                           SUPPORTED_40000baseSR4_Full |
+                           SUPPORTED_40000baseLR4_Full;
 
     reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_SPEED)]);
     ethtool_cmd_speed_set(cmd, reg);
@@ -997,7 +1001,8 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
     {
         if ((speed == SPEED_100 && (caps & EXANIC_CAP_100M)) ||
             (speed == SPEED_1000 && (caps & EXANIC_CAP_1G)) ||
-            (speed == SPEED_10000 && (caps & EXANIC_CAP_10G)))
+            (speed == SPEED_10000 && (caps & EXANIC_CAP_10G)) ||
+            (speed == SPEED_40000 && (caps & EXANIC_CAP_40G)))
         {
             /* Card specific updates */
             if (priv->exanic->hw_id == EXANIC_HW_X4 ||
@@ -1181,7 +1186,7 @@ out:
     return err;
 }
 
-static int exanic_netdev_get_coalesce(struct net_device *ndev, 
+static int exanic_netdev_get_coalesce(struct net_device *ndev,
                                       struct ethtool_coalesce *ec)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1189,7 +1194,7 @@ static int exanic_netdev_get_coalesce(struct net_device *ndev,
     return 0;
 }
 
-static int exanic_netdev_set_coalesce(struct net_device *ndev, 
+static int exanic_netdev_set_coalesce(struct net_device *ndev,
                                       struct ethtool_coalesce *ec)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);

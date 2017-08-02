@@ -247,7 +247,7 @@ int get_local_loopback(exanic_t *exanic, int port_number)
                                REG_PORT_FLAGS));
         loopback = (flags & EXANIC_PORT_FLAG_LOOPBACK) ? 1 : 0;
     }
- 
+
     return loopback;
 }
 
@@ -855,7 +855,8 @@ void set_speed(const char *device, int port_number, uint32_t speed)
         exit(1);
     }
 
-    if ((speed != SPEED_100) && (speed != SPEED_1000) && (speed != SPEED_10000))
+    if ((speed != SPEED_100) && (speed != SPEED_1000) &&
+        (speed != SPEED_10000) && (speed != SPEED_40000))
     {
         fprintf(stderr, "%s:%d: Invalid speed requested\n", device, port_number);
         exit(1);
@@ -2176,6 +2177,6 @@ usage_error:
     fprintf(stderr, "   %s <device> ptp <command>\n", argv[0]);
     fprintf(stderr, "      <device> can be a Linux interface name, ExaNIC device (e.g. exanic0)\n");
     fprintf(stderr, "      or ExaNIC device:port (e.g. exanic0:0)\n");
-    fprintf(stderr, "      <speed> is in Mbit/s (e.g. 100 | 1000 | 10000)\n");
+    fprintf(stderr, "      <speed> is in Mbit/s (e.g. 100 | 1000 | 10000 | 40000)\n");
     return 1;
 }
