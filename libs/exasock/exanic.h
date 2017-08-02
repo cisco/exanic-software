@@ -19,40 +19,47 @@ int exanic_poll(void);
 void exanic_work(uint64_t now);
 
 /* Functions for sending UDP packets on an ExaNIC */
-int exanic_udp_alloc(struct exa_socket *sock);
-void exanic_udp_free(struct exa_socket *sock);
-void exanic_udp_get_src(struct exa_socket *sock, in_addr_t *addr,
+int exanic_udp_alloc(struct exa_socket * restrict sock);
+void exanic_udp_free(struct exa_socket * restrict sock);
+void exanic_udp_get_src(struct exa_socket * restrict sock, in_addr_t *addr,
                         in_port_t *port);
-void exanic_udp_get_dest(struct exa_socket *sock, in_addr_t *addr,
+void exanic_udp_get_dest(struct exa_socket * restrict sock, in_addr_t *addr,
                          in_port_t *port, uint8_t *ttl);
-void exanic_udp_set_src(struct exa_socket *sock, struct exanic_ip *ip_ctx,
+void exanic_udp_set_src(struct exa_socket * restrict sock,
+                        struct exanic_ip * restrict ip_ctx,
                         in_port_t port);
-void exanic_udp_set_dest(struct exa_socket *sock, in_addr_t addr,
-                         in_port_t port, uint8_t ttl);
-void exanic_udp_prepare(struct exa_socket *sock);
-ssize_t exanic_udp_send(struct exa_socket *sock, const void *buf, size_t len);
-ssize_t exanic_udp_send_iov(struct exa_socket *sock, const struct iovec *iov,
-                            size_t iovcnt);
+void exanic_udp_set_dest(struct exa_socket * restrict sock,
+                         in_addr_t addr, in_port_t port, uint8_t ttl);
+void exanic_udp_prepare(struct exa_socket * restrict sock);
+ssize_t exanic_udp_send(struct exa_socket * restrict sock, const void *buf,
+                        size_t len);
+ssize_t exanic_udp_send_iov(struct exa_socket * restrict sock,
+                            const struct iovec *iov, size_t iovcnt);
 
 /* Functions for TCP connections on an ExaNIC */
 struct exa_tcp_init_state;
-int exanic_tcp_alloc(struct exa_socket *sock);
-void exanic_tcp_free(struct exa_socket *sock);
-void exanic_tcp_get_device(struct exa_socket *sock, char *device, size_t len,
-                           int *port_number);
-void exanic_tcp_listen(struct exa_socket *sock, int backlog);
-void exanic_tcp_accept(struct exa_socket *sock, struct exa_endpoint *ep,
-                       struct exa_tcp_init_state *tcp_state);
-void exanic_tcp_connect(struct exa_socket *sock, struct exa_endpoint *ep);
-void exanic_tcp_shutdown_write(struct exa_socket *sock);
-void exanic_tcp_reset(struct exa_socket *sock);
-bool exanic_tcp_connecting(struct exa_socket *sock);
-bool exanic_tcp_listening(struct exa_socket *sock);
-bool exanic_tcp_writeable(struct exa_socket *sock);
+int exanic_tcp_alloc(struct exa_socket * restrict sock);
+void exanic_tcp_free(struct exa_socket * restrict sock);
+void exanic_tcp_get_device(struct exa_socket * restrict sock, char *dev,
+                           size_t len, int *port_number);
+void exanic_tcp_listen(struct exa_socket * restrict sock, int backlog);
+void exanic_tcp_accept(struct exa_socket * restrict sock,
+                       struct exa_endpoint * restrict ep,
+                       struct exa_tcp_init_state * restrict tcp_state);
+void exanic_tcp_connect(struct exa_socket * restrict sock,
+                        struct exa_endpoint * restrict ep);
+void exanic_tcp_shutdown_write(struct exa_socket * restrict sock);
+void exanic_tcp_reset(struct exa_socket * restrict sock);
+bool exanic_tcp_connecting(struct exa_socket * restrict sock);
+bool exanic_tcp_listening(struct exa_socket * restrict sock);
+bool exanic_tcp_writeable(struct exa_socket * restrict sock);
 bool exanic_tcp_write_closed(struct exa_socket *sock);
-ssize_t exanic_tcp_send(struct exa_socket *sock, const void *buf, size_t len);
-ssize_t exanic_tcp_send_iov(struct exa_socket *sock, const struct iovec *iov,
-                            size_t iovcnt, size_t skip_len, size_t data_len);
-ssize_t exanic_tcp_build_hdr(struct exa_socket *sock, void *buf, size_t len);
+ssize_t exanic_tcp_send(struct exa_socket * restrict sock, const void *buf,
+                        size_t len);
+ssize_t exanic_tcp_send_iov(struct exa_socket * restrict sock,
+                            const struct iovec *iov, size_t iovcnt,
+                            size_t skip_len, size_t data_len);
+ssize_t exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf,
+                             size_t len);
 
 #endif /* EXASOCK_EXANIC_H */

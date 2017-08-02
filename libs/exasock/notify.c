@@ -343,7 +343,7 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
 }
 
 void
-exa_notify_remove_sock_all(struct exa_socket *sock)
+exa_notify_remove_sock_all(struct exa_socket * restrict sock)
 {
     if (sock->notify_parent != NULL)
     {

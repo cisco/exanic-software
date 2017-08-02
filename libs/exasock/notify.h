@@ -82,15 +82,18 @@ struct exa_notify
 int exa_notify_kern_epoll_add(struct exa_notify * restrict no,
                               struct exa_socket * restrict sock);
 struct exa_notify *exa_notify_alloc(void);
-void exa_notify_free(struct exa_notify *no);
-int exa_notify_insert_sock(struct exa_notify *no, struct exa_socket *sock,
+void exa_notify_free(struct exa_notify * restrict no);
+int exa_notify_insert_sock(struct exa_notify * restrict no,
+                           struct exa_socket * restrict sock,
                            uint32_t events);
-int exa_notify_modify_sock(struct exa_notify *no, struct exa_socket *sock,
+int exa_notify_modify_sock(struct exa_notify * restrict no,
+                           struct exa_socket * restrict sock,
                            uint32_t events);
-int exa_notify_remove_sock(struct exa_notify *no, struct exa_socket *sock);
-void exa_notify_remove_sock_all(struct exa_socket *sock);
-void exa_notify_udp_init(struct exa_socket *sock);
-void exa_notify_tcp_init(struct exa_socket *sock);
+int exa_notify_remove_sock(struct exa_notify * restrict no,
+                           struct exa_socket * restrict sock);
+void exa_notify_remove_sock_all(struct exa_socket * restrict sock);
+void exa_notify_udp_init(struct exa_socket * restrict sock);
+void exa_notify_tcp_init(struct exa_socket * restrict sock);
 
 static inline bool
 exa_notify_has_sock(struct exa_notify * restrict no,
