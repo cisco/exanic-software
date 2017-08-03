@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
     usage_error:
     printf("Usage: %s [--verbose] <device:port> <src_ip> <src_port> <dst_ip> <dst_port> <protocol>\n", argv[0]);
     printf("        Eg (very specific):   %s --verbose exanic0:0 192.168.1.1 80 192.168.1.4 60 6\n", argv[0]);
-    printf("        Eg (TCP, dest only):  %s --verbose exanic0:0 192.168.1.1 80 0 0 6\n", argv[0]);
+    printf("        Eg (TCP, dest only):  %s --verbose exanic0:0 0 0 192.168.1.4 60 6\n", argv[0]);
     printf("        Eg (all UDP traffic): %s --verbose exanic0:0 0 0 0 0 17\n", argv[0]);
     printf("        Set field to 0 for wildcard match.\n");
     printf("        Common protocols:\n");
