@@ -57,6 +57,18 @@ MODULE_PARM_DESC(disable_exasock, "Disable loading of exasock module");
 #ifndef SUPPORTED_10000baseKR_Full
 #define SUPPORTED_10000baseKR_Full	(1 << 19)
 #endif
+#ifndef SUPPORTED_40000baseCR4_Full
+#define SUPPORTED_40000baseCR4_Full	(1 << 24)
+#endif
+#ifndef SUPPORTED_40000baseSR4_Full
+#define SUPPORTED_40000baseSR4_Full	(1 << 25)
+#endif
+#ifndef SUPPORTED_40000baseLR4_Full
+#define SUPPORTED_40000baseLR4_Full	(1 << 26)
+#endif
+#ifndef SPEED_40000
+#define SPEED_40000 40000
+#endif
 
 #ifndef SIOCGHWTSTAMP
 #define SIOCGHWTSTAMP 0x89b1

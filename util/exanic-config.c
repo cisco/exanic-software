@@ -19,6 +19,9 @@
 #ifndef ETHTOOL_GET_TS_INFO
 #include "ethtool_ts_info.h"
 #endif
+#ifndef SPEED_40000
+#define SPEED_40000 40000
+#endif
 
 #include <exanic/port.h>
 #include <exanic/util.h>
