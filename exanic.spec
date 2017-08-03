@@ -48,13 +48,6 @@ This package contains libexanic, a low-level access library for the
 ExaNIC.  It can be used to write applications which transmit and receive
 raw Ethernet packets with minimum possible latency.
 
-%package doc
-Summary:        ExaNIC documentation
-Group:          Documentation
-BuildArch:      noarch
-%description doc
-This package contains documentation for the ExaNIC.
-
 %prep
 %setup -q
 
@@ -104,7 +97,7 @@ dkms remove -m %{name} -v %{version}-%{release} --all --rpm_safe_upgrade
 
 %files
 %defattr(-,root,root,-)
-%doc LICENSE.txt changelog.txt
+%doc LICENSE.txt changelog.txt docs/README.txt
 
 %files dkms
 %defattr(-,root,root,-)
@@ -122,8 +115,4 @@ dkms remove -m %{name} -v %{version}-%{release} --all --rpm_safe_upgrade
 %{_libdir}/libexasock_ext.so
 %{_includedir}/exanic
 %{_includedir}/exasock
-
-%files doc
-%defattr(-,root,root,-)
-%doc docs/*.pdf
 

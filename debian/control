@@ -42,9 +42,3 @@ Description: ExaNIC development library
  ExaNIC.  It can be used to write applications which transmit and receive
  raw Ethernet packets with minimum possible latency.
 
-Package: exanic-doc
-Architecture: all
-Section: Documentation
-Description: ExaNIC documentation
- This package contains documentation for the ExaNIC.
-
