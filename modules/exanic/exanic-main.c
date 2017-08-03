@@ -585,8 +585,31 @@ int exanic_disable_port(struct exanic *exanic, unsigned port_num)
     return 0;
 }
 
-static struct exanic exanic_devices[EXANIC_MAX_NUM_DEVICES];
-static unsigned exanic_count = 0;
+static LIST_HEAD(exanic_devices);
+static DEFINE_SPINLOCK(exanic_devices_lock);
+
+static unsigned int exanic_get_id(void)
+{
+    struct exanic *exanic;
+    unsigned int id = 0;
+    bool in_use;
+
+    do
+    {
+        in_use = false;
+        list_for_each_entry(exanic, &exanic_devices, node)
+        {
+            if (exanic->id == id)
+            {
+                in_use = true;
+                id++;
+                break;
+            }
+        }
+    } while (in_use);
+
+    return id;
+}
 
 enum { MIN_SUPPORTED_PCIE_IF_VER = 1, MAX_SUPPORTED_PCIE_IF_VER = 1 };
 
@@ -790,30 +813,42 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
 struct net_device *exanic_netdev_find_by_index(int ifindex)
 {
     struct net_device *ndev;
-    unsigned i, j;
+    struct exanic *exanic;
+    unsigned i;
 
     /* TODO: Find a way to use dev_get_by_index() instead */
-    for (i = 0; i < exanic_count; i++)
-        for (j = 0; j < exanic_devices[i].num_ports; j++)
+    spin_lock(&exanic_devices_lock);
+
+    list_for_each_entry(exanic, &exanic_devices, node)
+        for (i = 0; i < exanic->num_ports; i++)
         {
-            ndev = exanic_devices[i].ndev[j];
+            ndev = exanic->ndev[i];
             if (ndev != NULL && ndev->ifindex == ifindex)
-                return ndev;
+                goto exit;
         }
 
-    return NULL;
+    ndev = NULL;
+exit:
+    spin_unlock(&exanic_devices_lock);
+
+    return ndev;
 }
 EXPORT_SYMBOL(exanic_netdev_find_by_index);
 
 struct exanic *exanic_find_by_minor(unsigned minor)
 {
-    unsigned i;
+    struct exanic *exanic;
 
-    for (i = 0; i < exanic_count; ++i)
-        if (exanic_devices[i].misc_dev.minor == minor)
-            return &exanic_devices[i];
+    spin_lock(&exanic_devices_lock);
 
-    return NULL;
+    list_for_each_entry(exanic, &exanic_devices, node)
+        if (exanic->misc_dev.minor == minor)
+            goto exit;
+    exanic = NULL;
+exit:
+    spin_unlock(&exanic_devices_lock);
+
+    return exanic;
 }
 
 static void inc_mac_addr(u8 addr[ETH_ALEN], int n)
@@ -855,7 +890,7 @@ int exanic_get_num_ports(struct exanic *exanic)
 static int exanic_probe(struct pci_dev *dev,
                         const struct pci_device_id *id)
 {
-    struct exanic *exanic = exanic_devices + exanic_count;
+    struct exanic *exanic;
     int err;
     unsigned port_num;
     const char *hw_id_str;
@@ -864,10 +899,12 @@ static int exanic_probe(struct pci_dev *dev,
     uint32_t dma_cfg;
     u8 mac_addr[ETH_ALEN];
 
-    memset(exanic, 0, sizeof(struct exanic));
+    exanic = devm_kzalloc(&dev->dev, sizeof(struct exanic), GFP_KERNEL);
+    if (exanic == NULL)
+        return -ENOMEM;
 
-    exanic->id = exanic_count;
-    snprintf(exanic->name, sizeof(exanic->name), DRV_NAME "%u", exanic_count);
+    exanic->id = exanic_get_id();
+    snprintf(exanic->name, sizeof(exanic->name), DRV_NAME "%u", exanic->id);
     dev_info(&dev->dev, "Probing %s.\n", exanic->name);
 
     mutex_init(&exanic->mutex);
@@ -1068,24 +1105,29 @@ static int exanic_probe(struct pci_dev *dev,
 
     if (unsupported_exanic)
     {
-        /* Minimal support for unsupported cards, to allow firmware update.
-         * Register device and increment device counter.
-         * NOTE: exanic_count needs to be incremented before misc_register() is
-         *       called to ensure the device is already available when it gets
-         *       registered.
-         *       exanic_count should be also incremented no sooner than
+        /* Minimal support for unsupported cards, to allow firmware update. */
+
+        /* Register device and insert into the exanic_devices list.
+         * NOTE: The insertion into the exanic_devices list needs to be done
+         *       before misc_register() is called to ensure the device is
+         *       already available when it gets registered.
+         *       The insertion should be also done no sooner than
          *       exanic->misc_dev.minor is set to avoid unexpected results of
          *       exanic_find_by_minor().
          */
+
         exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
         exanic->misc_dev.name = exanic->name;
         exanic->misc_dev.fops = &exanic_fops;
-        ++exanic_count;
+
+        spin_lock(&exanic_devices_lock);
+        list_add_tail(&exanic->node, &exanic_devices);
+        spin_unlock(&exanic_devices_lock);
+
         err = misc_register(&exanic->misc_dev);
         if (err)
         {
             dev_err(&dev->dev, "misc_register failed: %d\n", err);
-            --exanic_count;
             goto err_unsupported_exanic;
         }
 
@@ -1484,18 +1526,23 @@ static int exanic_probe(struct pci_dev *dev,
             (unsigned long)exanic);
     mod_timer(&exanic->link_timer, jiffies + HZ);
 
-    /* Register device and increment device counter
-     * NOTE: exanic_count needs to be incremented before misc_register() is
-     *       called to ensure the device is already available when it gets
-     *       registered.
-     *       exanic_count should be also incremented no sooner than
+    /* Register device and insert into the exanic_devices list.
+     * NOTE: The insertion into the exanic_devices list needs to be done before
+     *       misc_register() is called to ensure the device is already available
+     *       when it gets registered.
+     *       The insertion should be also done no sooner than
      *       exanic->misc_dev.minor is set to avoid unexpected results of
      *       exanic_find_by_minor().
      */
+
     exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
     exanic->misc_dev.name = exanic->name;
     exanic->misc_dev.fops = &exanic_fops;
-    ++exanic_count;
+
+    spin_lock(&exanic_devices_lock);
+    list_add_tail(&exanic->node, &exanic_devices);
+    spin_unlock(&exanic_devices_lock);
+
     err = misc_register(&exanic->misc_dev);
     if (err)
     {
@@ -1547,7 +1594,6 @@ static int exanic_probe(struct pci_dev *dev,
     return 0;
 
 err_miscdev:
-    --exanic_count;
 err_netdev:
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
         exanic_netdev_free(exanic->ndev[port_num]);
@@ -1608,6 +1654,10 @@ static void exanic_remove(struct pci_dev *dev)
     int i, j;
 
     dev_info(&dev->dev, "Removing exanic%u.\n", exanic->id);
+
+    spin_lock(&exanic_devices_lock);
+    list_del(&exanic->node);
+    spin_unlock(&exanic_devices_lock);
 
     del_timer_sync(&exanic->link_timer);
 

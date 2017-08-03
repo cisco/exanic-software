@@ -66,6 +66,8 @@ struct exanic
     struct miscdevice misc_dev;
     struct pci_dev *pci_dev;
 
+    struct list_head node;
+
     struct timer_list link_timer;
     struct mutex mutex;
 
