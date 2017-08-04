@@ -53,3 +53,15 @@ transmit buffers on the card.
 Note that if run without Exasock this example will fail, as the Exasock
 extensions API function stubs will not have been replaced with the versions
 that are preloaded via the Exasock wrapper.
+
+udp-timestamp.c:
+----------------
+
+This program demonstrates the use of hardware timestamps for received packets
+on a UDP socket using the SO_TIMESTAMPING API.  It can be used with or without
+exasock.
+
+Example usage:
+  exasock ./udp-timestamp enp1s0 8000
+  recvmsg returned 6
+  timestamp 1501811797.753824888
