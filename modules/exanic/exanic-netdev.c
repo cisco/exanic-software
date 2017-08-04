@@ -1239,9 +1239,9 @@ static int exanic_netdev_set_coalesce(struct net_device *ndev,
 static int exanic_netdev_get_ts_info(struct net_device *ndev,
                                      struct ethtool_ts_info *eti)
 {
+#if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
 
-#if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     if (priv->exanic->ptp_clock != NULL)
     {
         eti->so_timestamping = SOF_TIMESTAMPING_RX_HARDWARE |
