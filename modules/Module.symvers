@@ -1,4 +1,0 @@
-0xa6ab13b5	exanic_netdev_find_by_index	//data2/exanic-software/src/modules/exanic/exanic	EXPORT_SYMBOL
-0x8b0e0f7c	exanic_netdev_intercept_remove	//data2/exanic-software/src/modules/exanic/exanic	EXPORT_SYMBOL
-0xc39d34f8	exanic_netdev_intercept_add	//data2/exanic-software/src/modules/exanic/exanic	EXPORT_SYMBOL
-0x2b6b43fc	exanic_transmit_frame	//data2/exanic-software/src/modules/exanic/exanic	EXPORT_SYMBOL
