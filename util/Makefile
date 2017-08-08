@@ -8,7 +8,7 @@ LDLIBS=-L../libs/exanic -lexanic
 HAVE_PTP_CLOCK_H:=${shell $(CC) $(CFLAGS) -include linux/ptp_clock.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}
 CONFIG_CFLAGS=-DHAVE_PTP_CLOCK_H=$(HAVE_PTP_CLOCK_H)
 
-CFLAGS_LIBNL3:=${shell pkg-config --cflags libnl-3.0}
+CFLAGS_LIBNL3:=${shell pkg-config --cflags libnl-3.0 libnl-genl-3.0}
 LDLIBS_LIBNL3=${shell pkg-config --libs libnl-3.0 libnl-genl-3.0}
 EXASOCK_STAT_CFLAGS=-O3 -Wall -I../modules $(CFLAGS_LIBNL3)
 EXASOCK_STAT_LDLIBS=$(LDLIBS_LIBNL3)
@@ -40,7 +40,7 @@ else
 ifeq (${shell pkg-config --version},)
 	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package pkg-config).)
 else ifneq (${wildcard /etc/debian_version},)
-	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl-3-dev).)
+	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl-3-dev and libnl-genl-3-dev).)
 else
 	$(info WARNING: Building of exasock-stat tool has been skipped (exasock-stat requires package libnl3-devel).)
 endif
