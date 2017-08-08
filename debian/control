@@ -25,7 +25,7 @@ Description: ExaNIC network driver
 
 Package: exanic-utils
 Architecture: any
-Depends: libnl3
+Depends: libnl-3-200, libnl-genl-3-200
 Section: Utilities
 Description: ExaNIC utilities
  This package contains userspace utilities for the ExaNIC, including
