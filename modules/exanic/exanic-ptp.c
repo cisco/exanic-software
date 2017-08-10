@@ -191,6 +191,7 @@ static enum hrtimer_restart exanic_ptp_pps_hrtimer_callback(
 {
     struct exanic *exanic =
         container_of(timer, struct exanic, phc_pps_hrtimer);
+    struct device *dev = &exanic->pci_dev->dev;
     struct ptp_clock_event event;
     unsigned long flags;
     ktime_t hw_time, mono_time;
@@ -233,8 +234,7 @@ static enum hrtimer_restart exanic_ptp_pps_hrtimer_callback(
         /* Timer may have fired too late or too early */
         if (exanic->last_phc_pps != 0 &&
                 exanic->last_phc_pps < hw_time_ts.tv_sec)
-            dev_err(&exanic->pci_dev->dev,
-                    "Missed PPS event at time=%ld delay=%ld\n",
+            dev_err(dev, "Missed PPS event at time=%ld delay=%ld\n",
                     hw_time_ts.tv_sec, hw_time_ts.tv_nsec);
 
         /* Monotonic clock may be too fast or slow, so use a short timeout to
@@ -511,6 +511,7 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
                              int on)
 {
     struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
+    struct device *dev = &exanic->pci_dev->dev;
     unsigned long flags;
     uint32_t reg;
     enum per_out_mode per_out_mode;
@@ -525,14 +526,14 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
             exanic->phc_pps_enabled = true;
             hrtimer_start(&exanic->phc_pps_hrtimer, next_pps_time(exanic),
                           HRTIMER_MODE_ABS);
-            dev_info(&exanic->pci_dev->dev, "PTP hardware clock PPS enabled");
+            dev_info(dev, "PTP hardware clock PPS enabled");
         }
         else
         {
             exanic->last_phc_pps = 0;
             exanic->phc_pps_enabled = false;
             hrtimer_cancel(&exanic->phc_pps_hrtimer);
-            dev_info(&exanic->pci_dev->dev, "PTP hardware clock PPS disabled");
+            dev_info(dev, "PTP hardware clock PPS disabled");
         }
         spin_unlock_irqrestore(&exanic->ptp_clock_lock, flags);
         return 0;
@@ -574,8 +575,7 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
             reg |= EXANIC_HW_SERIAL_PPS_OUT_EN;
             writel(reg, exanic->regs_virt + REG_HW_OFFSET(REG_HW_SERIAL_PPS));
 
-            dev_info(&exanic->pci_dev->dev,
-                    "PTP hardware clock periodic output enabled");
+            dev_info(dev, "PTP hardware clock periodic output enabled");
         }
         else
         {
@@ -587,8 +587,7 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
             writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
             writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
 
-            dev_info(&exanic->pci_dev->dev,
-                    "PTP hardware clock periodic output disabled");
+            dev_info(dev, "PTP hardware clock periodic output disabled");
         }
         spin_unlock_irqrestore(&exanic->ptp_clock_lock, flags);
         return 0;
@@ -615,12 +614,14 @@ static const struct ptp_clock_info exanic_ptp_clock_info = {
 
 void exanic_ptp_init(struct exanic *exanic)
 {
+    struct device *dev = &exanic->pci_dev->dev;
+
     exanic->tick_hz =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_HZ));
     if (exanic->tick_hz == 0)
     {
         exanic->ptp_clock = NULL;
-        dev_err(&exanic->pci_dev->dev, "Invalid clock frequency");
+        dev_err(dev, "Invalid clock frequency");
         return;
     }
 
@@ -649,23 +650,21 @@ void exanic_ptp_init(struct exanic *exanic)
 
     spin_lock_init(&exanic->ptp_clock_lock);
 
-    exanic->ptp_clock = ptp_clock_register(&exanic->ptp_clock_info,
-            &exanic->pci_dev->dev);
+    exanic->ptp_clock = ptp_clock_register(&exanic->ptp_clock_info, dev);
     if (IS_ERR(exanic->ptp_clock))
     {
         exanic->ptp_clock = NULL;
-        dev_err(&exanic->pci_dev->dev, "Failed to register PTP hardware clock");
+        dev_err(dev, "Failed to register PTP hardware clock");
         return;
     }
 
-    dev_info(&exanic->pci_dev->dev,
-            "PTP hardware clock registered (ptp%i)",
+    dev_info(dev, "PTP hardware clock registered (ptp%i)",
             ptp_clock_index(exanic->ptp_clock));
 
     if (exanic_ptp_adj_allowed(exanic))
     {
         /* Reset the hardware clock */
-        dev_info(&exanic->pci_dev->dev, "Resetting PTP hardware clock");
+        dev_info(dev, "Resetting PTP hardware clock");
         if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
             writel(0, exanic->regs_virt +
                     REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET_HI));
@@ -704,13 +703,15 @@ void exanic_ptp_init(struct exanic *exanic)
 
 void exanic_ptp_remove(struct exanic *exanic)
 {
+    struct device *dev = &exanic->pci_dev->dev;
+
     if (exanic->ptp_clock == NULL)
         return;
     hrtimer_cancel(&exanic->ptp_clock_hrtimer);
     hrtimer_cancel(&exanic->phc_pps_hrtimer);
     ptp_clock_unregister(exanic->ptp_clock);
     exanic->ptp_clock = NULL;
-    dev_info(&exanic->pci_dev->dev, "PTP hardware clock removed");
+    dev_info(dev, "PTP hardware clock removed");
 }
 
 #else

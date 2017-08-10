@@ -51,6 +51,7 @@ struct exanic_ctx *exanic_alloc_ctx(struct exanic *exanic)
 void exanic_free_ctx(struct exanic_ctx *ctx)
 {
     struct exanic *exanic = ctx->exanic;
+    struct device *dev = &exanic->pci_dev->dev;
     int i;
     struct exanic_filter_buffer_ref *ref; 
     struct list_head *pos, *pos_next;
@@ -76,7 +77,7 @@ void exanic_free_ctx(struct exanic_ctx *ctx)
     {
         if (ctx->rx_refcount[i] != 0)
         {
-            dev_err(&exanic->pci_dev->dev, DRV_NAME
+            dev_err(dev, DRV_NAME
                     ": Non-zero rx_refcount[%d] = %d when freeing exanic_ctx\n",
                     i, ctx->rx_refcount[i]);
             exanic->port[i].rx_refcount -= ctx->rx_refcount[i];
@@ -124,6 +125,7 @@ int exanic_alloc_tx_region(struct exanic_ctx *ctx, unsigned port_num,
                            size_t size, size_t *offset_ptr)
 {
     struct exanic *exanic = ctx->exanic;
+    struct device *dev = &exanic->pci_dev->dev;
     struct exanic_port *port = &exanic->port[port_num];
     size_t usable_start_page = port->tx_region_usable_offset >> PAGE_SHIFT;
     size_t usable_end_page = usable_start_page +
@@ -143,7 +145,7 @@ int exanic_alloc_tx_region(struct exanic_ctx *ctx, unsigned port_num,
 
     if (page + num_pages > usable_end_page)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
+        dev_err(dev, DRV_NAME
             "%u: Failed to allocate TX region of size: 0x%05zx.\n",
             exanic->id, size);
         return -ENOMEM;
@@ -156,7 +158,7 @@ int exanic_alloc_tx_region(struct exanic_ctx *ctx, unsigned port_num,
         set_bit(p, ctx->tx_region_bitmap);
     }
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Allocated TX region offset: 0x%08lx, size: 0x%05zx.\n",
         exanic->id, page * PAGE_SIZE, size);
 
@@ -174,6 +176,7 @@ int exanic_free_tx_region(struct exanic_ctx *ctx, unsigned port_num,
                           size_t size, size_t offset)
 {
     struct exanic *exanic = ctx->exanic;
+    struct device *dev = &exanic->pci_dev->dev;
     size_t start_page = offset >> PAGE_SHIFT;
     size_t end_page = start_page + (size >> PAGE_SHIFT);
     size_t p;
@@ -188,7 +191,7 @@ int exanic_free_tx_region(struct exanic_ctx *ctx, unsigned port_num,
         }
     }
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Freed TX region offset: 0x%08zx, size: 0x%05zx.\n",
         exanic->id, offset, size);
 
@@ -204,6 +207,7 @@ int exanic_alloc_tx_feedback(struct exanic_ctx *ctx, unsigned port_num,
                              unsigned *feedback_slot_ptr)
 {
     struct exanic *exanic = ctx->exanic;
+    struct device *dev = &exanic->pci_dev->dev;
     size_t start = port_num * (EXANIC_TX_FEEDBACK_NUM_SLOTS / EXANIC_MAX_PORTS);
     size_t end = start + (EXANIC_TX_FEEDBACK_NUM_SLOTS / EXANIC_MAX_PORTS);
     unsigned slot;
@@ -211,7 +215,7 @@ int exanic_alloc_tx_feedback(struct exanic_ctx *ctx, unsigned port_num,
     slot = find_next_zero_bit(exanic->tx_feedback_bitmap, end, start);
     if (slot >= end)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
+        dev_err(dev, DRV_NAME
             "%u: Failed to allocate TX feedback slot.\n", exanic->id);
         return -ENOMEM;
     }
@@ -219,7 +223,7 @@ int exanic_alloc_tx_feedback(struct exanic_ctx *ctx, unsigned port_num,
     set_bit(slot, exanic->tx_feedback_bitmap);
     set_bit(slot, ctx->tx_feedback_bitmap);
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Allocated TX feedback slot: %d\n", exanic->id, slot);
 
     *feedback_slot_ptr = slot;
@@ -235,6 +239,7 @@ int exanic_free_tx_feedback(struct exanic_ctx *ctx, unsigned port_num,
                             unsigned feedback_slot)
 {
     struct exanic *exanic = ctx->exanic;
+    struct device *dev = &exanic->pci_dev->dev;
 
     if (test_bit(feedback_slot, ctx->tx_feedback_bitmap))
     {
@@ -242,7 +247,7 @@ int exanic_free_tx_feedback(struct exanic_ctx *ctx, unsigned port_num,
         clear_bit(feedback_slot, ctx->tx_feedback_bitmap);
     }
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Freed TX feedback slot: %d\n", exanic->id, feedback_slot);
 
     return 0;

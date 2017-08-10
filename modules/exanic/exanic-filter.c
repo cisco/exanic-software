@@ -301,13 +301,15 @@ int exanic_set_filter_buffer(struct exanic *exanic, unsigned port_num,
                               int filter_id)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
+
     if (port->filter_buffers[buffer_num].region_virt == NULL)
         return -EFAULT;
-    
+
     writel(buffer_num, exanic->regs_virt + 
         REG_FILTERS_OFFSET(port_num, REG_RULE_TO_BUFFER) +
         (region*EXANIC_NUM_FILTERS_PER_REGION+filter_id)*sizeof(uint32_t));
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Port %u, filter id %d mapped to buffer %u\n", exanic->id, port_num,
           filter_id, buffer_num);
     return 0;

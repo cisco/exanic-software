@@ -164,30 +164,30 @@ static void exanic_link_timer_callback(unsigned long data)
 void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
                         dma_addr_t * rx_region_dma)
 {
+    struct device *dev = &exanic->pci_dev->dev;
     void *virt_region;
 
     if (*numa_node != -1)
     {
         if (!node_online(*numa_node))
         {
-            dev_err(&exanic->pci_dev->dev, DRV_NAME
+            dev_err(dev, DRV_NAME
                 "%u: Failed to assign invalid node id = %d.\n",
                 exanic->id, *numa_node);
             return NULL;
         }
 
-        set_dev_node(&exanic->pci_dev->dev, *numa_node);
+        set_dev_node(dev, *numa_node);
     }
     else
-        *numa_node = dev_to_node(&exanic->pci_dev->dev);
+        *numa_node = dev_to_node(dev);
 
     if (rx_region_dma == NULL)
         return NULL;
 
     /* Allocate DMA resources. */
-    virt_region = dma_alloc_coherent(&exanic->pci_dev->dev,
-            EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE, rx_region_dma,
-            __GFP_COMP);
+    virt_region = dma_alloc_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
+                                     rx_region_dma, __GFP_COMP);
 
     /* Fill with 0xFF because generation number starts at 0. */
     if (virt_region)
@@ -207,6 +207,7 @@ void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
 int exanic_alloc_rx_dma(struct exanic *exanic, unsigned port_num,
                         int numa_node)
 {
+    struct device *dev = &exanic->pci_dev->dev;
     struct exanic_port *port = &exanic->port[port_num];
 
     /* The RX DMA region may already be allocated */
@@ -219,14 +220,14 @@ int exanic_alloc_rx_dma(struct exanic *exanic, unsigned port_num,
 
     if (!port->rx_region_virt)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
+        dev_err(dev, DRV_NAME
             "%u: Failed to allocate %u page(s) for RX DMA region.\n",
             exanic->id, EXANIC_RX_DMA_NUM_PAGES);
         return -ENOMEM;
     }
     port->numa_node = numa_node;
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Port %u RX region allocated at "
         "virt: 0x%p, dma handle: 0x%pad, size: %lu bytes.\n",
         exanic->id, port_num, port->rx_region_virt,
@@ -241,6 +242,7 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
                             unsigned buffer_num, int numa_node)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
     uint32_t dma_cfg;
 
     if (port_num >= exanic->num_ports)
@@ -261,7 +263,7 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
 
     if (!port->filter_buffers[buffer_num].region_virt)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
+        dev_err(dev, DRV_NAME
             "%u: Failed to allocate %u page(s) for filter DMA region.\n",
             exanic->id, EXANIC_RX_DMA_NUM_PAGES);
         return -ENOMEM;
@@ -286,7 +288,7 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
 
     port->filter_buffers[buffer_num].refcount++;
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Port %u filter RX region allocated at "
         "virt: 0x%p, dma handle: 0x%pad, size: %lu bytes.\n",
         exanic->id, port_num, port->filter_buffers[buffer_num].region_virt,
@@ -306,6 +308,7 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
 int exanic_free_rx_dma(struct exanic *exanic, unsigned port_num)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
 
     if (port->rx_region_virt == NULL)
         return 0;
@@ -313,12 +316,12 @@ int exanic_free_rx_dma(struct exanic *exanic, unsigned port_num)
     BUG_ON(port->enabled);
     BUG_ON(exanic_rx_in_use(exanic, port_num));
 
-    dma_free_coherent(&exanic->pci_dev->dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
+    dma_free_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
             port->rx_region_virt, port->rx_region_dma);
     port->rx_region_virt = NULL;
     port->rx_region_dma = 0;
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Port %u RX region freed.\n", exanic->id, port_num);
     return 0;
 }
@@ -333,6 +336,7 @@ int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
                        unsigned buffer_num)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
 
     if (port->filter_buffers[buffer_num].region_virt == NULL)
         return 0;
@@ -355,13 +359,13 @@ int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
             REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) + 
                 2*buffer_num*sizeof(uint32_t));
 
-    dma_free_coherent(&exanic->pci_dev->dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
+    dma_free_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
             port->filter_buffers[buffer_num].region_virt, 
             port->filter_buffers[buffer_num].region_dma);
     port->filter_buffers[buffer_num].region_virt = NULL;
     port->filter_buffers[buffer_num].region_dma = 0;
 
-    dev_dbg(&exanic->pci_dev->dev, DRV_NAME
+    dev_dbg(dev, DRV_NAME
         "%u: Port %u, filter buffer %u region freed.\n", exanic->id, port_num,
           buffer_num);
     return 0;
@@ -431,6 +435,7 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
                                      bool power)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
 
     if (port->power && !power)
     {
@@ -449,13 +454,13 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         if (err == 0)
         {
             port->power = power;
-            dev_info(&exanic->pci_dev->dev, DRV_NAME
+            dev_info(dev, DRV_NAME
                 "%u: Port %u powered off.\n", exanic->id, port_num);
             return true;
         }
         else
         {
-            dev_err(&exanic->pci_dev->dev, DRV_NAME
+            dev_err(dev, DRV_NAME
                 "%u: Port %u power off failed.\n", exanic->id, port_num);
             return false;
         }
@@ -491,14 +496,14 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         if (err == 0)
         {
             port->power = power;
-            dev_info(&exanic->pci_dev->dev, DRV_NAME
-                "%u: Port %u powered on.\n", exanic->id, port_num);
+            dev_info(dev, DRV_NAME "%u: Port %u powered on.\n",
+                     exanic->id, port_num);
             return true;
         }
         else
         {
-            dev_err(&exanic->pci_dev->dev, DRV_NAME
-                "%u: Port %u power on failed.\n", exanic->id, port_num);
+            dev_err(dev, DRV_NAME "%u: Port %u power on failed.\n",
+                    exanic->id, port_num);
             return false;
         }
     }
@@ -513,6 +518,7 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
 int exanic_enable_port(struct exanic *exanic, unsigned port_num)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
     uint32_t dma_cfg;
 
     BUG_ON(port_num >= exanic->num_ports);
@@ -537,8 +543,7 @@ int exanic_enable_port(struct exanic *exanic, unsigned port_num)
     writel(1, exanic->regs_virt + REG_PORT_OFFSET(port_num, REG_PORT_ENABLED));
 
     port->enabled = true;
-    dev_info(&exanic->pci_dev->dev, DRV_NAME
-        "%u: Port %u enabled.\n", exanic->id, port_num);
+    dev_info(dev, DRV_NAME "%u: Port %u enabled.\n", exanic->id, port_num);
     return 0;
 }
 
@@ -550,6 +555,7 @@ int exanic_enable_port(struct exanic *exanic, unsigned port_num)
 int exanic_disable_port(struct exanic *exanic, unsigned port_num)
 {
     struct exanic_port *port = &exanic->port[port_num];
+    struct device *dev = &exanic->pci_dev->dev;
 
     /* Check if the port is already disabled. */
     if (!port->enabled)
@@ -579,8 +585,7 @@ int exanic_disable_port(struct exanic *exanic, unsigned port_num)
         exanic_set_port_power(exanic, port_num, false);
 
     port->enabled = false;
-    dev_info(&exanic->pci_dev->dev, DRV_NAME
-        "%u: Port %u disabled%s.\n", exanic->id, port_num,
+    dev_info(dev, DRV_NAME "%u: Port %u disabled%s.\n", exanic->id, port_num,
             port->power ? " but still powered for bridging/mirroring" : "");
     return 0;
 }
@@ -759,6 +764,7 @@ int exanic_get_feature_cfg(struct exanic *exanic, unsigned port_num,
 int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
                            enum exanic_feature feature, bool state)
 {
+    struct device *dev = &exanic->pci_dev->dev;
     uint32_t reg, new_reg, bit;
     unsigned i;
     int err;
@@ -785,7 +791,7 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
         writel(new_reg, exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
 
-        dev_info(&exanic->pci_dev->dev, DRV_NAME "%u: %s %s.\n",
+        dev_info(dev, DRV_NAME "%u: %s %s.\n",
                 exanic->id, exanic_feature_str(bit),
                 state ? "enabled" : "disabled");
 
@@ -887,10 +893,11 @@ int exanic_get_num_ports(struct exanic *exanic)
  *
  * \return 0 if the exanic was successfully initialised, negative on failure.
  */
-static int exanic_probe(struct pci_dev *dev,
+static int exanic_probe(struct pci_dev *pdev,
                         const struct pci_device_id *id)
 {
     struct exanic *exanic;
+    struct device *dev = &pdev->dev;
     int err;
     unsigned port_num;
     const char *hw_id_str;
@@ -899,74 +906,71 @@ static int exanic_probe(struct pci_dev *dev,
     uint32_t dma_cfg;
     u8 mac_addr[ETH_ALEN];
 
-    exanic = devm_kzalloc(&dev->dev, sizeof(struct exanic), GFP_KERNEL);
+    exanic = devm_kzalloc(dev, sizeof(struct exanic), GFP_KERNEL);
     if (exanic == NULL)
         return -ENOMEM;
 
     exanic->id = exanic_get_id();
     snprintf(exanic->name, sizeof(exanic->name), DRV_NAME "%u", exanic->id);
-    dev_info(&dev->dev, "Probing %s.\n", exanic->name);
+    dev_info(dev, "Probing %s.\n", exanic->name);
 
     mutex_init(&exanic->mutex);
 
     /* Disable ASPM */
-    pci_disable_link_state(dev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1 |
+    pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1 |
             PCIE_LINK_STATE_CLKPM);
 
     /* Set up the PCI component */
-    err = pci_enable_device_mem(dev);
+    err = pci_enable_device_mem(pdev);
     if (err)
     {
-        dev_err(&dev->dev, "pci_enable_device_mem failed: %d\n",
-            err);
+        dev_err(dev, "pci_enable_device_mem failed: %d\n", err);
         goto err_pci_enable_dev;
     }
 
-    err = pci_request_regions(dev, DRV_NAME);
+    err = pci_request_regions(pdev, DRV_NAME);
 
     if (err)
     {
-        dev_err(&dev->dev,
-            "pci_request_selected_regions_exclusive failed: %d\n", err);
+        dev_err(dev, "pci_request_selected_regions_exclusive failed: %d\n",
+                err);
         goto err_req_regions;
     }
 
 #if defined(CONFIG_PCIEAER)
-    pci_enable_pcie_error_reporting(dev);
+    pci_enable_pcie_error_reporting(pdev);
 #endif
-    pci_set_master(dev);
-    pci_set_drvdata(dev, exanic);
-    exanic->pci_dev = dev;
+    pci_set_master(pdev);
+    pci_set_drvdata(pdev, exanic);
+    exanic->pci_dev = pdev;
 
     /* Configure register space */
-    if (!(pci_resource_flags(dev, EXANIC_REGS_BAR) & IORESOURCE_MEM))
+    if (!(pci_resource_flags(pdev, EXANIC_REGS_BAR) & IORESOURCE_MEM))
     {
-        dev_err(&dev->dev, "BAR %u is not a memory resource.\n",
-            EXANIC_REGS_BAR);
+        dev_err(dev, "BAR %u is not a memory resource.\n", EXANIC_REGS_BAR);
         err = -EIO;
         goto err_regs_bar_type;
     }
 
-    exanic->regs_size = pci_resource_len(dev, EXANIC_REGS_BAR);
+    exanic->regs_size = pci_resource_len(pdev, EXANIC_REGS_BAR);
     if (exanic->regs_size < EXANIC_REGS_NUM_PAGES * PAGE_SIZE)
     {
-        dev_err(&dev->dev, "BAR %u has size = %zu but expected at least %lu.\n",
+        dev_err(dev, "BAR %u has size = %zu but expected at least %lu.\n",
             EXANIC_REGS_BAR, exanic->regs_size, EXANIC_REGS_NUM_PAGES * PAGE_SIZE);
         err = -EIO;
         goto err_regs_size;
     }
 
-    exanic->regs_phys = pci_resource_start(dev, EXANIC_REGS_BAR);
+    exanic->regs_phys = pci_resource_start(pdev, EXANIC_REGS_BAR);
     exanic->regs_virt = ioremap_nocache(exanic->regs_phys, exanic->regs_size);
     if (!exanic->regs_virt)
     {
-        dev_err(&dev->dev, "Registers ioremap_nocache failed.\n");
+        dev_err(dev, "Registers ioremap_nocache failed.\n");
         err = -EIO;
         goto err_regs_ioremap;
     }
 
-    dev_info(&dev->dev,
-        "Registers at phys: 0x%pap, virt: 0x%p, size: %zu bytes.\n",
+    dev_info(dev, "Registers at phys: 0x%pap, virt: 0x%p, size: %zu bytes.\n",
         &exanic->regs_phys, exanic->regs_virt, exanic->regs_size);
 
     /* Read exanic version information and check that it is supported */
@@ -1029,17 +1033,17 @@ static int exanic_probe(struct pci_dev *dev,
             exanic->devkit_regs_virt = 
                 ioremap_nocache(exanic->devkit_regs_phys, 
                     exanic->devkit_regs_offset);
-            dev_info(&dev->dev,
+            dev_info(dev,
                 "Devkit regs at phys: 0x%pap, virt: 0x%p, size: %u bytes.\n",
                 &exanic->devkit_regs_phys, exanic->devkit_regs_virt,
                     exanic->devkit_regs_offset);
 
             /* Configure Devkit memory region */
-            if (pci_resource_flags(dev, EXANIC_DEVKIT_MEMORY_REGION_BAR) 
+            if (pci_resource_flags(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
                     & IORESOURCE_MEM)
             {
                 exanic->devkit_mem_phys
-                    = pci_resource_start(dev, EXANIC_DEVKIT_MEMORY_REGION_BAR) 
+                    = pci_resource_start(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
                         + exanic->devkit_mem_offset;
                 exanic->devkit_mem_virt =
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
@@ -1048,12 +1052,12 @@ static int exanic_probe(struct pci_dev *dev,
                     ioremap(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
 #endif
 
-                dev_info(&dev->dev, "Devkit memory at phys: 0x%pap, size: %u bytes.\n",
+                dev_info(dev, "Devkit memory at phys: 0x%pap, size: %u bytes.\n",
                     &exanic->devkit_mem_phys, exanic->devkit_mem_offset);
             }
             else
             {
-                dev_info(&dev->dev,
+                dev_info(dev,
                     "Devkit memory not available. (BAR %u is not a memory resource.)\n",
                     EXANIC_DEVKIT_MEMORY_REGION_BAR);
 
@@ -1080,7 +1084,7 @@ static int exanic_probe(struct pci_dev *dev,
     if ((exanic->pcie_if_ver < MIN_SUPPORTED_PCIE_IF_VER) ||
         (exanic->pcie_if_ver > MAX_SUPPORTED_PCIE_IF_VER))
     {
-        dev_err(&dev->dev,
+        dev_err(dev,
                 "Unsupported exanic interface version: %u (min %u, max %u)\n",
                 exanic->pcie_if_ver, MIN_SUPPORTED_PCIE_IF_VER,
                 MAX_SUPPORTED_PCIE_IF_VER);
@@ -1090,16 +1094,14 @@ static int exanic_probe(struct pci_dev *dev,
     hw_id_str = exanic_hardware_id_str(exanic->hw_id);
     if (hw_id_str == NULL)
     {
-        dev_err(&dev->dev, "Unsupported hardware type: %u\n",
-                exanic->hw_id);
+        dev_err(dev, "Unsupported hardware type: %u\n", exanic->hw_id);
         unsupported_exanic = true;
     }
 
     function_str = exanic_function_id_str(exanic->function_id);
     if (function_str == NULL)
     {
-        dev_err(&dev->dev, "Unsupported function type: %u\n",
-                exanic->function_id);
+        dev_err(dev, "Unsupported function type: %u\n", exanic->function_id);
         unsupported_exanic = true;
     }
 
@@ -1127,14 +1129,13 @@ static int exanic_probe(struct pci_dev *dev,
         err = misc_register(&exanic->misc_dev);
         if (err)
         {
-            dev_err(&dev->dev, "misc_register failed: %d\n", err);
+            dev_err(dev, "misc_register failed: %d\n", err);
             goto err_unsupported_exanic;
         }
 
-        dev_info(&dev->dev, "Finished probing %s (minor = %u):\n",
+        dev_info(dev, "Finished probing %s (minor = %u):\n",
             exanic->name, exanic->misc_dev.minor);
-        dev_info(&dev->dev,
-                "  Unknown exanic version, minimal support enabled\n");
+        dev_info(dev, "  Unknown exanic version, minimal support enabled\n");
 
         return 0;
     }
@@ -1148,7 +1149,7 @@ static int exanic_probe(struct pci_dev *dev,
             count++;
             if (count > 5)
             {
-                dev_err(&dev->dev, "Timed out waiting for ExaNIC startup.\n");
+                dev_err(dev, "Timed out waiting for ExaNIC startup.\n");
                 err = -EIO;
                 goto err_timeout;
             }
@@ -1161,27 +1162,26 @@ static int exanic_probe(struct pci_dev *dev,
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_DMA_ADDR_WIDTH));
     if (exanic->dma_addr_bits < 32 || exanic->dma_addr_bits > 64)
     {
-        dev_info(&dev->dev, "Invalid DMA address width: %u bits, "
+        dev_info(dev, "Invalid DMA address width: %u bits, "
                 "defaulting to 64 bits.\n", exanic->dma_addr_bits);
         exanic->dma_addr_bits = 64;
     }
     else
     {
-        dev_info(&dev->dev, "DMA address width: %u bits.\n",
-            exanic->dma_addr_bits);
+        dev_info(dev, "DMA address width: %u bits.\n", exanic->dma_addr_bits);
     }
 
-    err = pci_set_dma_mask(dev, DMA_BIT_MASK(exanic->dma_addr_bits));
+    err = pci_set_dma_mask(pdev, DMA_BIT_MASK(exanic->dma_addr_bits));
     if (err)
     {
-        dev_err(&dev->dev, "pci_set_dma_mask failed: %d\n", err);
+        dev_err(dev, "pci_set_dma_mask failed: %d\n", err);
         goto err_dma_mask;
     }
 
-    err = pci_set_consistent_dma_mask(dev, DMA_BIT_MASK(exanic->dma_addr_bits));
+    err = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(exanic->dma_addr_bits));
     if (err)
     {
-        dev_err(&dev->dev, "pci_set_consistent_dma_mask failed: %d\n", err);
+        dev_err(dev, "pci_set_consistent_dma_mask failed: %d\n", err);
         goto err_dma_mask;
     }
 
@@ -1191,22 +1191,22 @@ static int exanic_probe(struct pci_dev *dev,
         exanic->filters_size = exanic->regs_size - EXANIC_PGOFF_FILTERS * PAGE_SIZE;
         exanic->filters_phys = exanic->regs_phys + EXANIC_PGOFF_FILTERS * PAGE_SIZE;
 
-        dev_info(&dev->dev, "Filters at phys: 0x%pap, size: %zu bytes.\n",
+        dev_info(dev, "Filters at phys: 0x%pap, size: %zu bytes.\n",
             &exanic->filters_phys, exanic->filters_size);
     }
     else
     {
-        dev_info(&dev->dev, "Filters not available.\n");
+        dev_info(dev, "Filters not available.\n");
 
         exanic->filters_size = 0;
         exanic->filters_phys = 0;
     }
 
     /* Configure TX region */
-    if (pci_resource_flags(dev, EXANIC_TX_REGION_BAR) & IORESOURCE_MEM)
+    if (pci_resource_flags(pdev, EXANIC_TX_REGION_BAR) & IORESOURCE_MEM)
     {
-        exanic->tx_region_size = pci_resource_len(dev, EXANIC_TX_REGION_BAR);
-        exanic->tx_region_phys = pci_resource_start(dev, EXANIC_TX_REGION_BAR);
+        exanic->tx_region_size = pci_resource_len(pdev, EXANIC_TX_REGION_BAR);
+        exanic->tx_region_phys = pci_resource_start(pdev, EXANIC_TX_REGION_BAR);
         exanic->tx_region_virt =
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
             ioremap_wc(exanic->tx_region_phys, exanic->tx_region_size);
@@ -1214,12 +1214,12 @@ static int exanic_probe(struct pci_dev *dev,
             ioremap(exanic->tx_region_phys, exanic->tx_region_size);
 #endif
 
-        dev_info(&dev->dev, "TX region at phys: 0x%pap, size: %zu bytes.\n",
+        dev_info(dev, "TX region at phys: 0x%pap, size: %zu bytes.\n",
             &exanic->tx_region_phys, exanic->tx_region_size);
     }
     else
     {
-        dev_info(&dev->dev,
+        dev_info(dev,
             "TX region not available. (BAR %u is not a memory resource.)\n",
             EXANIC_TX_REGION_BAR);
 
@@ -1236,7 +1236,7 @@ static int exanic_probe(struct pci_dev *dev,
             &exanic->tx_feedback_dma, __GFP_COMP);
     if (!exanic->tx_feedback_virt)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
+        dev_err(dev, DRV_NAME
             "%u: Failed to allocate %u page(s) for TX feedback region.\n",
             exanic->id, EXANIC_TX_FEEDBACK_NUM_PAGES);
         err = -ENOMEM;
@@ -1255,7 +1255,7 @@ static int exanic_probe(struct pci_dev *dev,
     writel(exanic->tx_feedback_dma >> 32, exanic->regs_virt +
         REG_EXANIC_OFFSET(REG_EXANIC_TX_FEEDBACK_BASE_ADDR_HI));
 
-    dev_info(&dev->dev,
+    dev_info(dev,
         "TX feedback region at virt: 0x%p, dma handle: 0x%pad, size: %lu bytes.\n",
         exanic->tx_feedback_virt, &exanic->tx_feedback_dma,
         EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE);
@@ -1298,7 +1298,7 @@ static int exanic_probe(struct pci_dev *dev,
                         exanic->port[port_num].tx_region_usable_size)
                     > exanic->tx_region_size)
             {
-                dev_err(&dev->dev,
+                dev_err(dev,
                         "Invalid usable TX region: "
                         "port: %u, usable_offset: 0x%zx, "
                         "usable_size: 0x%zx, region_end: 0x%zx\n",
@@ -1313,7 +1313,7 @@ static int exanic_probe(struct pci_dev *dev,
     exanic->info_page = vmalloc_user(EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
     if (exanic->info_page == NULL)
     {
-        dev_err(&dev->dev, "Could not allocate info page");
+        dev_err(dev, "Could not allocate info page");
         goto err_info_page_alloc;
     }
 
@@ -1327,18 +1327,18 @@ static int exanic_probe(struct pci_dev *dev,
         /* Get serial number in EEPROM to use as MAC address */
         if (exanic_x4_x2_get_serial(exanic, mac_addr) == 0)
         {
-            dev_info(&dev->dev, "Serial number: %pM\n", mac_addr);
+            dev_info(dev, "Serial number: %pM\n", mac_addr);
 
             if (!is_valid_ether_addr(mac_addr))
             {
-                dev_err(&dev->dev,
+                dev_err(dev,
                         "Serial number is not a valid MAC address.\n");
                 memcpy(mac_addr, next_mac_addr, ETH_ALEN);
             }
         }
         else
         {
-            dev_err(&dev->dev, "Could not read serial number.\n");
+            dev_err(dev, "Could not read serial number.\n");
             memcpy(mac_addr, next_mac_addr, ETH_ALEN);
         }
     }
@@ -1377,8 +1377,7 @@ static int exanic_probe(struct pci_dev *dev,
         for (bit = 1; bit & EXANIC_FEATURE_BRIDGE_MIRROR_MASK; bit <<= 1)
         {
             if (reg & bit)
-                dev_info(&exanic->pci_dev->dev, DRV_NAME
-                        "%u: %s enabled.\n", exanic->id,
+                dev_info(dev, DRV_NAME "%u: %s enabled.\n", exanic->id,
                         exanic_feature_str(bit));
         }
 
@@ -1401,21 +1400,21 @@ static int exanic_probe(struct pci_dev *dev,
     /* Configure interrupts */
     if (exanic->caps & EXANIC_CAP_RX_MSI)
     {
-        err = pci_enable_msi(dev);
+        err = pci_enable_msi(pdev);
         if (err)
         {
-            dev_err(&dev->dev, DRV_NAME "%u: pci_enable_msi failed, err=%d\n",
+            dev_err(dev, DRV_NAME "%u: pci_enable_msi failed, err=%d\n",
                     exanic->id, err);
             goto err_interrupts;
         }
 
-        err = request_irq(dev->irq, exanic_rx_irq_handler, 0, exanic->name,
+        err = request_irq(pdev->irq, exanic_rx_irq_handler, 0, exanic->name,
                 exanic);
         if (err)
         {
-            dev_err(&dev->dev, DRV_NAME "%u: request_irq failed, err=%d\n",
+            dev_err(dev, DRV_NAME "%u: request_irq failed, err=%d\n",
                     exanic->id, err);
-            pci_disable_msi(dev);
+            pci_disable_msi(pdev);
             goto err_interrupts;
         }
     }
@@ -1452,7 +1451,7 @@ static int exanic_probe(struct pci_dev *dev,
 
         if (exanic->port[port_num].filter_buffers == NULL)
         {
-            dev_err(&dev->dev,
+            dev_err(dev,
                     "Failed to allocate physical filter buffer array for port %d.\n",
                     port_num);
             goto err_flow_steering;
@@ -1467,7 +1466,7 @@ static int exanic_probe(struct pci_dev *dev,
 
             if (exanic->port[port_num].ip_filter_slots == NULL)
             {
-                dev_err(&dev->dev,
+                dev_err(dev,
                         "Failed to allocate IP filter slot array for port %d.\n",
                         port_num);
                 goto err_flow_steering;
@@ -1482,7 +1481,7 @@ static int exanic_probe(struct pci_dev *dev,
 
             if (exanic->port[port_num].mac_filter_slots == NULL)
             {
-                dev_err(&dev->dev,
+                dev_err(dev,
                         "Failed to allocate MAC filter slot array for port %d.\n",
                         port_num);
                 goto err_flow_steering;
@@ -1508,7 +1507,7 @@ static int exanic_probe(struct pci_dev *dev,
                     &exanic->ndev[port_num]);
             if (err)
             {
-                dev_err(&dev->dev,
+                dev_err(dev,
                         "Failed to register ethernet interface for port %d.\n",
                         port_num);
                 goto err_netdev;
@@ -1546,22 +1545,22 @@ static int exanic_probe(struct pci_dev *dev,
     err = misc_register(&exanic->misc_dev);
     if (err)
     {
-        dev_err(&dev->dev, "misc_register failed: %d\n", err);
+        dev_err(dev, "misc_register failed: %d\n", err);
         goto err_miscdev;
     }
 
-    dev_info(&dev->dev, "Finished probing %s (minor = %u):\n",
+    dev_info(dev, "Finished probing %s (minor = %u):\n",
         exanic->name, exanic->misc_dev.minor);
-    dev_info(&dev->dev, "  ExaNIC interface version = %u\n",
+    dev_info(dev, "  ExaNIC interface version = %u\n",
         exanic->pcie_if_ver);
-    dev_info(&dev->dev, "  Hardware ID = %s\n", hw_id_str);
-    dev_info(&dev->dev, "  Function = %s\n", function_str);
+    dev_info(dev, "  Hardware ID = %s\n", hw_id_str);
+    dev_info(dev, "  Function = %s\n", function_str);
     if ((exanic->function_id == EXANIC_FUNCTION_NIC ||
             exanic->function_id == EXANIC_FUNCTION_PTP_GM ||
                 exanic->function_id == EXANIC_FUNCTION_DEVKIT) &&
                 exanic->tx_region_size > 0)
     {
-        dev_dbg(&dev->dev, "  TX engines:\n");
+        dev_dbg(dev, "  TX engines:\n");
         for (port_num = 0; port_num < exanic->num_ports; ++port_num)
         {
             unsigned t;
@@ -1572,19 +1571,18 @@ static int exanic_probe(struct pci_dev *dev,
             if (port_status & (EXANIC_PORT_NOT_IMPLEMENTED |
                         EXANIC_PORT_TX_UNSUPPORTED))
                 continue;
-            dev_dbg(&dev->dev, "    Port %u:\n", port_num);
-            dev_dbg(&dev->dev, "      TX region usable offset = 0x%08zx\n",
+            dev_dbg(dev, "    Port %u:\n", port_num);
+            dev_dbg(dev, "      TX region usable offset = 0x%08zx\n",
                     exanic->port[port_num].tx_region_usable_offset);
-            dev_dbg(&dev->dev, "      TX region usable size = 0x%04zx\n",
+            dev_dbg(dev, "      TX region usable size = 0x%04zx\n",
                     exanic->port[port_num].tx_region_usable_size);
-            dev_dbg(&dev->dev, "      Supported type(s) = 0x%04x:\n",
-                    types);
+            dev_dbg(dev, "      Supported type(s) = 0x%04x:\n", types);
             for (t = 1; types != 0; types >>= 1, t <<= 1)
             {
                 if (types & 1)
                 {
                     const char *type_id_str = exanic_tx_type_id_str(t);
-                    dev_dbg(&dev->dev, "        - %s\n",
+                    dev_dbg(dev, "        - %s\n",
                             type_id_str ? type_id_str : "unknown");
                 }
             }
@@ -1609,8 +1607,8 @@ err_flow_steering:
     }
     if (exanic->caps & EXANIC_CAP_RX_MSI)
     {
-        free_irq(dev->irq, exanic);
-        pci_disable_msi(dev);
+        free_irq(pdev->irq, exanic);
+        pci_disable_msi(pdev);
     }
 err_interrupts:
     vfree(exanic->info_page);
@@ -1629,11 +1627,11 @@ err_regs_ioremap:
 err_regs_size:
 err_regs_bar_type:
 #if defined(CONFIG_PCIEAER)
-    pci_disable_pcie_error_reporting(dev);
+    pci_disable_pcie_error_reporting(pdev);
 #endif
-    pci_release_regions(dev);
+    pci_release_regions(pdev);
 err_req_regions:
-    pci_disable_device(dev);
+    pci_disable_device(pdev);
 err_pci_enable_dev:
     return err;
 }
@@ -1648,12 +1646,13 @@ err_pci_enable_dev:
  * Bridging and mirroring settings persist after the unload, and ports are not
  * powered down if bridging or mirroring requires them.
  */
-static void exanic_remove(struct pci_dev *dev)
+static void exanic_remove(struct pci_dev *pdev)
 {
-    struct exanic *exanic = pci_get_drvdata(dev);
+    struct exanic *exanic = pci_get_drvdata(pdev);
+    struct device *dev = &pdev->dev;
     int i, j;
 
-    dev_info(&dev->dev, "Removing exanic%u.\n", exanic->id);
+    dev_info(dev, "Removing exanic%u.\n", exanic->id);
 
     spin_lock(&exanic_devices_lock);
     list_del(&exanic->node);
@@ -1696,8 +1695,8 @@ static void exanic_remove(struct pci_dev *dev)
 
     if (exanic->caps & EXANIC_CAP_RX_MSI)
     {
-        free_irq(dev->irq, exanic);
-        pci_disable_msi(dev);
+        free_irq(pdev->irq, exanic);
+        pci_disable_msi(pdev);
     }
 
     if (exanic->info_page != NULL)
@@ -1711,10 +1710,10 @@ static void exanic_remove(struct pci_dev *dev)
         iounmap(exanic->tx_region_virt);
     iounmap(exanic->regs_virt);
 #if defined(CONFIG_PCIEAER)
-    pci_disable_pcie_error_reporting(dev);
+    pci_disable_pcie_error_reporting(pdev);
 #endif
-    pci_release_regions(dev);
-    pci_disable_device(dev);
+    pci_release_regions(pdev);
+    pci_disable_device(pdev);
     misc_deregister(&exanic->misc_dev);
 }
 
@@ -1724,12 +1723,13 @@ static void exanic_remove(struct pci_dev *dev)
  * This hooks into reboot_notifier_list (kernel/sys.c) and is used to put the
  * card into a sane state for reboot.
  */
-static void exanic_shutdown(struct pci_dev *dev)
+static void exanic_shutdown(struct pci_dev *pdev)
 {
-    struct exanic *exanic = pci_get_drvdata(dev);
+    struct exanic *exanic = pci_get_drvdata(pdev);
+    struct device *dev = &pdev->dev;
     int i;
 
-    dev_info(&dev->dev, "Shutting down exanic%u.\n", exanic->id);
+    dev_info(dev, "Shutting down exanic%u.\n", exanic->id);
 
     /* Disable all ports to stop DMA */
     for (i = 0; i < exanic->num_ports; ++i)
