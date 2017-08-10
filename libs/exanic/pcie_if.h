@@ -20,9 +20,6 @@
  */
 enum
 {
-    /** Maximum number of ExaNICs that can be utilised in a machine. */
-    EXANIC_MAX_NUM_DEVICES          = 4,
-
     /** Registers are at this BAR */
     EXANIC_REGS_BAR                 = 0,
 
