@@ -816,31 +816,6 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
     return 0;
 }
 
-struct net_device *exanic_netdev_find_by_index(int ifindex)
-{
-    struct net_device *ndev;
-    struct exanic *exanic;
-    unsigned i;
-
-    /* TODO: Find a way to use dev_get_by_index() instead */
-    spin_lock(&exanic_devices_lock);
-
-    list_for_each_entry(exanic, &exanic_devices, node)
-        for (i = 0; i < exanic->num_ports; i++)
-        {
-            ndev = exanic->ndev[i];
-            if (ndev != NULL && ndev->ifindex == ifindex)
-                goto exit;
-        }
-
-    ndev = NULL;
-exit:
-    spin_unlock(&exanic_devices_lock);
-
-    return ndev;
-}
-EXPORT_SYMBOL(exanic_netdev_find_by_index);
-
 struct exanic *exanic_find_by_minor(unsigned minor)
 {
     struct exanic *exanic;

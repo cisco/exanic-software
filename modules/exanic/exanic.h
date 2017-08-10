@@ -31,7 +31,6 @@ enum exanic_feature
 /* exanic.c */
 struct exanic;
 
-struct net_device *exanic_netdev_find_by_index(int ifindex);
 struct exanic *exanic_find_by_minor(unsigned minor);
 
 /* These functions are called with exanic mutex held. */
