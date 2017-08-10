@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <time.h>
+#include <dirent.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -605,16 +606,40 @@ void show_device_info(const char *device, int port_number, int verbose)
 
 void show_all_devices(int verbose)
 {
+    DIR *d;
+    struct dirent *dir;
     char device_file[32];
-    int device_number;
-    for (device_number = 0; ; device_number++)
-    {
-        snprintf(device_file, sizeof(device_file), "/dev/exanic%u", device_number);
-        if (access(device_file, F_OK) != 0)
-            break;
+    char exanic_file[32];
+    int exanic_num;
+    int prev_num = -1;
+    int num;
 
-        show_device_info(device_file+5, -1, verbose);
+    do
+    {
+        exanic_num = INT_MAX;
+        d = opendir("/dev");
+        if (d)
+        {
+            while ((dir = readdir(d)) != NULL)
+            {
+                snprintf(device_file, sizeof(device_file), dir->d_name);
+                if ((strncmp(device_file, "exanic", 6) == 0) &&
+                    ((num = parse_number(device_file + 6)) != -1) &&
+                    (num > prev_num) && (num < exanic_num))
+                {
+                    exanic_num = num;
+                    memcpy(exanic_file, device_file, sizeof(exanic_file));
+                }
+            }
+            closedir(d);
+        }
+        if (exanic_num < INT_MAX)
+        {
+            show_device_info(exanic_file, -1, verbose);
+            prev_num = exanic_num;
+        }
     }
+    while (exanic_num < INT_MAX);
 }
 
 void show_sfp_status(const char *device, int port_number)
