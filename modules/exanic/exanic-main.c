@@ -885,7 +885,18 @@ static int exanic_probe(struct pci_dev *pdev,
     if (exanic == NULL)
         return -ENOMEM;
 
+    /* misc_dev.minor should be initialized before exanic device gets added
+     * to the exanic_devices list to avoid unexpected results of
+     * exanic_find_by_minor().
+     */
+    exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
+
+    /* Assign exanic ID and add the device to the list of exanic devices */
+    spin_lock(&exanic_devices_lock);
     exanic->id = exanic_get_id();
+    list_add_tail(&exanic->node, &exanic_devices);
+    spin_unlock(&exanic_devices_lock);
+
     snprintf(exanic->name, sizeof(exanic->name), DRV_NAME "%u", exanic->id);
     dev_info(dev, "Probing %s.\n", exanic->name);
 
@@ -1084,23 +1095,9 @@ static int exanic_probe(struct pci_dev *pdev,
     {
         /* Minimal support for unsupported cards, to allow firmware update. */
 
-        /* Register device and insert into the exanic_devices list.
-         * NOTE: The insertion into the exanic_devices list needs to be done
-         *       before misc_register() is called to ensure the device is
-         *       already available when it gets registered.
-         *       The insertion should be also done no sooner than
-         *       exanic->misc_dev.minor is set to avoid unexpected results of
-         *       exanic_find_by_minor().
-         */
-
-        exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
+        /* Register device (misc_dev.minor already initialized) */
         exanic->misc_dev.name = exanic->name;
         exanic->misc_dev.fops = &exanic_fops;
-
-        spin_lock(&exanic_devices_lock);
-        list_add_tail(&exanic->node, &exanic_devices);
-        spin_unlock(&exanic_devices_lock);
-
         err = misc_register(&exanic->misc_dev);
         if (err)
         {
@@ -1500,23 +1497,9 @@ static int exanic_probe(struct pci_dev *pdev,
             (unsigned long)exanic);
     mod_timer(&exanic->link_timer, jiffies + HZ);
 
-    /* Register device and insert into the exanic_devices list.
-     * NOTE: The insertion into the exanic_devices list needs to be done before
-     *       misc_register() is called to ensure the device is already available
-     *       when it gets registered.
-     *       The insertion should be also done no sooner than
-     *       exanic->misc_dev.minor is set to avoid unexpected results of
-     *       exanic_find_by_minor().
-     */
-
-    exanic->misc_dev.minor = MISC_DYNAMIC_MINOR;
+    /* Register device (misc_dev.minor already initialized) */
     exanic->misc_dev.name = exanic->name;
     exanic->misc_dev.fops = &exanic_fops;
-
-    spin_lock(&exanic_devices_lock);
-    list_add_tail(&exanic->node, &exanic_devices);
-    spin_unlock(&exanic_devices_lock);
-
     err = misc_register(&exanic->misc_dev);
     if (err)
     {
@@ -1608,6 +1591,9 @@ err_regs_bar_type:
 err_req_regions:
     pci_disable_device(pdev);
 err_pci_enable_dev:
+    spin_lock(&exanic_devices_lock);
+    list_del(&exanic->node);
+    spin_unlock(&exanic_devices_lock);
     return err;
 }
 
