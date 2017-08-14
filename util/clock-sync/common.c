@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <time.h>
+#include <math.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
@@ -173,6 +174,35 @@ int calc_rate_error(struct rate_error *r, double *err)
     }
     else
         return 0;
+}
+
+
+int calc_rate_error_adev(struct rate_error *r, double *adev)
+{
+    double d, avar = 0;
+    int i, n, m, count = 0;
+
+    if (!r->startup)
+        count = RATE_ERROR_BUCKETS - 2;
+    else if (r->n >= 2)
+        count = r->n - 1;
+    else
+        return 0;
+
+    for (i = 0; i < count; i++)
+    {
+        n = r->n >= i + 1 ? r->n - i - 1 : r->n + RATE_ERROR_BUCKETS - i - 1;
+        m = r->n >= i + 2 ? r->n - i - 2 : r->n + RATE_ERROR_BUCKETS - i - 2;
+
+        if (r->interval[n] == 0 || r->interval[m] == 0)
+            return 0;
+
+        d = (r->error[n] / r->interval[n]) - (r->error[m] / r->interval[m]);
+        avar += (d * d) / 2;
+    }
+
+    *adev = sqrt(avar / count);
+    return 1;
 }
 
 

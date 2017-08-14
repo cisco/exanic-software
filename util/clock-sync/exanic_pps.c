@@ -18,7 +18,6 @@
 #define SKIP_MAX 5
 #define TIMEOUT_SECONDS 10
 #define ERROR_MAX 0.001
-#define ERROR_BUCKET_SIZE 64
 
 
 struct exanic_pps_sync_state
@@ -30,6 +29,7 @@ struct exanic_pps_sync_state
     int64_t offset_ns;  /* Offset to add to ExaNIC time (ns) */
     int tai_offset;     /* TAI offset to add to ExaNIC time */
     int auto_tai_offset; /* Get TAI offset from system */
+    unsigned interval;  /* Averaging interval (s) */
     uint64_t pps_time_tick; /* Time of last PPS */
     uint64_t adj_time_tick; /* Time of last change to adjustment value */
     double tick_adj;    /* Number of extra clock ticks at the last adjustment */
@@ -112,6 +112,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         pps_type = PPS_SINGLE_ENDED;
     }
 
+    state->interval = 64; /* FIXME */
+
     /* Time offset settings */
     state->offset_ns = offset_ns;
     state->tai_offset = auto_tai_offset ? sys_tai_offset : tai_offset;
@@ -127,6 +129,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             pps_termination_disable ? "disabled" : "enabled");
     log_printf(LOG_INFO, "%s: Current TAI offset is %d", state->name,
             state->tai_offset);
+    log_printf(LOG_INFO, "%s: Averaging interval: %d s", state->name,
+            state->interval);
 
     /* PPS settings */
     if ((hw_id == EXANIC_HW_X4) || (hw_id == EXANIC_HW_X2))
@@ -185,7 +189,7 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     state->log_reset = 0;
     state->last_log_ns = 0;
     state->pps_last_seen = ts_mono.tv_sec;
-    reset_rate_error(&state->rate, ERROR_BUCKET_SIZE);
+    reset_rate_error(&state->rate, state->interval);
 
     return state;
 }
@@ -198,14 +202,15 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     uint64_t poll_time_ns = 0;
     uint64_t poll_time_tick;
     int32_t poll_time_tick_hi, poll_time_tick_lo;
-    double rate_error;
-    int rate_error_known;
+    double rate_error, adev;
+    int rate_error_known, adev_known;
 
     clock_gettime(CLOCK_MONOTONIC, &ts_mono);
     clock_gettime(CLOCK_REALTIME, &ts_sys);
 
     /* Get rate error from measurement history */
     rate_error_known = calc_rate_error(&state->rate, &rate_error);
+    adev_known = calc_rate_error_adev(&state->rate, &adev);
 
     /* Read the latched timestamp value at the last PPS pulse
      * This must be done before reading the current hardware time */
@@ -358,11 +363,18 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
                     log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
                             "%.4f us", state->name, state->pps_offset * 0.001);
                 }
-                else
+                else if (!adev_known)
                 {
                     log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
                             "%.4f us  drift: %.4f ppm", state->name,
                             state->pps_offset * 0.001, rate_error * 1000000);
+                }
+                else
+                {
+                    log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
+                            "%.4f us  drift: %.4f ppm  adev: %.3e (%d s)",
+                            state->name, state->pps_offset * 0.001,
+                            rate_error * 1000000, adev, state->interval);
                 }
                 state->last_log_ns = poll_time_ns;
             }
@@ -477,7 +489,7 @@ clock_error:
     state->log_next = 1;
     state->log_reset = 1;
     state->last_log_ns = 0;
-    reset_rate_error(&state->rate, ERROR_BUCKET_SIZE);
+    reset_rate_error(&state->rate, state->interval);
     return SYNC_FAILED;
 }
 

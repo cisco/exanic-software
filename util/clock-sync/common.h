@@ -72,6 +72,7 @@ struct rate_error
 
 void reset_rate_error(struct rate_error *r, double bucket_size);
 int calc_rate_error(struct rate_error *r, double *err);
+int calc_rate_error_adev(struct rate_error *r, double *adev);
 void record_rate_error(struct rate_error *r, double err, double interval);
 
 void log_printf(int priority, const char *fmt, ...);
