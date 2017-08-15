@@ -144,87 +144,103 @@ void record_error(struct error *e, double correction, double val)
 }
 
 
-void reset_rate_error(struct rate_error *r, double bucket_size)
+void reset_rate_error(struct rate_error *r, double interval)
 {
     int i;
 
+    r->partial = 0;
     r->n = 0;
     r->startup = 1;
-    r->bucket_size = bucket_size;
-    for (i = 0; i < RATE_ERROR_BUCKETS; ++i)
-        r->error[i] = r->interval[i] = 0;
+    r->interval = interval;
+    for (i = 0; i < (1 << RATE_ERROR_LEN_LOG2); ++i)
+        r->error[i] = 0;
 }
 
 
-int calc_rate_error(struct rate_error *r, double *err)
+int calc_rate_error(struct rate_error *r, double *err, int count_log2)
 {
-    int n;
+    int count = (1 << count_log2);
+    int i, n;
+    double sum;
 
-    if (r->n > 0)
-        n = r->n - 1;
-    else if (r->startup)
-        n = 0;
-    else
-        n = RATE_ERROR_BUCKETS - 1;
+    if (count_log2 < 0 || count_log2 >= RATE_ERROR_LEN_LOG2)
+        return 0;
 
-    if (r->interval[n] > 0)
-    {
-        *err = r->error[n] / r->interval[n];
-        return 1;
-    }
+    if (r->n >= count)
+        n = r->n - (r->n % count);
+    else if (!r->startup)
+        n = (1 << RATE_ERROR_LEN_LOG2);
     else
         return 0;
+
+    sum = 0;
+    for (i = n - count; i < n; i++)
+        sum += r->error[i];
+    *err = sum / (count * r->interval);
+    return 1;
 }
 
 
-int calc_rate_error_adev(struct rate_error *r, double *adev)
+int calc_rate_error_adev(struct rate_error *r, double *adev, int count_log2)
 {
-    double d, avar = 0;
-    int i, n, m, count = 0;
+    int count = (1 << count_log2);
+    int i, j, n, m, samples;
+    double err, last_err, avar;
 
-    if (!r->startup)
-        count = RATE_ERROR_BUCKETS - 2;
-    else if (r->n >= 2)
-        count = r->n - 1;
-    else
+    if (count_log2 < 0 || count_log2 >= RATE_ERROR_LEN_LOG2)
         return 0;
 
-    for (i = 0; i < count; i++)
+    n = r->n - (r->n % count);
+
+    if (r->startup)
+        m = 0;
+    else
+        m = (r->n - (r->n % count) + count) % (1 << RATE_ERROR_LEN_LOG2);
+
+    avar = 0;
+    samples = 0;
+    last_err = 0;
+    for (i = m; i != n; i = (i + count) % (1 << RATE_ERROR_LEN_LOG2))
     {
-        n = r->n >= i + 1 ? r->n - i - 1 : r->n + RATE_ERROR_BUCKETS - i - 1;
-        m = r->n >= i + 2 ? r->n - i - 2 : r->n + RATE_ERROR_BUCKETS - i - 2;
-
-        if (r->interval[n] == 0 || r->interval[m] == 0)
-            return 0;
-
-        d = (r->error[n] / r->interval[n]) - (r->error[m] / r->interval[m]);
-        avar += (d * d) / 2;
+        err = 0;
+        for (j = i; j < i + count; j++)
+            err += r->error[j];
+        err /= (count * r->interval);
+        if (i != m)
+        {
+            avar += (err - last_err) * (err - last_err);
+            samples++;
+        }
+        last_err = err;
     }
 
-    *adev = sqrt(avar / count);
+    if (samples == 0)
+        return 0;
+
+    *adev = sqrt(avar / samples);
     return 1;
 }
 
 
 void record_rate_error(struct rate_error *r, double err, double interval)
 {
-    while (r->bucket_size - r->interval[r->n] < interval)
+    while (r->interval - r->partial < interval)
     {
-        double rem = r->bucket_size - r->interval[r->n];
+        double rem = r->interval - r->partial;
 
         r->error[r->n] += err * rem / interval;
-        r->interval[r->n] = r->bucket_size;
 
         err -= err * rem / interval;
         interval -= rem;
 
-        if (++r->n >= RATE_ERROR_BUCKETS)
+        if (++r->n >= (1 << RATE_ERROR_LEN_LOG2))
             r->n = r->startup = 0;
-        r->error[r->n] = r->interval[r->n] = 0;
+        r->error[r->n] = 0;
+        r->partial = 0;
     }
 
     r->error[r->n] += err;
-    r->interval[r->n] += interval;
+    r->partial += interval;
 }
 
 

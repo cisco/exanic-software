@@ -59,20 +59,20 @@ void reset_error(struct error *e);
 int calc_error(struct error *e, double *val);
 void record_error(struct error *e, double correction, double val);
 
-#define RATE_ERROR_BUCKETS 64
+#define RATE_ERROR_LEN_LOG2 16
 
 struct rate_error
 {
-    double error[RATE_ERROR_BUCKETS];
-    double interval[RATE_ERROR_BUCKETS];
+    double error[1 << RATE_ERROR_LEN_LOG2];
+    double partial;
     int n;
     int startup;
-    double bucket_size;
+    double interval;
 };
 
-void reset_rate_error(struct rate_error *r, double bucket_size);
-int calc_rate_error(struct rate_error *r, double *err);
-int calc_rate_error_adev(struct rate_error *r, double *adev);
+void reset_rate_error(struct rate_error *r, double interval);
+int calc_rate_error(struct rate_error *r, double *err, int count_log2);
+int calc_rate_error_adev(struct rate_error *r, double *adev, int count_log2);
 void record_rate_error(struct rate_error *r, double err, double interval);
 
 void log_printf(int priority, const char *fmt, ...);
