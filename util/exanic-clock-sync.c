@@ -206,8 +206,6 @@ int main(int argc, char *argv[])
             char *p, *q, *r;
             char sync_target[16], sync_src[64];
             int64_t offset = 0;
-            int require_exanic_target = 0, maybe_exanic_src = 0;
-            int require_phc_target = 0, require_phc_src = 0;
 
             memset(sync_target, 0, sizeof(sync_target));
             memset(sync_src, 0, sizeof(sync_src));
@@ -247,14 +245,11 @@ int main(int argc, char *argv[])
             {
                 /* Sync system clock from hardware clock */
                 s[n].sync_type = SYNC_SYS_PHC;
-                maybe_exanic_src = 1;
-                require_phc_src = 1;
             }
             else if (strcmp(sync_src, "sys") == 0 || strcmp(sync_src, "host") == 0)
             {
                 /* Sync to system clock */
                 s[n].sync_type = SYNC_PHC_SYS;
-                require_phc_target = 1;
             }
             else if (strcmp(sync_src, "pps") == 0 ||
                     strcmp(sync_src, "pps-single-ended") == 0)
@@ -262,8 +257,6 @@ int main(int argc, char *argv[])
                 /* Sync to a PPS signal with termination enabled */
                 s[n].sync_type = SYNC_EXANIC_PPS;
                 s[n].pps_type = PPS_SINGLE_ENDED;
-                require_exanic_target = 1;
-                require_phc_target = 1;
                 using_pps = 1;
             }
             else if (strcmp(sync_src, "pps-no-term") == 0)
@@ -272,8 +265,6 @@ int main(int argc, char *argv[])
                 s[n].sync_type = SYNC_EXANIC_PPS;
                 s[n].pps_type = PPS_SINGLE_ENDED;
                 s[n].pps_termination_disable = 1;
-                require_exanic_target = 1;
-                require_phc_target = 1;
                 using_pps = 1;
             }
             else if (strcmp(sync_src, "pps-differential") == 0)
@@ -281,16 +272,12 @@ int main(int argc, char *argv[])
                 /* Sync to a PPS signal using differential input on ExaNIC X2/X4 */
                 s[n].sync_type = SYNC_EXANIC_PPS;
                 s[n].pps_type = PPS_DIFFERENTIAL;
-                require_exanic_target = 1;
-                require_phc_target = 1;
                 using_pps = 1;
             }
             else
             {
                 /* Sync to another hardware clock */
                 s[n].sync_type = SYNC_PHC_PHC;
-                require_phc_target = 1;
-                require_phc_src = 1;
             }
 
             s[n].offset = offset;
@@ -299,49 +286,59 @@ int main(int argc, char *argv[])
             s[n].clkfd = -1;
             s[n].clkfd_src = -1;
 
-            if (require_exanic_target)
-            {
-                if ((s[n].exanic = exanic_acquire_handle(sync_target)) == NULL)
-                {
-                    fprintf(stderr, "%s: %s: %s\n", prog, sync_target,
-                            exanic_get_last_error());
-                    ret = 1;
-                    goto cleanup;
-                }
-            }
-
-            if (require_phc_target)
-            {
-                if ((s[n].clkfd = get_clockfd(sync_target)) == -1)
-                {
-                    ret = 1;
-                    goto cleanup;
-                }
-            }
-
-            if (maybe_exanic_src)
-            {
-                /* Not a fatal error if source is not an ExaNIC */
-                s[n].exanic_src = exanic_acquire_handle(sync_src);
-            }
-
-            if (require_phc_src)
-            {
-                if ((s[n].clkfd_src = get_clockfd(sync_src)) == -1)
-                {
-                    fprintf(stderr, "%s: %s: %s\n", prog, sync_src,
-                            strerror(errno));
-                    ret = 1;
-                    goto cleanup;
-                }
-            }
-
             n++;
         }
     }
 
     if (n == 0)
         goto usage_error;
+
+    /* Acquire ExaNIC handles and PHC clocks */
+    for (i = 0; i < n; i++)
+    {
+        if (s[i].sync_type == SYNC_EXANIC_PPS)
+        {
+            /* Target must be an ExaNIC hardware clock */
+            if ((s[i].exanic = exanic_acquire_handle(s[i].name)) == NULL)
+            {
+                fprintf(stderr, "%s: %s: %s\n", prog, s[i].name,
+                        exanic_get_last_error());
+                ret = 1;
+                goto cleanup;
+            }
+        }
+
+        if (s[i].sync_type == SYNC_EXANIC_PPS ||
+            s[i].sync_type == SYNC_PHC_PHC ||
+            s[i].sync_type == SYNC_PHC_SYS)
+        {
+            /* Target must be a hardware clock */
+            if ((s[i].clkfd = get_clockfd(s[i].name)) == -1)
+            {
+                ret = 1;
+                goto cleanup;
+            }
+        }
+
+        if (s[i].sync_type == SYNC_SYS_PHC)
+        {
+            /* Source may be an ExaNIC hardware clock */
+            s[i].exanic_src = exanic_acquire_handle(s[i].name_src);
+        }
+
+        if (s[i].sync_type == SYNC_PHC_PHC ||
+            s[i].sync_type == SYNC_SYS_PHC)
+        {
+            /* Source must be a hardware clock */
+            if ((s[i].clkfd_src = get_clockfd(s[i].name_src)) == -1)
+            {
+                fprintf(stderr, "%s: %s: %s\n", prog, s[i].name_src,
+                        strerror(errno));
+                ret = 1;
+                goto cleanup;
+            }
+        }
+    }
 
     if (pidfile != NULL)
     {
