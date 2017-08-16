@@ -152,60 +152,47 @@ void reset_rate_error(struct rate_error *r, double interval)
     r->n = 0;
     r->startup = 1;
     r->interval = interval;
-    for (i = 0; i < (1 << RATE_ERROR_LEN_LOG2); ++i)
+    for (i = 0; i < RATE_ERROR_LEN; ++i)
         r->error[i] = 0;
 }
 
 
-int calc_rate_error(struct rate_error *r, double *err, int count_log2)
+int calc_rate_error(struct rate_error *r, double *err)
 {
-    int count = (1 << count_log2);
-    int i, n;
-    double sum;
-
-    if (count_log2 < 0 || count_log2 >= RATE_ERROR_LEN_LOG2)
-        return 0;
-
-    if (r->n >= count)
-        n = r->n - (r->n % count);
-    else if (!r->startup)
-        n = (1 << RATE_ERROR_LEN_LOG2);
+    if (r->n == 0 && r->startup)
+    {
+        if (r->partial == 0)
+            return 0;
+        *err = r->error[0] / r->partial;
+        return 1;
+    }
     else
-        return 0;
-
-    sum = 0;
-    for (i = n - count; i < n; i++)
-        sum += r->error[i];
-    *err = sum / (count * r->interval);
-    return 1;
+    {
+        int n = (r->n == 0) ? RATE_ERROR_LEN - 1 : r->n - 1;
+        *err = r->error[n] / r->interval;
+        return 1;
+    }
 }
 
 
-int calc_rate_error_adev(struct rate_error *r, double *adev, int count_log2)
+int calc_rate_error_adev(struct rate_error *r, double *adev)
 {
-    int count = (1 << count_log2);
-    int i, j, n, m, samples;
+    int i, n, m, samples;
     double err, last_err, avar;
 
-    if (count_log2 < 0 || count_log2 >= RATE_ERROR_LEN_LOG2)
-        return 0;
-
-    n = r->n - (r->n % count);
+    n = r->n;
 
     if (r->startup)
         m = 0;
     else
-        m = (r->n - (r->n % count) + count) % (1 << RATE_ERROR_LEN_LOG2);
+        m = (r->n + 1) % RATE_ERROR_LEN;
 
     avar = 0;
     samples = 0;
     last_err = 0;
-    for (i = m; i != n; i = (i + count) % (1 << RATE_ERROR_LEN_LOG2))
+    for (i = m; i != n; i = (i + 1) % RATE_ERROR_LEN)
     {
-        err = 0;
-        for (j = i; j < i + count; j++)
-            err += r->error[j];
-        err /= (count * r->interval);
+        err = r->error[i] / r->interval;
         if (i != m)
         {
             avar += (err - last_err) * (err - last_err);
@@ -233,7 +220,7 @@ void record_rate_error(struct rate_error *r, double err, double interval)
         err -= err * rem / interval;
         interval -= rem;
 
-        if (++r->n >= (1 << RATE_ERROR_LEN_LOG2))
+        if (++r->n >= RATE_ERROR_LEN)
             r->n = r->startup = 0;
         r->error[r->n] = 0;
         r->partial = 0;

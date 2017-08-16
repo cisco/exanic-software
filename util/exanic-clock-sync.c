@@ -413,7 +413,7 @@ int main(int argc, char *argv[])
         else if (s[i].sync_type == SYNC_EXANIC_PPS)
             s[i].exanic_pps_sync = init_exanic_pps_sync(s[i].name, s[i].clkfd,
                     s[i].exanic, s[i].pps_type, s[i].pps_termination_disable,
-                    tai_offset, auto_tai_offset, s[i].offset);
+                    tai_offset, auto_tai_offset, s[i].offset, 4);
         else if (s[i].sync_type == SYNC_PHC_PHC)
             s[i].phc_phc_sync = init_phc_phc_sync(s[i].name, s[i].clkfd,
                     s[i].name_src, s[i].clkfd_src);

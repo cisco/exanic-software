@@ -18,7 +18,6 @@
 #define SKIP_MAX 5
 #define TIMEOUT_SECONDS 10
 #define ERROR_MAX 0.001
-#define ERROR_SAMPLE_INTERVAL 1
 
 
 struct exanic_pps_sync_state
@@ -30,6 +29,7 @@ struct exanic_pps_sync_state
     int64_t offset_ns;  /* Offset to add to ExaNIC time (ns) */
     int tai_offset;     /* TAI offset to add to ExaNIC time */
     int auto_tai_offset; /* Get TAI offset from system */
+    unsigned interval;  /* Averaging interval (s) */
     uint64_t pps_time_tick; /* Time of last PPS */
     uint64_t adj_time_tick; /* Time of last change to adjustment value */
     double tick_adj;    /* Number of extra clock ticks at the last adjustment */
@@ -38,7 +38,6 @@ struct exanic_pps_sync_state
     double pps_offset;  /* Offset at last PPS pulse (ns) */
     double adj;         /* Currently applied adjustment value */
     struct rate_error rate; /* Clock error measurements */
-    int num_avg;        /* Number of samples to average over (log2) */
     int error_mode;     /* Nonzero if there was an error adjusting the clock */
     int pps_signal;     /* 0 = no signal, 1 = signal, -1 = indeterminate */
     int log_next;       /* Make sure next measurement is logged */
@@ -51,7 +50,8 @@ struct exanic_pps_sync_state
 
 struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         exanic_t *exanic, enum pps_type pps_type, int pps_termination_disable,
-        int tai_offset, int auto_tai_offset, int64_t offset_ns)
+        int tai_offset, int auto_tai_offset, int64_t offset_ns,
+        unsigned interval)
 {
     struct exanic_pps_sync_state *state;
     exanic_hardware_id_t hw_id;
@@ -113,6 +113,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         pps_type = PPS_SINGLE_ENDED;
     }
 
+    state->interval = interval;
+
     /* Time offset settings */
     state->offset_ns = offset_ns;
     state->tai_offset = auto_tai_offset ? sys_tai_offset : tai_offset;
@@ -128,6 +130,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             pps_termination_disable ? "disabled" : "enabled");
     log_printf(LOG_INFO, "%s: Current TAI offset is %d", state->name,
             state->tai_offset);
+    log_printf(LOG_INFO, "%s: Averaging interval: %d s", state->name,
+            state->interval);
 
     /* PPS settings */
     if ((hw_id == EXANIC_HW_X4) || (hw_id == EXANIC_HW_X2))
@@ -177,8 +181,6 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     state->pps_offset = 0;
     state->pps_time = 0;
 
-    state->num_avg = 0;
-
     /* Get current adjustment from exanic */
     state->adj = adj;
 
@@ -188,7 +190,7 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     state->log_reset = 0;
     state->last_log_ns = 0;
     state->pps_last_seen = ts_mono.tv_sec;
-    reset_rate_error(&state->rate, ERROR_SAMPLE_INTERVAL);
+    reset_rate_error(&state->rate, state->interval);
 
     return state;
 }
@@ -204,7 +206,6 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     int good_pps_seen = 0;
     double rate_error, adev;
     int rate_error_known, adev_known;
-    int i;
 
     clock_gettime(CLOCK_MONOTONIC, &ts_mono);
     clock_gettime(CLOCK_REALTIME, &ts_sys);
@@ -367,8 +368,8 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
 
     /* Calculate average rate error and allan deviation using the chosen
      * averaging period */
-    rate_error_known = calc_rate_error(&state->rate, &rate_error, state->num_avg);
-    adev_known = calc_rate_error_adev(&state->rate, &adev, state->num_avg);
+    rate_error_known = calc_rate_error(&state->rate, &rate_error);
+    adev_known = calc_rate_error_adev(&state->rate, &adev);
 
     /* Logging */
     if (good_pps_seen)
@@ -495,7 +496,7 @@ clock_error:
     state->log_next = 1;
     state->log_reset = 1;
     state->last_log_ns = 0;
-    reset_rate_error(&state->rate, ERROR_SAMPLE_INTERVAL);
+    reset_rate_error(&state->rate, state->interval);
     return SYNC_FAILED;
 }
 
@@ -508,7 +509,7 @@ void shutdown_exanic_pps_sync(struct exanic_pps_sync_state *state)
             state->name);
 
     /* Set adjustment to compensate for rate error only */
-    calc_rate_error(&state->rate, &rate_error, state->num_avg);
+    calc_rate_error(&state->rate, &rate_error);
     set_clock_adj(state->clkfd, -rate_error);
 
     exanic_release_handle(state->exanic);
