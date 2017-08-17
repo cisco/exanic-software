@@ -43,10 +43,36 @@
 static int caught_signal = 0;
 static int use_syslog = 0;
 static int daemonize = 0;
+static int auto_tai_offset = 1;
+static int tai_offset = 0;
 static char *pidfile = NULL;
+static char *conffile = NULL;
 static char *prog = NULL;
 
 int verbose = 0;
+
+struct exanic_state
+{
+    char name[NAME_LEN], name_src[NAME_LEN];
+    enum {
+        SYNC_INVALID, SYNC_PHC_SYS, SYNC_EXANIC_PPS, SYNC_PHC_PHC, SYNC_SYS_PHC
+    } sync_type;
+    enum pps_type pps_type;
+    int pps_termination_disable;
+    int64_t offset;
+    unsigned interval;
+    exanic_t *exanic;
+    exanic_t *exanic_src;
+    int clkfd;
+    int clkfd_src;
+    struct exanic_pps_sync_state *exanic_pps_sync;
+    struct phc_sys_sync_state *phc_sys_sync;
+    struct phc_phc_sync_state *phc_phc_sync;
+    struct sys_phc_sync_state *sys_phc_sync;
+};
+
+static struct exanic_state s[EXANIC_MAX];
+static int n = 0;
 
 
 static void signal_handler(int signum)
@@ -155,43 +181,9 @@ static int parse_bool(char *str)
 }
 
 
-struct exanic_state
+static int parse_cmdline(int argc, char *argv[])
 {
-    char name[NAME_LEN], name_src[NAME_LEN];
-    enum {
-        SYNC_INVALID, SYNC_PHC_SYS, SYNC_EXANIC_PPS, SYNC_PHC_PHC, SYNC_SYS_PHC
-    } sync_type;
-    enum pps_type pps_type;
-    int pps_termination_disable;
-    int64_t offset;
-    unsigned interval;
-    exanic_t *exanic;
-    exanic_t *exanic_src;
-    int clkfd;
-    int clkfd_src;
-    struct exanic_pps_sync_state *exanic_pps_sync;
-    struct phc_sys_sync_state *phc_sys_sync;
-    struct phc_phc_sync_state *phc_phc_sync;
-    struct sys_phc_sync_state *sys_phc_sync;
-};
-
-
-int main(int argc, char *argv[])
-{
-    struct exanic_state s[EXANIC_MAX];
-    int fast_poll = 0;
-    int using_pps = 0;
-    int ret = 0;
-    int n = 0;
     int i;
-    int pidfd = -1;
-    int auto_tai_offset = 1;
-    int tai_offset = 0;
-    char *conffile = NULL;
-
-    memset(s, 0, sizeof(s));
-
-    prog = argv[0];
 
     for (i = 1; i < argc; i++)
     {
@@ -235,8 +227,7 @@ int main(int argc, char *argv[])
         else if (n >= EXANIC_MAX)
         {
             fprintf(stderr, "%s: too many sync targets (max %u)\n", prog, EXANIC_MAX);
-            ret = 1;
-            goto cleanup;
+            return 1;
         }
         else
         {
@@ -291,134 +282,212 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Read config file if one was provided */
-    if (conffile != NULL)
+    if (n == 0 && conffile == NULL)
+        goto usage_error;
+
+    return 0;
+
+usage_error:
+    fprintf(stderr, "Usage: %s [<options>] <target>:<source>[(+|-)offset] ...\n\n"
+            "<target> is an ExaNIC device name or \"sys\" for the system clock\n"
+            "<source> is one of:\n"
+            "  sys\n"
+            "    Sync to system clock\n"
+            "  pps\n"
+            "    Sync to a PPS signal with default settings (ExaNIC target only)\n"
+            "  pps-no-term\n"
+            "    Sync to a PPS signal with termination disabled (ExaNIC target only)\n"
+            "  pps-differential\n"
+            "    Sync to a PPS signal using differential RS-422 input (ExaNIC X2/X4 only)\n"
+            "  an ExaNIC device name\n"
+            "    Sync to another ExaNIC on this machine\n"
+            "<offset> is in nanoseconds\n"
+            "<options> are zero or more of:\n"
+            "  --daemon\n"
+            "    fork the process to operate as a background daemon\n"
+            "  --syslog\n"
+            "    use syslog to send messages to system logger\n"
+            "  --pidfile <filename>\n"
+            "    write the PID to provided PID file <filename>\n"
+            "  --tai-offset <offset>\n"
+            "    manually set the offset between hardware clock time and UTC time\n",
+            argv[0]);
+    return 1;
+}
+
+
+static int parse_config(char *filename)
+{
+    FILE *f = NULL;
+    char line[256], section[256], key[256], value[256];
+    char *p, *q, *r;
+    int m = n;
+    int c = -1;
+    int ret = 0;
+    int linenum = 0;
+
+    f = fopen(filename, "r");
+    if (f == NULL)
     {
-        FILE *f;
-        char line[256], section[256], key[256], value[256];
-        char *p, *q, *r;
-        int m = n;
-        int c = -1;
+        fprintf(stderr, "%s: %s: %s\n", prog, filename, strerror(errno));
+        ret = 1;
+        goto cleanup;
+    }
 
-        f = fopen(conffile, "r");
-        if (f == NULL)
+    strcpy(section, "");
+
+    while (fgets(line, sizeof(line), f) != NULL)
+    {
+        linenum++;
+        p = line;
+        q = line + strlen(line);
+
+        /* Trim leading and trailing whitespace characters */
+        while (isspace(*p))
+            p++;
+        while (p < q && isspace(*(q - 1)))
+            q--;
+        /* Skip blank lines and comment lines */
+        if (p >= q || *p == ';' || *p == '#')
+            continue;
+
+        if (*p == '[')
         {
-            fprintf(stderr, "%s: %s: %s\n", prog, conffile, strerror(errno));
-            ret = 1;
-            goto cleanup;
-        }
+            /* Section name */
+            if (q - 1 < p + 1 || *(q - 1) != ']')
+                goto parse_error;
+            trim_copy(section, p + 1, q - 1);
 
-        strcpy(section, "");
-
-        while (fgets(line, sizeof(line), f) != NULL)
-        {
-            p = line;
-            q = line + strlen(line);
-
-            /* Trim leading and trailing whitespace characters */
-            while (isspace(*p))
-                p++;
-            while (p < q && isspace(*(q - 1)))
-                q--;
-            /* Skip blank lines and comment lines */
-            if (p >= q || *p == ';' || *p == '#')
-                continue;
-
-            if (*p == '[')
+            /* Look for sync target that matches the section name */
+            for (c = m; c < n; c++)
             {
-                /* Section name */
-                if (q - 1 < p + 1 || *(q - 1) != ']')
-                {
-                    fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
-                    ret = 1;
-                    goto cleanup;
-                }
-                trim_copy(section, p + 1, q - 1);
-
-                /* Look for sync target that matches the section name */
-                for (c = m; c < n; c++)
-                {
-                    if (strncmp(section, s[c].name, NAME_LEN - 1) == 0)
-                        break;
-                }
-                if (c < n)
-                    continue;
-
-                /* Allocate a new sync target */
-                if (n >= EXANIC_MAX)
-                {
-                    fprintf(stderr, "%s: too many sync targets (max %u)\n",
-                            prog, EXANIC_MAX);
-                    ret = 1;
-                    goto cleanup;
-                }
-
-                snprintf(s[n].name, NAME_LEN, "%s", section);
-                memset(s[n].name_src, 0, NAME_LEN);
-
-                s[n].sync_type = SYNC_INVALID;
-                s[n].pps_type = PPS_SINGLE_ENDED;
-                s[n].pps_termination_disable = 0;
-                s[n].offset = 0;
-                s[n].interval = DEFAULT_INTERVAL;
-                s[n].exanic = NULL;
-                s[n].exanic_src = NULL;
-                s[n].clkfd = -1;
-                s[n].clkfd_src = -1;
-                c = n;
-                n++;
-                continue;
+                if (strncmp(section, s[c].name, NAME_LEN - 1) == 0)
+                    break;
             }
+            if (c < n)
+                continue;
 
-            /* Parse as key-value pair */
-            r = p;
-            while (r + 1 < q && *r != '=')
-                r++;
-            if (*r != '=')
+            /* Allocate a new sync target */
+            if (n >= EXANIC_MAX)
             {
-                fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
+                fprintf(stderr, "%s: too many sync targets (max %u)\n",
+                        prog, EXANIC_MAX);
                 ret = 1;
                 goto cleanup;
             }
-            trim_copy(key, p, r);
-            trim_copy(value, r + 1, q);
 
-            if (c != -1)
-            {
-                if (strcmp(key, "source") == 0)
-                    snprintf(s[c].name_src, sizeof(s[c].name_src), "%s", value);
-                else if (strcmp(key, "pps_termination") == 0)
-                    s[c].pps_termination_disable = !parse_bool(value);
-                else if (strcmp(key, "offset") == 0)
-                {
-                    char *p;
-                    s[c].offset = strtoll(value, &p, 10);
-                    if (*p != '\0')
-                    {
-                        fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
-                        ret = 1;
-                        goto cleanup;
-                    }
-                }
-                else if (strcmp(key, "interval") == 0)
-                {
-                    char *p;
-                    s[c].interval = strtol(value, &p, 10);
-                    if (*p != '\0' || s[c].interval < 0)
-                    {
-                        fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
-                        ret = 1;
-                        goto cleanup;
-                    }
-                }
-            }
+            snprintf(s[n].name, NAME_LEN, "%s", section);
+            memset(s[n].name_src, 0, NAME_LEN);
+
+            s[n].sync_type = SYNC_INVALID;
+            s[n].pps_type = PPS_SINGLE_ENDED;
+            s[n].pps_termination_disable = 0;
+            s[n].offset = 0;
+            s[n].interval = DEFAULT_INTERVAL;
+            s[n].exanic = NULL;
+            s[n].exanic_src = NULL;
+            s[n].clkfd = -1;
+            s[n].clkfd_src = -1;
+            c = n;
+            n++;
+            continue;
         }
 
-        fclose(f);
+        /* Parse as key-value pair */
+        r = p;
+        while (r + 1 < q && *r != '=')
+            r++;
+        if (*r != '=')
+            goto parse_error;
+        trim_copy(key, p, r);
+        trim_copy(value, r + 1, q);
+
+        if (c != -1)
+        {
+            if (strcmp(key, "source") == 0)
+            {
+                snprintf(s[c].name_src, sizeof(s[c].name_src), "%s", value);
+            }
+            else if (strcmp(key, "pps_termination") == 0 ||
+                    strcmp(key, "pps_term") == 0)
+            {
+                s[c].pps_termination_disable = !parse_bool(value);
+            }
+            else if (strcmp(key, "offset") == 0)
+            {
+                char *e;
+                long long offset = strtoll(value, &e, 10);
+                if (*e != '\0')
+                    goto parse_error;
+                s[c].offset = offset;
+            }
+            else if (strcmp(key, "interval") == 0)
+            {
+                char *e;
+                long interval = strtol(value, &e, 10);
+                if (*e != '\0')
+                    goto parse_error;
+                if (interval < 0)
+                {
+                    fprintf(stderr, "%s: %s:%d: interval cannot be negative\n",
+                            prog, filename, linenum);
+                    ret = 1;
+                    goto cleanup;
+                }
+                s[c].interval = interval;
+            }
+            else
+            {
+                fprintf(stderr, "%s: %s:%d: unknown option: %s\n",
+                        prog, filename, linenum, key);
+                ret = 1;
+                goto cleanup;
+            }
+        }
+    }
+
+cleanup:
+    fclose(f);
+    return ret;
+
+parse_error:
+    p = line + strlen(line) - 1;
+    while (p > line && *p == '\n')
+        *(p--) = '\0';
+    fprintf(stderr, "%s: %s:%d: parse error: %s\n", prog, filename,
+            linenum, line);
+    ret = 1;
+    goto cleanup;
+}
+
+
+int main(int argc, char *argv[])
+{
+    int fast_poll = 0;
+    int using_pps = 0;
+    int ret = 0;
+    int i;
+    int pidfd = -1;
+
+    prog = argv[0];
+
+    ret = parse_cmdline(argc, argv);
+    if (ret != 0)
+        goto cleanup;
+
+    if (conffile != NULL)
+    {
+        ret = parse_config(conffile);
+        if (ret != 0)
+            goto cleanup;
     }
 
     if (n == 0)
-        goto usage_error;
+    {
+        fprintf(stderr, "%s: no clocks to synchronize\n", prog);
+        ret = 1;
+        goto cleanup;
+    }
 
     /* Determine sync type, then acquire ExaNIC handles and PHC clocks */
     for (i = 0; i < n; i++)
@@ -667,32 +736,4 @@ cleanup:
         unlink(pidfile);
 
     return ret;
-
-usage_error:
-    fprintf(stderr, "Usage: %s [<options>] <target>:<source>[(+|-)offset] ...\n\n"
-            "<target> is an ExaNIC device name or \"sys\" for the system clock\n"
-            "<source> is one of:\n"
-            "  sys\n"
-            "    Sync to system clock\n"
-            "  pps\n"
-            "    Sync to a PPS signal with default settings (ExaNIC target only)\n"
-            "  pps-no-term\n"
-            "    Sync to a PPS signal with termination disabled (ExaNIC target only)\n"
-            "  pps-differential\n"
-            "    Sync to a PPS signal using differential RS-422 input (ExaNIC X2/X4 only)\n"
-            "  an ExaNIC device name\n"
-            "    Sync to another ExaNIC on this machine\n"
-            "<offset> is in nanoseconds\n"
-            "<options> are zero or more of:\n"
-            "  --daemon\n"
-            "    fork the process to operate as a background daemon\n"
-            "  --syslog\n"
-            "    use syslog to send messages to system logger\n"
-            "  --pidfile <filename>\n"
-            "    write the PID to provided PID file <filename>\n"
-            "  --tai-offset <offset>\n"
-            "    manually set the offset between hardware clock time and UTC time\n",
-            argv[0]);
-    ret = 1;
-    goto cleanup;
 }
