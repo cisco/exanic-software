@@ -288,7 +288,9 @@ static int parse_cmdline(int argc, char *argv[])
     return 0;
 
 usage_error:
-    fprintf(stderr, "Usage: %s [<options>] <target>:<source>[(+|-)offset] ...\n\n"
+    fprintf(stderr,
+            "Usage: %s [<options>] <target>:<source>[(+|-)offset] ...\n"
+            "       %s [<options>] --config <conffile>\n\n"
             "<target> is an ExaNIC device name or \"sys\" for the system clock\n"
             "<source> is one of:\n"
             "  sys\n"
@@ -310,8 +312,10 @@ usage_error:
             "  --pidfile <filename>\n"
             "    write the PID to provided PID file <filename>\n"
             "  --tai-offset <offset>\n"
-            "    manually set the offset between hardware clock time and UTC time\n",
-            argv[0]);
+            "    manually set the offset between hardware clock time and UTC time\n"
+            "  --config <conffile>\n"
+            "    path to config file with clock sync settings\n",
+            argv[0], argv[0]);
     return 1;
 }
 
