@@ -1,5 +1,6 @@
 #include <time.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
@@ -31,6 +32,10 @@
 
 #define SYSLOG_ID "exanic-clock-sync"
 #define EXANIC_MAX 16
+#define NAME_LEN 32
+
+/* Clock rate measurement interval in seconds, only applicable for PPS */
+#define DEFAULT_INTERVAL 4
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -127,19 +132,43 @@ static int get_clockfd(const char *name)
 }
 
 
+static void trim_copy(char *dst, char *p, char *q)
+{
+    while (p < q && isspace(*p))
+        p++;
+    while (p < q && isspace(*(q - 1)))
+        q--;
+    memcpy(dst, p, q - p);
+    dst[q - p] = '\0';
+}
+
+
+static int parse_bool(char *str)
+{
+    if (strlen(str) == 0 || strcasecmp(str, "false") == 0 ||
+            strcasecmp(str, "no") == 0 || strcasecmp(str, "off") == 0)
+        return 0;
+    else if (!isdigit(str[0]))
+        return 1;
+    else
+        return strtol(str, NULL, 10) != 0;
+}
+
+
 struct exanic_state
 {
-    char name[32], name_src[32];
+    char name[NAME_LEN], name_src[NAME_LEN];
     enum {
-        SYNC_PHC_SYS, SYNC_EXANIC_PPS, SYNC_PHC_PHC, SYNC_SYS_PHC
+        SYNC_INVALID, SYNC_PHC_SYS, SYNC_EXANIC_PPS, SYNC_PHC_PHC, SYNC_SYS_PHC
     } sync_type;
     enum pps_type pps_type;
     int pps_termination_disable;
+    int64_t offset;
+    unsigned interval;
     exanic_t *exanic;
     exanic_t *exanic_src;
     int clkfd;
     int clkfd_src;
-    int64_t offset;
     struct exanic_pps_sync_state *exanic_pps_sync;
     struct phc_sys_sync_state *phc_sys_sync;
     struct phc_phc_sync_state *phc_phc_sync;
@@ -158,6 +187,7 @@ int main(int argc, char *argv[])
     int pidfd = -1;
     int auto_tai_offset = 1;
     int tai_offset = 0;
+    char *conffile = NULL;
 
     memset(s, 0, sizeof(s));
 
@@ -178,6 +208,13 @@ int main(int argc, char *argv[])
                 if (i >= argc)
                     goto usage_error;
                 pidfile = argv[i];
+            }
+            else if (strcmp(argv[i], "--config") == 0)
+            {
+                i++;
+                if (i >= argc)
+                    goto usage_error;
+                conffile = argv[i];
             }
             else if (strcmp(argv[i], "--tai-offset") == 0)
             {
@@ -204,7 +241,7 @@ int main(int argc, char *argv[])
         else
         {
             char *p, *q, *r;
-            char sync_target[16], sync_src[64];
+            char sync_target[NAME_LEN], sync_src[NAME_LEN + 32];
             int64_t offset = 0;
 
             memset(sync_target, 0, sizeof(sync_target));
@@ -240,47 +277,11 @@ int main(int argc, char *argv[])
             snprintf(s[n].name, sizeof(s[n].name), "%s", sync_target);
             snprintf(s[n].name_src, sizeof(s[n].name_src), "%s", sync_src);
 
-            if (strcmp(sync_target, "sys") == 0 ||
-                    strcmp(sync_target, "host") == 0)
-            {
-                /* Sync system clock from hardware clock */
-                s[n].sync_type = SYNC_SYS_PHC;
-            }
-            else if (strcmp(sync_src, "sys") == 0 || strcmp(sync_src, "host") == 0)
-            {
-                /* Sync to system clock */
-                s[n].sync_type = SYNC_PHC_SYS;
-            }
-            else if (strcmp(sync_src, "pps") == 0 ||
-                    strcmp(sync_src, "pps-single-ended") == 0)
-            {
-                /* Sync to a PPS signal with termination enabled */
-                s[n].sync_type = SYNC_EXANIC_PPS;
-                s[n].pps_type = PPS_SINGLE_ENDED;
-                using_pps = 1;
-            }
-            else if (strcmp(sync_src, "pps-no-term") == 0)
-            {
-                /* Sync to a PPS signal with termination disabled */
-                s[n].sync_type = SYNC_EXANIC_PPS;
-                s[n].pps_type = PPS_SINGLE_ENDED;
-                s[n].pps_termination_disable = 1;
-                using_pps = 1;
-            }
-            else if (strcmp(sync_src, "pps-differential") == 0)
-            {
-                /* Sync to a PPS signal using differential input on ExaNIC X2/X4 */
-                s[n].sync_type = SYNC_EXANIC_PPS;
-                s[n].pps_type = PPS_DIFFERENTIAL;
-                using_pps = 1;
-            }
-            else
-            {
-                /* Sync to another hardware clock */
-                s[n].sync_type = SYNC_PHC_PHC;
-            }
-
+            s[n].sync_type = SYNC_INVALID;
+            s[n].pps_type = PPS_SINGLE_ENDED;
+            s[n].pps_termination_disable = 0;
             s[n].offset = offset;
+            s[n].interval = DEFAULT_INTERVAL;
             s[n].exanic = NULL;
             s[n].exanic_src = NULL;
             s[n].clkfd = -1;
@@ -290,12 +291,178 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* Read config file if one was provided */
+    if (conffile != NULL)
+    {
+        FILE *f;
+        char line[256], section[256], key[256], value[256];
+        char *p, *q, *r;
+        int m = n;
+        int c = -1;
+
+        f = fopen(conffile, "r");
+        if (f == NULL)
+        {
+            fprintf(stderr, "%s: %s: %s\n", prog, conffile, strerror(errno));
+            ret = 1;
+            goto cleanup;
+        }
+
+        strcpy(section, "");
+
+        while (fgets(line, sizeof(line), f) != NULL)
+        {
+            p = line;
+            q = line + strlen(line);
+
+            /* Trim leading and trailing whitespace characters */
+            while (isspace(*p))
+                p++;
+            while (p < q && isspace(*(q - 1)))
+                q--;
+            /* Skip blank lines and comment lines */
+            if (p >= q || *p == ';' || *p == '#')
+                continue;
+
+            if (*p == '[')
+            {
+                /* Section name */
+                if (q - 1 < p + 1 || *(q - 1) != ']')
+                {
+                    fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
+                    ret = 1;
+                    goto cleanup;
+                }
+                trim_copy(section, p + 1, q - 1);
+
+                /* Look for sync target that matches the section name */
+                for (c = m; c < n; c++)
+                {
+                    if (strncmp(section, s[c].name, NAME_LEN - 1) == 0)
+                        break;
+                }
+                if (c < n)
+                    continue;
+
+                /* Allocate a new sync target */
+                if (n >= EXANIC_MAX)
+                {
+                    fprintf(stderr, "%s: too many sync targets (max %u)\n",
+                            prog, EXANIC_MAX);
+                    ret = 1;
+                    goto cleanup;
+                }
+
+                snprintf(s[n].name, NAME_LEN, "%s", section);
+                memset(s[n].name_src, 0, NAME_LEN);
+
+                s[n].sync_type = SYNC_INVALID;
+                s[n].pps_type = PPS_SINGLE_ENDED;
+                s[n].pps_termination_disable = 0;
+                s[n].offset = 0;
+                s[n].interval = DEFAULT_INTERVAL;
+                s[n].exanic = NULL;
+                s[n].exanic_src = NULL;
+                s[n].clkfd = -1;
+                s[n].clkfd_src = -1;
+                c = n;
+                n++;
+                continue;
+            }
+
+            /* Parse as key-value pair */
+            r = p;
+            while (r + 1 < q && *r != '=')
+                r++;
+            if (*r != '=')
+            {
+                fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
+                ret = 1;
+                goto cleanup;
+            }
+            trim_copy(key, p, r);
+            trim_copy(value, r + 1, q);
+
+            if (c != -1)
+            {
+                if (strcmp(key, "source") == 0)
+                    snprintf(s[c].name_src, sizeof(s[c].name_src), "%s", value);
+                else if (strcmp(key, "pps_termination") == 0)
+                    s[c].pps_termination_disable = !parse_bool(value);
+                else if (strcmp(key, "offset") == 0)
+                {
+                    char *p;
+                    s[c].offset = strtoll(value, &p, 10);
+                    if (*p != '\0')
+                    {
+                        fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
+                        ret = 1;
+                        goto cleanup;
+                    }
+                }
+                else if (strcmp(key, "interval") == 0)
+                {
+                    char *p;
+                    s[c].interval = strtol(value, &p, 10);
+                    if (*p != '\0' || s[c].interval < 0)
+                    {
+                        fprintf(stderr, "%s: %s: Parse error\n", prog, conffile);
+                        ret = 1;
+                        goto cleanup;
+                    }
+                }
+            }
+        }
+
+        fclose(f);
+    }
+
     if (n == 0)
         goto usage_error;
 
-    /* Acquire ExaNIC handles and PHC clocks */
+    /* Determine sync type, then acquire ExaNIC handles and PHC clocks */
     for (i = 0; i < n; i++)
     {
+        if (strcmp(s[i].name, "sys") == 0 || strcmp(s[i].name, "host") == 0)
+        {
+            /* Sync system clock from hardware clock */
+            s[i].sync_type = SYNC_SYS_PHC;
+        }
+        else if (strcmp(s[i].name_src, "sys") == 0 ||
+                strcmp(s[i].name_src, "host") == 0)
+        {
+            /* Sync to system clock */
+            s[i].sync_type = SYNC_PHC_SYS;
+        }
+        else if (strcmp(s[i].name_src, "pps") == 0 ||
+                strcmp(s[i].name_src, "pps-single-ended") == 0)
+        {
+            /* Sync to a PPS signal with termination enabled */
+            s[i].sync_type = SYNC_EXANIC_PPS;
+            s[i].pps_type = PPS_SINGLE_ENDED;
+            using_pps = 1;
+        }
+        else if (strcmp(s[i].name_src, "pps-no-term") == 0)
+        {
+            /* Sync to a PPS signal with termination disabled */
+            s[i].sync_type = SYNC_EXANIC_PPS;
+            s[i].pps_type = PPS_SINGLE_ENDED;
+            s[i].pps_termination_disable = 1;
+            using_pps = 1;
+        }
+        else if (strcmp(s[i].name_src, "pps-differential") == 0)
+        {
+            /* Sync to a PPS signal using differential input on ExaNIC X2/X4 */
+            s[i].sync_type = SYNC_EXANIC_PPS;
+            s[i].pps_type = PPS_DIFFERENTIAL;
+            using_pps = 1;
+        }
+        else
+        {
+            /* Sync to another hardware clock */
+            s[i].sync_type = SYNC_PHC_PHC;
+        }
+
         if (s[i].sync_type == SYNC_EXANIC_PPS)
         {
             /* Target must be an ExaNIC hardware clock */
@@ -410,7 +577,7 @@ int main(int argc, char *argv[])
         else if (s[i].sync_type == SYNC_EXANIC_PPS)
             s[i].exanic_pps_sync = init_exanic_pps_sync(s[i].name, s[i].clkfd,
                     s[i].exanic, s[i].pps_type, s[i].pps_termination_disable,
-                    tai_offset, auto_tai_offset, s[i].offset, 4);
+                    tai_offset, auto_tai_offset, s[i].offset, s[i].interval);
         else if (s[i].sync_type == SYNC_PHC_PHC)
             s[i].phc_phc_sync = init_phc_phc_sync(s[i].name, s[i].clkfd,
                     s[i].name_src, s[i].clkfd_src);
