@@ -1065,6 +1065,7 @@ typedef enum
     EXANIC_CAP_RX_IRQ           = EXANIC_CAP_RX_MSI,
 
     EXANIC_CAP_BRIDGING         = 0x00010000, /**< bridging supported */
+    EXANIC_CAP_MIRRORING        = 0x00020000, /**< mirroring supported */
 
     EXANIC_CAP_100M             = 0x01000000, /**< 100M supported */
     EXANIC_CAP_1G               = 0x02000000, /**< 1G supported */
@@ -1145,12 +1146,19 @@ typedef enum
     EXANIC_FEATURE_BRIDGE       = 0x40, /**< Bridge ports 0 and 1 */
 
     /** Bit mask for all bridging and mirroring settings */
-    EXANIC_FEATURE_BRIDGE_MIRROR_MASK = 0x7F,
+    EXANIC_FEATURE_BRIDGE_MIRROR_MASK = (EXANIC_FEATURE_MIRROR_RX_0 |
+                                         EXANIC_FEATURE_MIRROR_TX_0 |
+                                         EXANIC_FEATURE_MIRROR_RX_1 |
+                                         EXANIC_FEATURE_MIRROR_TX_1 |
+                                         EXANIC_FEATURE_MIRROR_RX_2 |
+                                         EXANIC_FEATURE_MIRROR_TX_2 |
+                                         EXANIC_FEATURE_BRIDGE),
 
-    /** Auxiliary bridging and mirroring settings */
-    EXANIC_FEATURE_AUX_MASK     = 0x7F00,
     /** Shift to move auxiliary settings to real config bits */
     EXANIC_FEATURE_AUX_SHIFT    = 8,
+    /** Auxiliary bridging and mirroring settings */
+    EXANIC_FEATURE_AUX_MASK     = (EXANIC_FEATURE_BRIDGE_MIRROR_MASK <<
+                                   EXANIC_FEATURE_AUX_SHIFT),
     /** Disconnects auxiliary bridging and mirroring when set to 0 */
     EXANIC_FEATURE_AUX_ENABLE   = 0x10000,
 

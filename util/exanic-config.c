@@ -376,8 +376,7 @@ void show_device_info(const char *device, int port_number, int verbose)
          * Check if firmware has bridging support
          * Always available on older cards regardless of capability bit
          */
-        uint32_t caps = exanic_register_read(exanic,
-                        REG_EXANIC_INDEX(REG_EXANIC_CAPS));
+        uint32_t caps = exanic_get_caps(exanic);
         if (caps & EXANIC_CAP_BRIDGING ||
             hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
             hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2)
@@ -464,7 +463,9 @@ void show_device_info(const char *device, int port_number, int verbose)
                         "link active" : "no link");
         }
 
-        if (function == EXANIC_FUNCTION_NIC && exanic_get_num_ports(exanic) == 4 && i < 3 && (rx_usable || tx_usable))
+        if (function == EXANIC_FUNCTION_NIC &&
+            exanic_port_mirror_supported(exanic, i) &&
+            (rx_usable || tx_usable))
         {
             uint32_t pl_cfg;
             uint32_t rx_bit = 0, tx_bit = 0;

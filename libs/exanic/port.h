@@ -19,6 +19,13 @@ extern "C" {
 int exanic_get_num_ports(exanic_t *exanic);
 
 /**
+ * \brief Return whether mirroring is supported on a port
+ *
+ * \return 1 if mirroring is supported, 0 if not supported
+ */
+int exanic_port_mirror_supported(exanic_t *exanic, int port_number);
+
+/**
  * \brief Return whether RX is supported on a port
  *
  * \return 1 if RX is supported, 0 if not supported

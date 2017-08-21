@@ -60,6 +60,33 @@ static u8 next_mac_addr[ETH_ALEN] = {
     0x64, 0x3F, 0x5F, 0x00, 0x00, 0x00
 };
 
+#define EXANIC_4PORT_CARD(exanic)   ((exanic)->hw_id == EXANIC_HW_Z1     || \
+                                     (exanic)->hw_id == EXANIC_HW_Z10    || \
+                                     (exanic)->hw_id == EXANIC_HW_X4)
+
+#define EXANIC_2PORT_CARD(exanic)   ((exanic)->hw_id == EXANIC_HW_X2     || \
+                                     (exanic)->hw_id == EXANIC_HW_X10    || \
+                                     (exanic)->hw_id == EXANIC_HW_X10_GM || \
+                                     (exanic)->hw_id == EXANIC_HW_X40    || \
+                                     (exanic)->hw_id == EXANIC_HW_X10_HPT)
+
+/* Mirroring support always available on 4-port cards regardless of
+ * capability bit */
+#define EXANIC_MIRRORING_SUPPORT(exanic) \
+                                    ((exanic)->caps & EXANIC_CAP_MIRRORING || \
+                                     (exanic)->hw_id == EXANIC_HW_Z1       || \
+                                     (exanic)->hw_id == EXANIC_HW_Z10      || \
+                                     (exanic)->hw_id == EXANIC_HW_X4)
+
+/* Bridging support always available on older cards regardless of
+ * capability bit */
+#define EXANIC_BRIDGING_SUPPORT(exanic) \
+                                    ((exanic)->caps & EXANIC_CAP_BRIDGING || \
+                                     (exanic)->hw_id == EXANIC_HW_X2      || \
+                                     (exanic)->hw_id == EXANIC_HW_X4      || \
+                                     (exanic)->hw_id == EXANIC_HW_Z10     || \
+                                     (exanic)->hw_id == EXANIC_HW_Z1)
+
 /** 
  * Configure flow hashing for an ExaNIC port.
  */
@@ -370,6 +397,7 @@ int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
           buffer_num);
     return 0;
 }
+
 /**
  * These bitmasks determine, for each port, which set of feature bits will
  * cause that port to be powered on.
@@ -396,10 +424,12 @@ static uint32_t port_feature_bits_4port[EXANIC_MAX_PORTS] =
 static uint32_t port_feature_bits_2port[EXANIC_MAX_PORTS] =
 {
     /* Port 0 */
-    EXANIC_FEATURE_BRIDGE,
+    EXANIC_FEATURE_MIRROR_RX_0 | EXANIC_FEATURE_MIRROR_TX_0 |
+        EXANIC_FEATURE_BRIDGE,
 
     /* Port 1 */
-    EXANIC_FEATURE_BRIDGE
+    EXANIC_FEATURE_MIRROR_RX_0 | EXANIC_FEATURE_MIRROR_TX_0 |
+        EXANIC_FEATURE_BRIDGE
 };
 
 /**
@@ -409,9 +439,8 @@ static bool exanic_port_needs_power(struct exanic *exanic, unsigned port_num)
 {
     uint32_t cfg = readl(exanic->regs_virt +
                      REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
-    if (exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X10 ||
-          exanic->hw_id == EXANIC_HW_X10_GM || exanic->hw_id == EXANIC_HW_X40 ||
-          exanic->hw_id == EXANIC_HW_X10_HPT)
+
+    if (EXANIC_2PORT_CARD(exanic))
     {
         /* 2 port card */
         if (cfg & port_feature_bits_2port[port_num])
@@ -684,41 +713,53 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
     switch (feature)
     {
         case EXANIC_MIRROR_RX:
-            if ((exanic->hw_id != EXANIC_HW_X4)
-                   && (exanic->hw_id != EXANIC_HW_Z10)
-                   && (exanic->hw_id != EXANIC_HW_Z1))
-                return -EINVAL; /* only supported on 4 port cards */
-            switch (port_num)
+            if (!EXANIC_MIRRORING_SUPPORT(exanic))
+                return -EINVAL;
+            if (EXANIC_4PORT_CARD(exanic))
             {
-                case 0:  *bit = EXANIC_FEATURE_MIRROR_RX_0; return 0;
-                case 1:  *bit = EXANIC_FEATURE_MIRROR_RX_1; return 0;
-                case 2:  *bit = EXANIC_FEATURE_MIRROR_RX_2; return 0;
-                default: return -EINVAL;
+                switch (port_num)
+                {
+                    case 0:  *bit = EXANIC_FEATURE_MIRROR_RX_0; return 0;
+                    case 1:  *bit = EXANIC_FEATURE_MIRROR_RX_1; return 0;
+                    case 2:  *bit = EXANIC_FEATURE_MIRROR_RX_2; return 0;
+                    default: return -EINVAL;
+                }
+            }
+            else if (EXANIC_2PORT_CARD(exanic))
+            {
+                switch (port_num)
+                {
+                    case 0:  *bit = EXANIC_FEATURE_MIRROR_RX_0; return 0;
+                    default: return -EINVAL;
+                }
             }
             break;
 
         case EXANIC_MIRROR_TX:
-            if ((exanic->hw_id != EXANIC_HW_X4)
-                   && (exanic->hw_id != EXANIC_HW_Z10)
-                   && (exanic->hw_id != EXANIC_HW_Z1))
-                return -EINVAL; /* only supported on 4 port cards */
-            switch (port_num)
+            if (!EXANIC_MIRRORING_SUPPORT(exanic))
+                return -EINVAL;
+            if (EXANIC_4PORT_CARD(exanic))
             {
-                case 0:  *bit = EXANIC_FEATURE_MIRROR_TX_0; return 0;
-                case 1:  *bit = EXANIC_FEATURE_MIRROR_TX_1; return 0;
-                case 2:  *bit = EXANIC_FEATURE_MIRROR_TX_2; return 0;
-                default: return -EINVAL;
+                switch (port_num)
+                {
+                    case 0:  *bit = EXANIC_FEATURE_MIRROR_TX_0; return 0;
+                    case 1:  *bit = EXANIC_FEATURE_MIRROR_TX_1; return 0;
+                    case 2:  *bit = EXANIC_FEATURE_MIRROR_TX_2; return 0;
+                    default: return -EINVAL;
+                }
+            }
+            else if (EXANIC_2PORT_CARD(exanic))
+            {
+                switch (port_num)
+                {
+                    case 0:  *bit = EXANIC_FEATURE_MIRROR_TX_0; return 0;
+                    default: return -EINVAL;
+                }
             }
             break;
 
         case EXANIC_BRIDGE:
-            /* Check if firmware has bridging support */
-            /* Always available on older cards regardless of capability bit */
-            if (!(exanic->caps & EXANIC_CAP_BRIDGING)
-                   && (exanic->hw_id != EXANIC_HW_X2)
-                   && (exanic->hw_id != EXANIC_HW_X4)
-                   && (exanic->hw_id != EXANIC_HW_Z10)
-                   && (exanic->hw_id != EXANIC_HW_Z1))
+            if (!EXANIC_BRIDGING_SUPPORT(exanic))
                 return -EINVAL;
             switch (port_num)
             {
@@ -731,6 +772,8 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
         default:
             return -EINVAL;
     }
+
+    return -EINVAL;
 }
 
 /**

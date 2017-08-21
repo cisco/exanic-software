@@ -70,6 +70,22 @@ static int check_port_configurable(exanic_t *exanic, int port_number)
     return 0;
 }
 
+int exanic_port_mirror_supported(exanic_t *exanic, int port_number)
+{
+    uint32_t caps = exanic_get_caps(exanic);
+    exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
+
+    /*
+     * Check if firmware has mirroring support for a given port.
+     * Always available on 4-port cards regardless of capability bit.
+     */
+    return (((hw_type == EXANIC_HW_X4 ||
+              hw_type == EXANIC_HW_Z10 ||
+              hw_type == EXANIC_HW_Z1) && (port_number < 3)) ||
+            ((hw_type == EXANIC_HW_X10) && (caps & EXANIC_CAP_MIRRORING) &&
+             (port_number < 1)));
+}
+
 int exanic_port_rx_usable(exanic_t *exanic, int port_number)
 {
     return port_number >= 0 && port_number < exanic->num_ports &&

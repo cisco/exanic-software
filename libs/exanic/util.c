@@ -44,6 +44,11 @@ exanic_function_id_t exanic_get_function_id(exanic_t *exanic)
     return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_FUNCTION_ID)];
 }
 
+uint32_t exanic_get_caps(exanic_t *exanic)
+{
+    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_CAPS)];
+}
+
 time_t exanic_get_hw_rev_date(exanic_t *exanic)
 {
     return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_HW_REV_DATE)];

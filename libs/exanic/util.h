@@ -45,6 +45,16 @@ exanic_hardware_id_t exanic_get_hw_type(exanic_t *exanic);
 exanic_function_id_t exanic_get_function_id(exanic_t *exanic);
 
 /**
+ * \brief Return capabilities of a ExaNIC.
+ *
+ * \param[in]   exanic
+ *      A valid ExaNIC handle
+ *
+ * \return A capability bitfield of a ExaNIC (see \ref exanic_caps_t).
+ */
+uint32_t exanic_get_caps(exanic_t *exanic);
+
+/**
  * \brief Get the date stamp of the firmware on the ExaNIC.
  *
  * \param[in]   exanic
