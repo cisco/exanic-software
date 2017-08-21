@@ -449,10 +449,10 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
 
         /* Measure time since last PPS pulse */
         time_since_pps_ns = poll_time_ns - state->pps_time * 1000000000ULL;
-        if (time_since_pps_ns < 10 * PPS_POLL_INTERVAL * 1000000000ULL)
+        if (time_since_pps_ns < 3 * PPS_POLL_INTERVAL * 1000000000ULL)
             /* Add offset correction */
             offset_correction = - state->pps_offset /
-                (10 * PPS_POLL_INTERVAL * 1000000000LL);
+                (3 * PPS_POLL_INTERVAL * 1000000000LL);
         else
             /* Don't add offset correction, it should be corrected by now */
             offset_correction = 0;
