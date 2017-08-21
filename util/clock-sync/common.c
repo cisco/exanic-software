@@ -204,7 +204,7 @@ int calc_rate_error_adev(struct rate_error *r, double *adev)
     if (samples == 0)
         return 0;
 
-    *adev = sqrt(avar / samples);
+    *adev = sqrt(avar / samples / 2);
     return 1;
 }
 
