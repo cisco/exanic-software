@@ -34,7 +34,7 @@
 #define EXANIC_MAX 16
 #define NAME_LEN 32
 
-/* Clock rate measurement interval in seconds, only applicable for PPS */
+/* Clock rate averaging interval in seconds, only applicable for PPS */
 #define DEFAULT_INTERVAL 4
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
