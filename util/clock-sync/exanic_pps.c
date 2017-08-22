@@ -356,7 +356,12 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     /* Check if we haven't seen a PPS pulse for a while */
     if (ts_mono.tv_sec - state->pps_last_seen > TIMEOUT_SECONDS)
     {
-        if (state->pps_signal != 0)
+        if (state->pps_signal == -1)
+        {
+            log_printf(LOG_WARNING, "%s: No PPS signal detected",
+                    state->name);
+        }
+        else if (state->pps_signal != 0)
         {
             log_printf(LOG_WARNING, "%s: PPS signal lost",
                     state->name);
@@ -482,7 +487,10 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             state->error_mode = 0;
         }
 
-        return SYNC_OK;
+        if (state->pps_signal == 1)
+            return SYNC_OK;
+        else
+            return SYNC_FAILED;
     }
 
 clock_error:
