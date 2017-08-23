@@ -21,6 +21,8 @@ struct phc_phc_sync_state
     int clkfd;
     char name_src[16];
     int clkfd_src;
+    struct exanic *exanic_src;
+    enum phc_source phc_source;
     uint64_t time_ns;   /* Time of last measurement (ns since epoch) */
     double error_ns;    /* Last measured clock error (ns) */
     int invalid;        /* Nonzero if last measurement is not valid */
@@ -30,6 +32,7 @@ struct phc_phc_sync_state
     int error_mode;     /* Nonzero if there was an error adjusting the clock */
     int log_next;       /* Make sure next measurement is logged */
     int log_reset;      /* Log if clock is reset */
+    int init_wait;      /* Nonzero if waiting for source to be synced */
     time_t last_log;    /* Time of last log message (s since epoch) */
 };
 
@@ -67,7 +70,7 @@ static int get_current_time(int clkfd, int clkfd_src,
 
 
 struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
-        int clkfd, const char *name_src, int clkfd_src)
+        int clkfd, const char *name_src, int clkfd_src, exanic_t *exanic_src)
 {
     struct phc_phc_sync_state *state;
     uint64_t src_time_ns, target_time_ns;
@@ -95,9 +98,26 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
     snprintf(state->name_src, sizeof(state->name_src), "%s", name_src);
     state->clkfd = clkfd;
     state->clkfd_src = clkfd_src;
+    state->exanic_src = exanic_src;
+    state->phc_source = get_phc_source(clkfd_src, exanic_src);
 
     log_printf(LOG_INFO, "%s: Starting clock discipline using %s clock",
             state->name, state->name_src);
+
+    if (state->phc_source == PHC_SOURCE_EXANIC_GPS)
+    {
+        log_printf(LOG_INFO, "%s: Waiting for GPS sync on %s clock",
+                state->name, state->name_src);
+        state->init_wait = 1;
+    }
+    else if (state->phc_source == PHC_SOURCE_SYNC)
+    {
+        log_printf(LOG_INFO, "%s: Waiting for sync on %s clock",
+                state->name, state->name_src);
+        state->init_wait = 1;
+    }
+    else
+        state->init_wait = 0;
 
     /* Set up state struct with current time */
     state->time_ns = src_time_ns;
@@ -115,6 +135,8 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
     /* Record current error measurement in error history */
     reset_error(&state->error);
 
+    update_phc_status(clkfd, PHC_STATUS_UNKNOWN);
+
     return state;
 }
 
@@ -126,6 +148,34 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
     double error_ns, interval_ns, correction_ns, delta_ns, med_error_ns;
     double drift, adj;
     int fast_poll = 0;
+
+    /* Check if we are still waiting for source clock to be ready */
+    if (state->init_wait)
+    {
+        if (state->phc_source == PHC_SOURCE_EXANIC_GPS)
+        {
+            /* Waiting for GPS sync on the source ExaNIC clock */
+            if (check_exanic_gps_time(state->exanic_src) == 0)
+            {
+                log_printf(LOG_INFO, "%s: GPS sync acquired on %s clock",
+                        state->name, state->name_src);
+                state->init_wait = 0;
+            }
+        }
+        else if (state->phc_source == PHC_SOURCE_SYNC)
+        {
+            if (get_phc_status(state->clkfd_src) == PHC_STATUS_SYNCED)
+            {
+                log_printf(LOG_INFO, "%s: %s clock is ready",
+                        state->name, state->name_src);
+                state->init_wait = 0;
+            }
+        }
+
+        /* Source clock is not ready */
+        if (state->init_wait)
+            return SYNC_FAILED;
+    }
 
     /* Get current time from both hardware clocks */
     if (get_current_time(state->clkfd, state->clkfd_src,
@@ -172,6 +222,7 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
         state->last_log = 0;
         reset_drift(&state->drift);
         reset_error(&state->error);
+        update_phc_status(state->clkfd, PHC_STATUS_UNKNOWN);
         return SYNC_FAST_POLL;
     }
 
@@ -239,6 +290,8 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
         state->log_next = (fabs(error_ns) > 2000);
     }
 
+    update_phc_status(state->clkfd, PHC_STATUS_SYNCED);
+
     return fast_poll ? SYNC_FAST_POLL : SYNC_OK;
 
 clock_error:
@@ -250,6 +303,7 @@ clock_error:
     state->last_log = 0;
     reset_drift(&state->drift);
     reset_error(&state->error);
+    update_phc_status(state->clkfd, PHC_STATUS_UNKNOWN);
     return SYNC_FAILED;
 }
 
@@ -264,6 +318,9 @@ void shutdown_phc_phc_sync(struct phc_phc_sync_state *state)
     /* Set adjustment to compensate for drift only */
     calc_drift(&state->drift, &drift);
     set_clock_adj(state->clkfd, -drift);
+
+    if (state->exanic_src != NULL)
+        exanic_release_handle(state->exanic_src);
 
     free(state);
 }

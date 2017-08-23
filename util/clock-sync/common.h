@@ -25,12 +25,24 @@ enum phc_source
 {
     PHC_SOURCE_NONE = 0,
     PHC_SOURCE_EXANIC_GPS,
+    PHC_SOURCE_SYNC, /* Synced by exanic-clock-sync */
 };
 
+enum phc_status
+{
+    PHC_STATUS_UNKNOWN = 0,
+    PHC_STATUS_SYNCED = 1,
+    PHC_STATUS_HOLDOVER = 2
+};
+
+void set_phc_synced(int clkfd);
 enum phc_source get_phc_source(int clkfd, exanic_t *exanic);
 
 int check_exanic_gps_time(exanic_t *exanic);
 int get_exanic_gps_tai_offset(exanic_t *exanic, int *offset);
+
+void update_phc_status(int clkfd, enum phc_status status);
+enum phc_status get_phc_status(int clkfd);
 
 #define DRIFT_LEN 8
 

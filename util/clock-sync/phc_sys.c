@@ -141,6 +141,8 @@ struct phc_sys_sync_state *init_phc_sys_sync(const char *name, int fd,
 
     reset_error(&state->error);
 
+    update_phc_status(fd, PHC_STATUS_UNKNOWN);
+
     return state;
 }
 
@@ -220,6 +222,7 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
         state->last_log_ns = 0;
         reset_drift(&state->drift);
         reset_error(&state->error);
+        update_phc_status(state->clkfd, PHC_STATUS_UNKNOWN);
         return SYNC_FAST_POLL;
     }
 
@@ -288,6 +291,8 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
         state->log_next = (fabs(error_ns) > 10000);
     }
 
+    update_phc_status(state->clkfd, PHC_STATUS_SYNCED);
+
     return fast_poll ? SYNC_FAST_POLL : SYNC_OK;
 
 clock_error:
@@ -298,6 +303,7 @@ clock_error:
     state->last_log_ns = 0;
     reset_drift(&state->drift);
     reset_error(&state->error);
+    update_phc_status(state->clkfd, PHC_STATUS_UNKNOWN);
     return SYNC_FAILED;
 }
 

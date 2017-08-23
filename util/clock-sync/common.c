@@ -5,6 +5,8 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/timex.h>
 
 #if HAVE_PTP_CLOCK_H
@@ -305,9 +307,37 @@ int set_tai_offset(int offset)
 }
 
 
-/* Determine how the hardware clock is externally synchronized */
+#define PHC_MAX 32
+struct phc
+{
+    dev_t dev;
+    enum phc_status status;
+};
+
+static struct phc phc[PHC_MAX];
+int num_phc = 0;
+
+
+/* Add the hardware clock to the list of clocks synced by exanic-clock-sync */
+void set_phc_synced(int clkfd)
+{
+    struct stat st;
+
+    if (fstat(clkfd, &st) == 0 && num_phc < PHC_MAX)
+    {
+        phc[num_phc].dev = st.st_rdev;
+        phc[num_phc].status = PHC_STATUS_UNKNOWN;
+        num_phc++;
+    }
+}
+
+
+/* Determine how the hardware clock is synchronized */
 enum phc_source get_phc_source(int clkfd, exanic_t *exanic)
 {
+    struct stat st;
+    int i;
+
     if (exanic != NULL && exanic_get_hw_type(exanic) == EXANIC_HW_X10_GM)
     {
         uint32_t conf0;
@@ -316,6 +346,15 @@ enum phc_source get_phc_source(int clkfd, exanic_t *exanic)
 
         if ((conf0 & EXANIC_PTP_CONF0_GPS_CLOCK_SYNC) != 0)
             return PHC_SOURCE_EXANIC_GPS;
+    }
+
+    if (fstat(clkfd, &st) == 0)
+    {
+        for (i = 0; i < num_phc; i++)
+        {
+            if (phc[i].dev == st.st_rdev)
+                return PHC_SOURCE_SYNC;
+        }
     }
 
     /* TODO: Check for ptp4l */
@@ -350,4 +389,43 @@ int get_exanic_gps_tai_offset(exanic_t *exanic, int *offset)
 
     *offset = reg;
     return 0;
+}
+
+
+/* Store the synchronization status of the given hardware clock */
+void update_phc_status(int clkfd, enum phc_status status)
+{
+    int i;
+    struct stat st;
+
+    if (fstat(clkfd, &st) == 0)
+    {
+        for (i = 0; i < num_phc; i++)
+        {
+            if (phc[i].dev == st.st_rdev)
+            {
+                phc[i].status = status;
+                return;
+            }
+        }
+    }
+}
+
+
+/* Return the synchronization status as set by update_phc_status() */
+enum phc_status get_phc_status(int clkfd)
+{
+    int i;
+    struct stat st;
+
+    if (fstat(clkfd, &st) == 0)
+    {
+        for (i = 0; i < num_phc; i++)
+        {
+            if (phc[i].dev == st.st_rdev)
+                return phc[i].status;
+        }
+    }
+
+    return PHC_STATUS_UNKNOWN;
 }

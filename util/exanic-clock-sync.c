@@ -560,7 +560,8 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (s[i].sync_type == SYNC_SYS_PHC)
+        if (s[i].sync_type == SYNC_PHC_PHC ||
+            s[i].sync_type == SYNC_SYS_PHC)
         {
             /* Source may be an ExaNIC hardware clock */
             s[i].exanic_src = exanic_acquire_handle(s[i].name_src);
@@ -644,6 +645,15 @@ int main(int argc, char *argv[])
     /* Initialise state */
     for (i = 0; i < n; i++)
     {
+        if (s[i].sync_type == SYNC_PHC_SYS ||
+            s[i].sync_type == SYNC_PHC_PHC ||
+            s[i].sync_type == SYNC_EXANIC_PPS)
+        {
+            set_phc_synced(s[i].clkfd);
+        }
+    }
+    for (i = 0; i < n; i++)
+    {
         if (s[i].sync_type == SYNC_PHC_SYS)
             s[i].phc_sys_sync = init_phc_sys_sync(s[i].name, s[i].clkfd,
                     tai_offset, auto_tai_offset, s[i].offset);
@@ -653,7 +663,7 @@ int main(int argc, char *argv[])
                     tai_offset, auto_tai_offset, s[i].offset, s[i].interval);
         else if (s[i].sync_type == SYNC_PHC_PHC)
             s[i].phc_phc_sync = init_phc_phc_sync(s[i].name, s[i].clkfd,
-                    s[i].name_src, s[i].clkfd_src);
+                    s[i].name_src, s[i].clkfd_src, s[i].exanic_src);
         else if (s[i].sync_type == SYNC_SYS_PHC)
             s[i].sys_phc_sync = init_sys_phc_sync(s[i].name_src,
                     s[i].clkfd_src, s[i].exanic_src,

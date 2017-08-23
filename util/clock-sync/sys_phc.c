@@ -42,7 +42,7 @@ struct sys_phc_sync_state
     int error_mode;     /* Nonzero if there was an error adjusting the clock */
     int log_next;       /* Make sure next measurement is logged */
     int log_reset;      /* Log if clock is reset */
-    int init_wait;      /* Nonzero if waiting for external sync */
+    int init_wait;      /* Nonzero if waiting for source to be synced */
     uint64_t last_log_ns; /* Time of last log message (ns since epoch) */
 };
 
@@ -150,7 +150,7 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
 
     phc_source = get_phc_source(fd, exanic);
 
-    if (phc_source == PHC_SOURCE_NONE && auto_tai_offset)
+    if (phc_source != PHC_SOURCE_EXANIC_GPS && auto_tai_offset)
     {
         log_printf(LOG_ERR, "%s: Unable to get TAI offset, "
                 "--tai-offset argument must be provided", name);
@@ -193,6 +193,12 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
                 state->name);
         state->init_wait = 1;
     }
+    else if (state->phc_source == PHC_SOURCE_SYNC)
+    {
+        log_printf(LOG_INFO, "%s: Waiting for hardware clock sync",
+                state->name);
+        state->init_wait = 1;
+    }
     else
         state->init_wait = 0;
 
@@ -223,7 +229,7 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
     int last_tai_offset;
     int fast_poll = 0;
 
-    /* Check if we are still waiting for external sync */
+    /* Check if we are still waiting for hardware clock to be ready */
     if (state->init_wait)
     {
         if (state->phc_source == PHC_SOURCE_EXANIC_GPS)
@@ -235,8 +241,17 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
                 state->init_wait = 0;
             }
         }
+        else if (state->phc_source == PHC_SOURCE_SYNC)
+        {
+            if (get_phc_status(state->clkfd) == PHC_STATUS_SYNCED)
+            {
+                log_printf(LOG_INFO, "%s: Hardware clock is ready",
+                        state->name);
+                state->init_wait = 0;
+            }
+        }
 
-        /* Still waiting for external sync */
+        /* Hardware clock is not ready */
         if (state->init_wait)
             return SYNC_FAILED;
     }

@@ -3,8 +3,8 @@
 
 struct phc_phc_sync_state;
 
-struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
-        int clkfd, const char *name_src, int clkfd_src);
+struct phc_phc_sync_state *init_phc_phc_sync(const char *name, int clkfd,
+        const char *name_src, int clkfd_src, struct exanic *exanic_src);
 enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state);
 void shutdown_phc_phc_sync(struct phc_phc_sync_state *state);
 

@@ -192,6 +192,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     state->pps_last_seen = ts_mono.tv_sec;
     reset_rate_error(&state->rate, state->interval);
 
+    update_phc_status(clkfd, PHC_STATUS_UNKNOWN);
+
     return state;
 }
 
@@ -443,6 +445,9 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
         state->last_log_ns = poll_time_ns;
         /* Rate error history is not reset because rate error measurements
          * should still be valid */
+
+        update_phc_status(state->clkfd, PHC_STATUS_UNKNOWN);
+
         return SYNC_OK;
     }
     else
@@ -488,9 +493,15 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
         }
 
         if (state->pps_signal == 1)
+        {
+            update_phc_status(state->clkfd, PHC_STATUS_SYNCED);
             return SYNC_OK;
+        }
         else
+        {
+            update_phc_status(state->clkfd, PHC_STATUS_HOLDOVER);
             return SYNC_FAILED;
+        }
     }
 
 clock_error:
@@ -505,6 +516,7 @@ clock_error:
     state->log_reset = 1;
     state->last_log_ns = 0;
     reset_rate_error(&state->rate, state->interval);
+    update_phc_status(state->clkfd, PHC_STATUS_UNKNOWN);
     return SYNC_FAILED;
 }
 
