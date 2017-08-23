@@ -185,18 +185,18 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
     state->tai_offset_wait = auto_tai_offset ? 1 : 0;
 
     log_printf(LOG_INFO, "%s: Starting system clock discipline using "
-            "hardware clock", state->name);
+            "%s clock", state->name, state->name);
 
     if (state->phc_source == PHC_SOURCE_EXANIC_GPS)
     {
-        log_printf(LOG_INFO, "%s: Waiting for GPS sync on hardware clock",
-                state->name);
+        log_printf(LOG_INFO, "%s: Waiting for GPS sync on %s clock",
+                state->name, state->name);
         state->init_wait = 1;
     }
     else if (state->phc_source == PHC_SOURCE_SYNC)
     {
-        log_printf(LOG_INFO, "%s: Waiting for hardware clock sync",
-                state->name);
+        log_printf(LOG_INFO, "%s: Waiting for sync on %s clock",
+                state->name, state->name);
         state->init_wait = 1;
     }
     else
@@ -237,7 +237,8 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
             /* Waiting for GPS sync on the ExaNIC */
             if (check_exanic_gps_time(state->exanic) == 0)
             {
-                log_printf(LOG_INFO, "%s: GPS sync acquired", state->name);
+                log_printf(LOG_INFO, "%s: GPS sync acquired on %s clock",
+                        state->name, state->name);
                 state->init_wait = 0;
             }
         }
@@ -245,8 +246,8 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
         {
             if (get_phc_status(state->clkfd) == PHC_STATUS_SYNCED)
             {
-                log_printf(LOG_INFO, "%s: Hardware clock is ready",
-                        state->name);
+                log_printf(LOG_INFO, "%s: Detected clock sync on %s clock",
+                        state->name, state->name);
                 state->init_wait = 0;
             }
         }
@@ -408,7 +409,7 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
     if (verbose || state->log_next || state->last_log_ns +
             1000000000ULL * LOG_INTERVAL < hw_time_ns)
     {
-        log_printf(LOG_INFO, "%s: Clock offset from hardware clock: "
+        log_printf(LOG_INFO, "%s: System clock offset: "
                 "%.3f us  drift: %.3f ppm", state->name,
                 error_ns * 0.001, drift * 1000000);
         state->last_log_ns = hw_time_ns;
@@ -435,8 +436,8 @@ void shutdown_sys_phc_sync(struct sys_phc_sync_state *state)
 {
     double drift;
 
-    log_printf(LOG_INFO, "%s: Stopping clock discipline using system clock",
-            state->name);
+    log_printf(LOG_INFO, "%s: Stopping system clock discipline using "
+            "%s clock", state->name, state->name);
 
     /* Set adjustment to compensate for drift only */
     calc_drift(&state->drift, &drift);
