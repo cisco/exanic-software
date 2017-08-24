@@ -548,6 +548,12 @@ int main(int argc, char *argv[])
                 goto cleanup;
             }
         }
+        else if (s[i].sync_type == SYNC_PHC_PHC ||
+                 s[i].sync_type == SYNC_PHC_SYS)
+        {
+            /* Target may be an ExaNIC hardware clock */
+            s[i].exanic = exanic_acquire_handle(s[i].name);
+        }
 
         if (s[i].sync_type == SYNC_EXANIC_PPS ||
             s[i].sync_type == SYNC_PHC_PHC ||
