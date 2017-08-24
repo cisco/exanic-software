@@ -472,6 +472,7 @@ int main(int argc, char *argv[])
     int ret = 0;
     int i;
     int pidfd = -1;
+    int sys_synced = 0;
 
     prog = argv[0];
 
@@ -581,6 +582,44 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* Record which clocks we are synchronizing and check for conflicts */
+    for (i = 0; i < n; i++)
+    {
+        if (s[i].sync_type == SYNC_PHC_SYS ||
+            s[i].sync_type == SYNC_PHC_PHC ||
+            s[i].sync_type == SYNC_EXANIC_PPS)
+        {
+            enum phc_source src = get_phc_source(s[i].clkfd, s[i].exanic);
+
+            if (src != PHC_SOURCE_NONE)
+            {
+                /* Target has another sync source already */
+                if (src == PHC_SOURCE_EXANIC_GPS)
+                    fprintf(stderr, "%s: clock is already GPS synced\n",
+                            s[i].name);
+                else
+                    fprintf(stderr, "%s: clock has multiple sync sources\n",
+                            s[i].name);
+                ret = 1;
+                goto cleanup;
+            }
+
+            set_phc_synced(s[i].clkfd);
+        }
+        else if (s[i].sync_type == SYNC_SYS_PHC)
+        {
+            if (sys_synced)
+            {
+                fprintf(stderr, "%s: system clock has multiple sync sources\n",
+                        prog);
+                ret = 1;
+                goto cleanup;
+            }
+
+            sys_synced = 1;
+        }
+    }
+
     if (pidfile != NULL)
     {
         /* Create and open PID file */
@@ -643,15 +682,6 @@ int main(int argc, char *argv[])
         openlog(SYSLOG_ID, LOG_PID, LOG_DAEMON);
 
     /* Initialise state */
-    for (i = 0; i < n; i++)
-    {
-        if (s[i].sync_type == SYNC_PHC_SYS ||
-            s[i].sync_type == SYNC_PHC_PHC ||
-            s[i].sync_type == SYNC_EXANIC_PPS)
-        {
-            set_phc_synced(s[i].clkfd);
-        }
-    }
     for (i = 0; i < n; i++)
     {
         if (s[i].sync_type == SYNC_PHC_SYS)

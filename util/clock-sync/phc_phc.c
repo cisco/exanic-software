@@ -164,6 +164,7 @@ enum sync_status poll_phc_phc_sync(struct phc_phc_sync_state *state)
         }
         else if (state->phc_source == PHC_SOURCE_SYNC)
         {
+            /* Waiting for source clock to be synced */
             if (get_phc_status(state->clkfd_src) == PHC_STATUS_SYNCED)
             {
                 log_printf(LOG_INFO, "%s: Detected clock sync on %s clock",
