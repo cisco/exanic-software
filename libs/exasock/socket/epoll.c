@@ -94,6 +94,7 @@ epoll_fd_init(int fd)
     exa_write_lock(&sock->lock);
 
     exa_socket_zero(sock);
+    sock->valid = true;
     sock->notify = no;
 
     exa_write_unlock(&sock->lock);
@@ -414,14 +415,48 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
         return NATIVE_FD_ONLY;
     }
 
+    exa_lock(&no->fd_cnt.lock);
+    if (no->fd_cnt.bypass == 0)
+    {
+        exa_unlock(&no->fd_cnt.lock);
+        exa_read_unlock(&epsock->lock);
+        return NATIVE_FD_ONLY;
+    }
+    have_native = (no->fd_cnt.native != 0);
+    exa_unlock(&no->fd_cnt.lock);
+
     iters = DEFAULT_ITERS;
     signal_received = false;
-    have_native = no->have_native;
 
     have_poll_lock = exa_trylock(&exasock_poll_lock);
 
     if (have_poll_lock)
         exanic_poll();
+
+    /* Check if there are any listening sockets ready and if so, add them
+     * to the maybe-ready queue
+     */
+    if (exa_trylock(&no->ep.lock))
+    {
+        if (no->ep.ref_cnt)
+        {
+            volatile struct exasock_epoll_state *s = no->ep.state;
+            struct exa_socket * restrict sock;
+            int next_rd = s->next_read;
+
+            while (next_rd != s->next_write)
+            {
+                sock = exa_socket_get(s->fd_ready[next_rd]);
+                if (!exa_trylock(&sock->state->rx_lock))
+                    break;
+                exa_notify_tcp_read_update(sock);
+                exa_unlock(&sock->state->rx_lock);
+                EXASOCK_EPOLL_FD_READY_IDX_INC(next_rd);
+            }
+            s->next_read = next_rd;
+        }
+        exa_unlock(&no->ep.lock);
+    }
 
     /* Initial check for sockets that are ready */
     {
@@ -658,7 +693,7 @@ epoll_pwait(int epfd, struct epoll_event *events, int maxevents, int timeout,
 
     ret = epoll_pwait_spin(epfd, events, maxevents, timeout, sigmask);
     if (ret == NATIVE_FD_ONLY)
-        ret = epoll_pwait(epfd, events, maxevents, timeout, sigmask);
+        ret = libc_epoll_pwait(epfd, events, maxevents, timeout, sigmask);
 
     TRACE_ARG(EPOLL_EVENT_ARRAY, events, ret);
     TRACE_ARG(INT, maxevents);

@@ -1,10 +1,9 @@
-#ifndef TCP_H_91AA6993BAEF42038D3D83FF3AD82D31
-#define TCP_H_91AA6993BAEF42038D3D83FF3AD82D31
+#ifndef EXASOCK_TCP_H
+#define EXASOCK_TCP_H
 
 #define EXA_TCP_RETRANSMIT_NS 1000000000
 
 extern struct exa_hashtable __exa_tcp_sockfds;
-extern uint32_t __exa_tcp_sockfds_write_lock;
 
 struct exa_tcp_conn
 {
@@ -41,7 +40,7 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
                     uint32_t * restrict seq, size_t * restrict len)
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
-    uint32_t unacked_len, window_size;
+    uint32_t unacked_len, window_size, rwnd;
 
     if (state->state != EXA_TCP_ESTABLISHED &&
         state->state != EXA_TCP_CLOSE_WAIT)
@@ -53,7 +52,8 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
     *seq = state->send_seq;
 
     unacked_len = state->send_seq - state->send_ack;
-    window_size = state->rwnd < state->cwnd ? state->rwnd : state->cwnd;
+    rwnd = state->rwnd_end - state->send_ack;
+    window_size = rwnd < state->cwnd ? rwnd : state->cwnd;
 
     if (window_size < unacked_len)
         *len = 0;
@@ -68,19 +68,19 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
 static inline void
 exa_tcp_insert(int fd)
 {
-    exa_hashtable_insert(&__exa_tcp_sockfds, fd);
+    exa_hashtable_ucast_insert(&__exa_tcp_sockfds, fd);
 }
 
 static inline void
 exa_tcp_remove(int fd)
 {
-    exa_hashtable_remove(&__exa_tcp_sockfds, fd);
+    exa_hashtable_ucast_remove(&__exa_tcp_sockfds, fd);
 }
 
 static inline int
 exa_tcp_lookup(struct exa_endpoint * restrict ep)
 {
-    return exa_hashtable_lookup(&__exa_tcp_sockfds, ep, true);
+    return exa_hashtable_ucast_lookup(&__exa_tcp_sockfds, ep);
 }
 
 static inline void
@@ -140,6 +140,10 @@ exa_tcp_connect(struct exa_tcp_conn * restrict ctx,
 
     /* Generate initial sequence number */
     state->send_ack = state->send_seq = exa_tcp_init_seq();
+    state->rwnd_end = state->send_ack;
+
+    /* Initialize stats */
+    state->stats.init_send_seq = state->send_seq;
 
     state->state = EXA_TCP_SYN_SENT;
 }
@@ -166,11 +170,15 @@ exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
     ctx->ph_csum = csum(NULL, 0, addr_csum + htons(IPPROTO_TCP));
 
     state->send_ack = state->send_seq = tcp_state->local_seq;
-    state->rwnd = tcp_state->peer_window;
+    state->rwnd_end = state->send_ack + tcp_state->peer_window;
     state->rmss = tcp_state->peer_mss;
     state->wscale = tcp_state->peer_wscale;
 
     state->read_seq = state->recv_seq = tcp_state->peer_seq;
+
+    /* Initialize stats */
+    state->stats.init_send_seq = state->send_seq;
+    state->stats.init_recv_seq = state->recv_seq;
 
     state->state = EXA_TCP_ESTABLISHED;
 }
@@ -577,6 +585,7 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         {
             /* Reset sequence numbers */
             state->read_seq = state->recv_seq = data_seq;
+            state->stats.init_recv_seq = state->recv_seq;
 
             /* Parse and apply TCP options */
             exa_tcp_apply_syn_opts(ctx, tcpopt, tcpopt_len);
@@ -606,11 +615,21 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
 
-    if ((flags & TH_ACK) && seq_compare(state->send_ack, ack_seq) <= 0)
+    if (flags & TH_ACK)
     {
-        /* Got ACK for more of our sent data */
-        state->send_ack = ack_seq;
-        state->rwnd = (win << state->wscale);
+        uint32_t send_ack = state->send_ack;
+        uint32_t win_end = ack_seq + (win << state->wscale);
+        uint32_t rwnd_end = state->rwnd_end;
+
+        /* Check if got ACK for more of our sent data */
+        while (seq_compare(send_ack, ack_seq) < 0)
+            send_ack = __sync_val_compare_and_swap(&state->send_ack, send_ack,
+                                                   ack_seq);
+
+        /* Check if got new space in receiver buffer */
+        while (seq_compare(rwnd_end, win_end) < 0)
+            rwnd_end = __sync_val_compare_and_swap(&state->rwnd_end, rwnd_end,
+                                                   win_end);
     }
 
     if ((flags & TH_RST) && seq_compare(data_seq, state->recv_seq) <= 0)
@@ -713,4 +732,4 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
     }
 }
 
-#endif /* TCP_H_91AA6993BAEF42038D3D83FF3AD82D31 */
+#endif /* EXASOCK_TCP_H */

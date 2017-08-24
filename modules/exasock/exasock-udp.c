@@ -1,6 +1,6 @@
 /**
  * Kernel support for the ExaSock library
- * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
+ * Copyright (C) 2011-2017 Exablaze Pty Ltd and its licensors
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -20,6 +20,7 @@
 
 #include "../exanic/exanic.h"
 #include "exasock.h"
+#include "exasock-stats.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
 #define __HAS_OLD_HLIST_ITERATOR
@@ -27,7 +28,7 @@
 
 struct exasock_udp
 {
-    struct exasock_common       hdr;
+    struct exasock_hdr          hdr;
 
     uint32_t                    local_addr;
     uint32_t                    peer_addr;
@@ -40,6 +41,8 @@ struct exasock_udp
     struct socket *             sock;
 
     struct hlist_node           hash_node;
+
+    struct exasock_stats_sock   stats;
 };
 
 static struct hlist_head *      udp_buckets;
@@ -49,6 +52,81 @@ static DEFINE_SPINLOCK(         udp_bucket_lock);
 
 #define NUM_BUCKETS             4096
 
+static inline struct exasock_udp *stats_to_udp(struct exasock_stats_sock *stats)
+{
+    return container_of(stats, struct exasock_udp, stats);
+}
+
+static inline enum exasock_socktype exasock_udp_stats_get_socktype(
+                                                       struct exasock_udp *udp)
+{
+    if ((udp->peer_addr != ntohl(INADDR_ANY)) && (udp->peer_port != 0))
+        return EXASOCK_SOCKTYPE_UDP_CONN;
+    else
+        return EXASOCK_SOCKTYPE_UDP;
+}
+
+static inline void exasock_udp_stats_fill_addr(
+                                     struct exasock_stats_sock_addr *addr,
+                                     struct exasock_udp *udp)
+{
+    addr->local_ip   = udp->local_addr;
+    addr->peer_ip    = udp->peer_addr;
+    addr->local_port = udp->local_port;
+    addr->peer_port  = udp->peer_port;
+}
+
+static inline void exasock_udp_stats_fill_info(
+                                          struct exasock_stats_sock_info *info,
+                                          struct exasock_udp *udp, int fd)
+{
+    info->pid = task_tgid_nr(current);
+    get_task_comm(info->prog_name, current);
+    info->fd = fd;
+    info->uid = exasock_current_uid();
+}
+
+static void exasock_udp_stats_get_snapshot(struct exasock_stats_sock *stats,
+                    struct exasock_stats_sock_snapshot_brf *ssbrf,
+                    struct exasock_stats_sock_snapshot_int *ssint)
+{
+    struct exasock_udp *udp = stats_to_udp(stats);
+    struct exa_udp_state *udp_state = &udp->user_page->p.udp;
+
+    if (ssint != NULL)
+        ssint->contents = EXASOCK_STATS_SOCK_SSINT_NONE;
+
+    /* FIXME: for UDP recv_q count of bytes includes headers, footers and
+     *        alignment padding */
+    ssbrf->recv_q = udp_state->next_write - udp_state->next_read;
+    ssbrf->send_q = 0;
+}
+
+static void exasock_udp_stats_init(struct exasock_udp *udp, int fd)
+{
+    struct exasock_stats_sock *stats = &udp->stats;
+
+    memset(stats, 0, sizeof(struct exasock_stats_sock));
+
+    exasock_udp_stats_fill_addr(&stats->addr, udp);
+    exasock_udp_stats_fill_info(&stats->info, udp, fd);
+
+    stats->ops.get_state    = NULL;
+    stats->ops.get_snapshot = exasock_udp_stats_get_snapshot;
+
+    exasock_stats_socket_add(exasock_udp_stats_get_socktype(udp), stats);
+}
+
+static void exasock_udp_stats_update(struct exasock_udp *udp)
+{
+    struct exasock_stats_sock_addr addr;
+
+    exasock_udp_stats_fill_addr(&addr, udp);
+
+    exasock_stats_socket_update(&udp->stats, EXASOCK_SOCKTYPE_UDP,
+                                exasock_udp_stats_get_socktype(udp), &addr);
+}
+
 static unsigned exasock_udp_hash(uint32_t local_addr, uint32_t peer_addr,
                                  uint16_t local_port, uint16_t peer_port)
 {
@@ -56,7 +134,19 @@ static unsigned exasock_udp_hash(uint32_t local_addr, uint32_t peer_addr,
                         local_addr, peer_addr, 0) & (NUM_BUCKETS - 1);
 }
 
-struct exasock_udp *exasock_udp_alloc(struct socket *sock)
+static void exasock_udp_update_hashtbl(struct exasock_udp *udp)
+{
+    unsigned hash = exasock_udp_hash(udp->local_addr, udp->peer_addr,
+                                     udp->local_port, udp->peer_port);
+    unsigned long flags;
+
+    spin_lock_irqsave(&udp_bucket_lock, flags);
+    hlist_del_rcu(&udp->hash_node);
+    hlist_add_head_rcu(&udp->hash_node, &udp_buckets[hash]);
+    spin_unlock_irqrestore(&udp_bucket_lock, flags);
+}
+
+struct exasock_udp *exasock_udp_alloc(struct socket *sock, int fd)
 {
     struct exasock_udp *udp = NULL;
     struct sockaddr_in local, peer;
@@ -96,8 +186,9 @@ struct exasock_udp *exasock_udp_alloc(struct socket *sock)
         goto err_alloc;
     }
 
-    udp->hdr.domain = AF_INET;
-    udp->hdr.type = SOCK_DGRAM;
+    udp->hdr.type = EXASOCK_TYPE_SOCKET;
+    udp->hdr.socket.domain = AF_INET;
+    udp->hdr.socket.type = SOCK_DGRAM;
     udp->local_addr = local.sin_addr.s_addr;
     udp->local_port = local.sin_port;
     udp->peer_addr = peer.sin_addr.s_addr;
@@ -105,6 +196,9 @@ struct exasock_udp *exasock_udp_alloc(struct socket *sock)
     udp->rx_buffer = rx_buffer;
     udp->user_page = user_page;
     udp->sock = sock;
+
+    /* Initialize stats */
+    exasock_udp_stats_init(udp, fd);
 
     /* Insert into hash table */
     hash = exasock_udp_hash(udp->local_addr, udp->peer_addr,
@@ -139,11 +233,10 @@ int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
     struct sockaddr_in sa;
     int slen;
     int err;
-    unsigned long flags;
-    unsigned hash;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     /* Bind to the requested address on native socket */
     sa.sin_family = AF_INET;
@@ -164,12 +257,10 @@ int exasock_udp_bind(struct exasock_udp *udp, uint32_t local_addr,
     udp->user_page->e.ip.local_port = udp->local_port = sa.sin_port;
 
     /* Update hash table */
-    hash = exasock_udp_hash(udp->local_addr, udp->peer_addr,
-                            udp->local_port, udp->peer_port);
-    spin_lock_irqsave(&udp_bucket_lock, flags);
-    hlist_del_rcu(&udp->hash_node);
-    hlist_add_head_rcu(&udp->hash_node, &udp_buckets[hash]);
-    spin_unlock_irqrestore(&udp_bucket_lock, flags);
+    exasock_udp_update_hashtbl(udp);
+
+    /* Update stats */
+    exasock_udp_stats_update(udp);
 
     *local_port = sa.sin_port;
     return 0;
@@ -182,11 +273,10 @@ int exasock_udp_connect(struct exasock_udp *udp, uint32_t *local_addr,
     struct sockaddr_in sa;
     int slen;
     int err;
-    unsigned long flags;
-    unsigned hash;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     /* Connect to the requested address on native socket */
     sa.sin_family = AF_INET;
@@ -210,12 +300,10 @@ int exasock_udp_connect(struct exasock_udp *udp, uint32_t *local_addr,
     udp->user_page->e.ip.peer_port = udp->peer_port = peer_port;
 
     /* Update hash table */
-    hash = exasock_udp_hash(udp->local_addr, udp->peer_addr,
-                            udp->local_port, udp->peer_port);
-    spin_lock_irqsave(&udp_bucket_lock, flags);
-    hlist_del_rcu(&udp->hash_node);
-    hlist_add_head_rcu(&udp->hash_node, &udp_buckets[hash]);
-    spin_unlock_irqrestore(&udp_bucket_lock, flags);
+    exasock_udp_update_hashtbl(udp);
+
+    /* Update stats */
+    exasock_udp_stats_update(udp);
 
     *local_addr = sa.sin_addr.s_addr;
     *local_port = sa.sin_port;
@@ -226,8 +314,11 @@ void exasock_udp_free(struct exasock_udp *udp)
 {
     unsigned long flags;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
+
+    exasock_stats_socket_del(&udp->stats, exasock_udp_stats_get_socktype(udp));
 
     spin_lock_irqsave(&udp_bucket_lock, flags);
     hlist_del_rcu(&udp->hash_node);
@@ -353,8 +444,9 @@ int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
 {
     int ret;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     ret = udp->sock->ops->setsockopt(udp->sock, level, optname, optval, optlen);
 
@@ -367,8 +459,9 @@ int exasock_udp_getsockopt(struct exasock_udp *udp, int level, int optname,
     int ret;
     mm_segment_t old_fs;
 
-    BUG_ON(udp->hdr.domain != AF_INET);
-    BUG_ON(udp->hdr.type != SOCK_DGRAM);
+    BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
+    BUG_ON(udp->hdr.socket.domain != AF_INET);
+    BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     old_fs = get_fs();
     set_fs(KERNEL_DS);

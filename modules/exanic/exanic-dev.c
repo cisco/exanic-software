@@ -19,7 +19,7 @@
 #include "../../libs/exanic/fifo_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 /**
  * Handles /dev/exanic open().
@@ -32,8 +32,7 @@ static int exanic_open(struct inode *inode, struct file *filp)
     exanic = exanic_find_by_minor(iminor(inode));
     if (exanic == NULL)
     {
-        dev_err(&exanic->pci_dev->dev, DRV_NAME
-            ": Failed to locate exanic for minor = %u.\n", iminor(inode));
+        pr_err("Failed to locate exanic for minor = %u.\n", iminor(inode));
         return -ENODEV;
     }
 
@@ -183,6 +182,9 @@ static int exanic_map_info(struct exanic *exanic, struct vm_area_struct *vma)
     int err;
     struct device *dev = &exanic->pci_dev->dev;
     size_t map_size = vma->vm_end - vma->vm_start;
+
+    if (!exanic->info_page) /* no info page allocated (e.g. unsupported card) */
+        return -EINVAL;
 
     if (vma->vm_flags & VM_WRITE)
         return -EACCES;

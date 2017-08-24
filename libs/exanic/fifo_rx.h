@@ -2,8 +2,8 @@
  * \file
  * \brief Functions for receiving data on ExaNICs.
  */
-#ifndef FIFO_H_C2D735F18A6F4834BC6961BAC2A013C8
-#define FIFO_H_C2D735F18A6F4834BC6961BAC2A013C8
+#ifndef EXANIC_FIFO_RX_H
+#define EXANIC_FIFO_RX_H
 
 #include "exanic.h"
 #include "pcie_if.h"
@@ -334,4 +334,4 @@ ssize_t exanic_receive_chunk_ex(exanic_rx_t *rx, char *rx_buf, int *more_chunks,
 }
 #endif
 
-#endif /* FIFO_H_C2D735F18A6F4834BC6961BAC2A013C8 */
+#endif /* EXANIC_FIFO_RX_H */

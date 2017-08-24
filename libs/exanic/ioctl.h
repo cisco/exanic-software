@@ -4,6 +4,7 @@
  *
  * Socket ioctls which can be used on the ethernet interface:
  * - \ref EXAIOCGIFINFO
+ * - \ref EXAIOCGHWTSTAMP
  *
  * Ioctls which can be used on /dev/exanic*:
  * - \ref EXANICCTL_INFO
@@ -12,13 +13,21 @@
  * - \ref EXANICCTL_TX_FEEDBACK_ALLOC
  * - \ref EXANICCTL_TX_FEEDBACK_FREE
  */
-#ifndef IOCTL_H_BECED8B0D0E24F4A8915A4A8912C04D0
-#define IOCTL_H_BECED8B0D0E24F4A8915A4A8912C04D0
+#ifndef EXANIC_IOCTL_H
+#define EXANIC_IOCTL_H
 
 #include "const.h"
 
 /** \brief Socket ioctl for retrieving information about an ExaNIC interface */
 #define EXAIOCGIFINFO   (SIOCDEVPRIVATE+0)
+
+/** \brief Socket ioctl for retrieving ExaNIC HW timestamping configuration
+ *
+ * This is equivalent of SIOCGHWTSTAMP ioctl (returns the configuration in
+ * hwtstamp_config structure). It allows getting the configuration regardless
+ * of kernel's support for SIOCGHWTSTAMP ioctl.
+ */
+#define EXAIOCGHWTSTAMP (SIOCDEVPRIVATE+1)
 
 /**
  * \brief Info struct populated by EXAIOCGIFINFO ioctl
@@ -251,4 +260,4 @@ struct exanic_info_page
     uint64_t hw_time;
 };
 
-#endif /* IOCTL_H_BECED8B0D0E24F4A8915A4A8912C04D0 */
+#endif /* EXANIC_IOCTL_H */

@@ -5,8 +5,8 @@
  *
  * Firewall configuration functions.
  */
-#ifndef FIREWALL_H_2E96867A3E19C1B393B2E446B8BC0CF5
-#define FIREWALL_H_2E96867A3E19C1B393B2E446B8BC0CF5
+#ifndef EXANIC_FIREWALL_H
+#define EXANIC_FIREWALL_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -109,4 +109,4 @@ int exanic_get_firewall_capability(exanic_t *exanic);
 }
 #endif
 
-#endif /* FIREWALL_H_2E96867A3E19C1B393B2E446B8BC0CF5 */
+#endif /* EXANIC_FIREWALL_H */

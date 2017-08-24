@@ -2,8 +2,8 @@
  * \file
  * \brief ExaNIC time functions
  */
-#ifndef TIME_H_0630DBEBB2AB5AB62A5FDF88CAECEC39
-#define TIME_H_0630DBEBB2AB5AB62A5FDF88CAECEC39
+#ifndef EXANIC_TIME_H
+#define EXANIC_TIME_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -141,4 +141,4 @@ uint32_t exanic_counter_to_timestamp(exanic_t *exanic, uint64_t counter);
 }
 #endif
 
-#endif /* TIME_H_0630DBEBB2AB5AB62A5FDF88CAECEC39 */
+#endif /* EXANIC_TIME_H */

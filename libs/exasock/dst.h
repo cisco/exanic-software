@@ -1,5 +1,5 @@
-#ifndef DST_H_E7438FD4D1AC428188941A70DAE1F963
-#define DST_H_E7438FD4D1AC428188941A70DAE1F963
+#ifndef EXASOCK_DST_H
+#define EXASOCK_DST_H
 
 struct exa_dst
 {
@@ -143,4 +143,4 @@ exa_dst_lookup_src(in_addr_t dst_addr, in_addr_t *src_addr)
     return exa_sys_dst_request(dst_addr, src_addr, NULL);
 }
 
-#endif /* DST_H_E7438FD4D1AC428188941A70DAE1F963 */
+#endif /* EXASOCK_DST_H */

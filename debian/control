@@ -2,7 +2,7 @@ Source: exanic
 Section: Miscellaneous
 Priority: extra
 Maintainer: Exablaze Team <support@exablaze.com>
-Build-Depends: debhelper (>= 8.0.0), dkms
+Build-Depends: debhelper (>= 8.0.0), dkms, pkg-config, libnl-3-dev, libnl-genl-3-dev
 Standards-Version: 3.9.4
 Homepage: http://exablaze.com/support
 
@@ -25,11 +25,13 @@ Description: ExaNIC network driver
 
 Package: exanic-utils
 Architecture: any
+Depends: libnl-3-200, libnl-genl-3-200
 Section: Utilities
 Description: ExaNIC utilities
  This package contains userspace utilities for the ExaNIC, including
  exanic-config, exanic-capture, exanic-clock-sync and exanic-fwupdate.
- It also contains the ExaNIC Sockets wrapper (exasock).
+ It also contains the ExaNIC Sockets wrapper (exasock) and its utilities
+ (exasock-stat).
 
 Package: exanic-dev
 Architecture: any
@@ -38,10 +40,4 @@ Description: ExaNIC development library
  This package contains libexanic, a low-level access library for the
  ExaNIC.  It can be used to write applications which transmit and receive
  raw Ethernet packets with minimum possible latency.
-
-Package: exanic-doc
-Architecture: all
-Section: Documentation
-Description: ExaNIC documentation
- This package contains documentation for the ExaNIC.
 

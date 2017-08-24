@@ -2,8 +2,8 @@
  * \file
  * \brief Functions for manipulating filters on an ExaNIC.
  */
-#ifndef FILTER_H_CFC80367CEF340E9B13260D516CB025D
-#define FILTER_H_CFC80367CEF340E9B13260D516CB025D
+#ifndef EXANIC_FILTER_H
+#define EXANIC_FILTER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,4 +117,4 @@ int exanic_filter_remove_mac(exanic_t *exanic,
 }
 #endif
 
-#endif /* FILTER_H_CFC80367CEF340E9B13260D516CB025D */
+#endif /* EXANIC_FILTER_H */

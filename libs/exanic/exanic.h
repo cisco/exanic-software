@@ -12,8 +12,8 @@
  * - \ref config.h "Network config API" (Network settings)
  * - \ref time.h "Timestamping API" (Timestamp conversion functions)
  */
-#ifndef EXANIC_H_787F535111F24BA1921833F95F922BCA
-#define EXANIC_H_787F535111F24BA1921833F95F922BCA
+#ifndef EXANIC_EXANIC_H
+#define EXANIC_EXANIC_H
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -95,4 +95,4 @@ void exanic_err_printf(const char * fmt, ...);
 }
 #endif
 
-#endif /* EXANIC_H_787F535111F24BA1921833F95F922BCA */
+#endif /* EXANIC_EXANIC_H */

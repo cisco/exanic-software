@@ -143,10 +143,23 @@ static char i2c_inb(exanic_t *exanic, int bus_number)
     return data;
 }
 
+static void i2c_ack(exanic_t *exanic, int bus_number)
+{
+    /* scl is low */
+    setsda(exanic, bus_number, 0);
+    setscl(exanic, 1);
+    setscl(exanic, 0);
+    setsda(exanic, bus_number, 1);
+    /* scl is low */
+}
+
 static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
                     uint8_t regaddr, char *buffer, size_t size)
 {
     size_t i;
+
+    if (size == 0)
+        return 0;
 
     if (!i2c_reset(exanic, bus_number))
     {
@@ -160,16 +173,19 @@ static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
         exanic_err_printf("no ack from device on I2C read");
         return -1;
     }
-    for (i = 0; i < size; i++)
+    i2c_repstart(exanic, bus_number);
+    if (!i2c_outb(exanic, bus_number, devaddr | 1))
     {
-        i2c_repstart(exanic, bus_number);
-        if (!i2c_outb(exanic, bus_number, devaddr | 1))
-        {
-            exanic_err_printf("no ack from device on I2C read");
-            return -1;
-        }
-        buffer[i] = i2c_inb(exanic, bus_number);
+        exanic_err_printf("no ack from device on I2C read");
+        return -1;
     }
+    for (i = 0; i < size-1; i++)
+    {
+        buffer[i] = i2c_inb(exanic, bus_number);
+        i2c_ack(exanic, bus_number);
+    }
+    buffer[i] = i2c_inb(exanic, bus_number);
+    /* no ack after last byte per I2C protocol */
     i2c_stop(exanic, bus_number);
 
     return 0;

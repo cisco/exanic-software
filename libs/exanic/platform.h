@@ -1,5 +1,5 @@
-#ifndef _PLATFORM_H_722B3A01DE3F709432A8C51CCB4265C8
-#define _PLATFORM_H_722B3A01DE3F709432A8C51CCB4265C8
+#ifndef EXANIC_PLATFORM_H
+#define EXANIC_PLATFORM_H
 
 static inline void iowb()
 {
@@ -15,4 +15,4 @@ static inline void iowb()
 #endif
 }
 
-#endif /* _PLATFORM_H_722B3A01DE3F709432A8C51CCB4265C8 */
+#endif /* EXANIC_PLATFORM_H */

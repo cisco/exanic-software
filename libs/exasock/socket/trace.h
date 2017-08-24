@@ -1,5 +1,5 @@
-#ifndef TRACE_H_272BDB856231421497568AC15DD769EB
-#define TRACE_H_272BDB856231421497568AC15DD769EB
+#ifndef EXASOCK_SOCKET_TRACE_H
+#define EXASOCK_SOCKET_TRACE_H
 
 #ifndef NDEBUG
 
@@ -187,4 +187,4 @@ void __trace_print_epoll_events(const struct epoll_event *e, int n);
 
 #endif
 
-#endif // TRACE_H_272BDB856231421497568AC15DD769EB
+#endif /* EXASOCK_SOCKET_TRACE_H */

@@ -5,8 +5,8 @@
  *
  * Functions for parsing a filter description
  */
-#ifndef FILTER_PARSER_H_7A62896B8E551056B983B235C1838AAB
-#define FILTER_PARSER_H_7A62896B8E551056B983B235C1838AAB
+#ifndef EXANIC_FILTER_PARSER_H
+#define EXANIC_FILTER_PARSER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,7 +15,7 @@ extern "C" {
 enum
 {
     EXANIC_FILTER_STRING_MAX_LEN = 256,
-    EXANIC_FILTER_SIZE           = 40,
+    EXANIC_FILTER_SIZE           = 44,
 };
 
 /**
@@ -39,4 +39,4 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
 }
 #endif
 
-#endif /* FILTER_PARSER_H_7A62896B8E551056B983B235C1838AAB */
+#endif /* EXANIC_FILTER_PARSER_H */

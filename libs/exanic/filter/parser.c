@@ -14,10 +14,13 @@
 #include "../exanic.h"
 #include "parser.h"
 
-enum
+struct vlan_ethhdr
 {
-    ETH_END = sizeof(struct ethhdr),
-    IP_END  = sizeof(struct ethhdr) + sizeof(struct iphdr),
+    unsigned char   h_dest[ETH_ALEN];
+    unsigned char   h_source[ETH_ALEN];
+    uint16_t        h_vlan_proto;
+    uint16_t        h_vlan_tci;
+    uint16_t        h_vlan_encapsulated_proto;
 };
 
 int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
@@ -25,9 +28,12 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
 {
     char buf[EXANIC_FILTER_STRING_MAX_LEN];
     char *strtok_ptr = NULL, *tok = NULL;
-    int ip = 0, tcp = 0, udp = 0, arp = 0, icmp = 0, igmp = 0;
-    int consume_proto = 0;
+    int vlan = 0, ip = 0, tcp = 0, udp = 0, arp = 0, icmp = 0, igmp = 0;
+    uint16_t vlan_tci = 0, vlan_tci_mask = 0;
+    size_t eth_end = 0, ip_end = 0;
     struct ethhdr *ethhdr_pat = NULL, *ethhdr_mask = NULL;
+    struct vlan_ethhdr *vlan_ethhdr_pat = NULL, *vlan_ethhdr_mask = NULL;
+    uint16_t *eth_proto_pat = NULL, *eth_proto_mask = NULL;
     struct iphdr *iphdr_pat = NULL, *iphdr_mask = NULL;
     struct tcphdr *tcphdr_pat = NULL, *tcphdr_mask = NULL;
     struct udphdr *udphdr_pat = NULL, *udphdr_mask = NULL;
@@ -64,49 +70,90 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
     }
 
     tok = strtok_r(NULL, " ", &strtok_ptr);
-    if (tok == NULL)
-        /* Empty filter, matches everything */
-        return 0;
 
-    /* Second token is the protocol (optional) */
-    if (strcmp(tok, "tcp") == 0)
-        ip = tcp = consume_proto = 1;
-    else if (strcmp(tok, "udp") == 0)
-        ip = udp = consume_proto = 1;
-    else if (strcmp(tok, "icmp") == 0)
-        ip = icmp = consume_proto = 1;
-    else if (strcmp(tok, "igmp") == 0)
-        ip = igmp = consume_proto = 1;
-    else if (strcmp(tok, "arp") == 0)
-        arp = consume_proto = 1;
-    else if (strcmp(tok, "ip") == 0)
-        ip = consume_proto = 1;
-    else
-        ip = 1;
-
-    if (consume_proto)
+    /* Next token is 'vlan' (optional) */
+    if (tok != NULL && strcmp(tok, "vlan") == 0)
+    {
+        vlan = 1;
         tok = strtok_r(NULL, " ", &strtok_ptr);
+        /* 'vlan' can be followed by an optional VLAN ID */
+        if (tok != NULL && tok[0] >= '0' && tok[0] <= '9')
+        {
+            char *vlan_end_ptr;
+            vlan_tci = strtol(tok, &vlan_end_ptr, 10);
+            vlan_tci_mask = 0xFFFF;
+            if (*vlan_end_ptr != '\0')
+            {
+                exanic_err_printf("parse error: invalid VLAN ID '%s'", tok);
+                return -1;
+            }
+            tok = strtok_r(NULL, " ", &strtok_ptr);
+        }
+    }
 
-    ethhdr_pat = (struct ethhdr *)pattern;
-    ethhdr_mask = (struct ethhdr *)mask;
+    /* Next token is the protocol (optional) */
+    if (tok != NULL)
+    {
+        int consume_proto = 0;
+
+        if (strcmp(tok, "tcp") == 0)
+            ip = tcp = consume_proto = 1;
+        else if (strcmp(tok, "udp") == 0)
+            ip = udp = consume_proto = 1;
+        else if (strcmp(tok, "icmp") == 0)
+            ip = icmp = consume_proto = 1;
+        else if (strcmp(tok, "igmp") == 0)
+            ip = igmp = consume_proto = 1;
+        else if (strcmp(tok, "arp") == 0)
+            arp = consume_proto = 1;
+        else if (strcmp(tok, "ip") == 0)
+            ip = consume_proto = 1;
+        else
+            ip = 1;
+
+        if (consume_proto)
+            tok = strtok_r(NULL, " ", &strtok_ptr);
+    }
+
+    if (vlan)
+    {
+        vlan_ethhdr_pat = (struct vlan_ethhdr *)pattern;
+        vlan_ethhdr_mask = (struct vlan_ethhdr *)mask;
+        vlan_ethhdr_pat->h_vlan_proto = ntohs(ETH_P_8021Q);
+        vlan_ethhdr_mask->h_vlan_proto = 0xFFFF;
+        vlan_ethhdr_pat->h_vlan_tci = htons(vlan_tci);
+        vlan_ethhdr_mask->h_vlan_tci = htons(vlan_tci_mask);
+        eth_proto_pat = &vlan_ethhdr_pat->h_vlan_encapsulated_proto;
+        eth_proto_mask = &vlan_ethhdr_mask->h_vlan_encapsulated_proto;
+        eth_end = sizeof(struct vlan_ethhdr);
+    }
+    else
+    {
+        ethhdr_pat = (struct ethhdr *)pattern;
+        ethhdr_mask = (struct ethhdr *)mask;
+        eth_proto_pat = &ethhdr_pat->h_proto;
+        eth_proto_mask = &ethhdr_mask->h_proto;
+        eth_end = sizeof(struct ethhdr);
+    }
 
     if (ip)
     {
-        iphdr_pat = (struct iphdr *)(pattern + ETH_END);
-        iphdr_mask = (struct iphdr *)(mask + ETH_END);
-        ethhdr_pat->h_proto = ntohs(ETH_P_IP);
-        ethhdr_mask->h_proto = 0xFFFF;
+        iphdr_pat = (struct iphdr *)(pattern + eth_end);
+        iphdr_mask = (struct iphdr *)(mask + eth_end);
+        *eth_proto_pat = ntohs(ETH_P_IP);
+        *eth_proto_mask = 0xFFFF;
         iphdr_pat->ihl = 5;
         iphdr_mask->ihl = 0xF;
         iphdr_pat->version = 4;
         iphdr_mask->version = 0xF;
+        ip_end = eth_end + sizeof(struct iphdr);
     }
     else if (arp)
     {
-        arp_pat = (struct ether_arp *)(pattern + ETH_END);
-        arp_mask = (struct ether_arp *)(mask + ETH_END);
-        ethhdr_pat->h_proto = ntohs(ETH_P_ARP);
-        ethhdr_mask->h_proto = 0xFFFF;
+        arp_pat = (struct ether_arp *)(pattern + eth_end);
+        arp_mask = (struct ether_arp *)(mask + eth_end);
+        *eth_proto_pat = ntohs(ETH_P_ARP);
+        *eth_proto_mask = 0xFFFF;
         arp_pat->arp_hrd = htons(ARPHRD_ETHER);
         arp_mask->arp_hrd = 0xFFFF;
         arp_pat->arp_pro = htons(ETH_P_IP);
@@ -119,22 +166,22 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
 
     if (tcp)
     {
-        tcphdr_pat = (struct tcphdr *)(pattern + IP_END);
-        tcphdr_mask = (struct tcphdr *)(mask + IP_END);
+        tcphdr_pat = (struct tcphdr *)(pattern + ip_end);
+        tcphdr_mask = (struct tcphdr *)(mask + ip_end);
         iphdr_pat->protocol = IPPROTO_TCP;
         iphdr_mask->protocol = 0xFF;
     }
     else if (udp)
     {
-        udphdr_pat = (struct udphdr *)(pattern + IP_END);
-        udphdr_mask = (struct udphdr *)(mask + IP_END);
+        udphdr_pat = (struct udphdr *)(pattern + ip_end);
+        udphdr_mask = (struct udphdr *)(mask + ip_end);
         iphdr_pat->protocol = IPPROTO_UDP;
         iphdr_mask->protocol = 0xFF;
     }
     else if (icmp)
     {
-        icmphdr_pat = (struct icmphdr *)(pattern + IP_END);
-        icmphdr_mask = (struct icmphdr *)(mask + IP_END);
+        icmphdr_pat = (struct icmphdr *)(pattern + ip_end);
+        icmphdr_mask = (struct icmphdr *)(mask + ip_end);
         iphdr_pat->protocol = IPPROTO_ICMP;
         iphdr_mask->protocol = 0xFF;
     }

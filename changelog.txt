@@ -1,3 +1,35 @@
+2.0.0 [2017-08-04]
+* Support for ExaNIC X40 with 40G firmware
+* libexanic: new timestamping functions for both ns and ps resolution;
+  exanic_timestamp_to_counter() is still supported but deprecated
+* exasock: new exasock-stat utility (netstat for bypass sockets)
+* exasock: support disabling acceleration per-socket, via a socket option
+  or exasock_disable_acceleration() helper function
+* exasock: support socket timeouts (SO_RCVTIMEO and SO_SNDTIMEO)
+* exasock: support FIONBIO ioctl to set non-blocking mode
+* exasock: support POLLRDNORM and POLLWRNORM in poll()
+* exasock: support TCP listening sockets in epoll()
+* exasock: update TCP ACK numbers even if receive buffer is not polled by user
+* exasock: fix SO_LINGER
+* exasock: fix possible deadlock when sending TCP packets with send window full
+* exasock: fix multicast packet receive filtering for multiple interfaces
+* exasock: avoid double-receiving VLAN tagged packets
+* exasock: avoid spinning in epoll() when no bypass sockets
+* exasock: fix failure to unload module after unsuccessful TCP connection
+* driver: support changing MTU to >1500 bytes for jumbo frames
+* driver: fix race condition that could result in a crash if /dev/exanicX was
+  opened while the driver was still mid-initialization
+* exanic-clock-sync: fix bug in parsing of arguments
+* exanic-clock-sync: fix PPS race condition resulting in occasional bad values
+* exanic-clock-sync: improve PPS calculations for better sync precision
+* exanic-config: improve SFP compatibility in 'sfp status'
+* exanic-config: fix QSFP Rx power calculation
+* exanic-config: report configuration of PPS input/output
+* exanic-config: check that local-loopback succeeds when requested
+* exanic-config: suppress printing feature flags when 'off' to reduce clutter
+* exanic-config: add -v (verbose) option, overrides the above and also prints
+  extra information (currently, Tx buffer sizes for each port)
+
 1.8.1 [2017-01-04]
 * Support for ExaNIC X10-HPT (X10 variant with sub-ns timestamp resolution)
 * exasock: fix connect() for UNIX domain sockets

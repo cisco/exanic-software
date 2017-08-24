@@ -1,5 +1,5 @@
-#ifndef STRUCTS_H_562CD82818334BCAAEA0F7C939E7DDA3
-#define STRUCTS_H_562CD82818334BCAAEA0F7C939E7DDA3
+#ifndef EXASOCK_STRUCTS_H
+#define EXASOCK_STRUCTS_H
 
 struct exa_endpoint_ipaddr
 {
@@ -19,10 +19,29 @@ struct exa_endpoint
     struct exa_endpoint_port port;
 };
 
+struct exa_mcast_endpoint
+{
+    in_addr_t multiaddr;
+    in_addr_t interface;
+};
+
+struct exa_mcast_membership
+{
+    struct exa_mcast_endpoint mcast_ep;
+    bool mcast_ep_valid;
+    unsigned int num_not_bypassed;
+};
+
 struct exa_timestamp
 {
     uint32_t sec;
     uint32_t nsec;
+};
+
+struct exa_timeo
+{
+    bool enabled;
+    struct timeval val;
 };
 
 /* This struct is input for exa_tcp_accept() */
@@ -55,6 +74,7 @@ struct exa_socket
     int flags;
 
     /* Bypass socket state */
+    bool valid;
     bool bypass;
     bool bound;
     bool connected;
@@ -65,10 +85,18 @@ struct exa_socket
     /* Bound to specific device with SO_BINDTODEVICE */
     bool bound_to_device;
 
-    /* If listening on all interfaces, all_if is true and listen_if is NULL
-     * Otherwise all_if is false and listen_if is not NULL */
-    bool all_if;
-    struct exanic_ip *listen_if;
+    /* Interfaces the socket is listening on.
+     * If bound to all interfaces, listen.all_if is true and listen.interface
+     * is NULL.
+     * If bound to a single interface, listen.all_if is false and
+     * listen.interface is not NULL.
+     * If listening on an interface with which a multicast group has been
+     * joined, listen.mcast is true. */
+    struct {
+        struct exanic_ip *interface;
+        bool all_if;
+        bool mcast;
+    } listen;
 
     /* Protocol context structs */
     union {
@@ -106,10 +134,13 @@ struct exa_socket
     /* Socket options */
     in_addr_t ip_multicast_if;
     unsigned char ip_multicast_ttl;
+    struct exa_mcast_membership ip_membership;
     struct linger so_linger;
     bool so_timestamp;
     bool so_timestampns;
     int so_timestamping;
+    struct exa_timeo so_sndtimeo;
+    struct exa_timeo so_rcvtimeo;
 
     /* Timestamp generation enable state */
     bool rx_sw_timestamp;
@@ -130,6 +161,12 @@ struct exa_socket
 };
 
 #define EXA_HASHTABLE_SIZE_LOG2 16
+
+struct exa_hashtable_key
+{
+    in_addr_t addr[2];
+    in_port_t port[2];
+};
 
 struct exa_hashtable
 {
@@ -175,11 +212,11 @@ exa_hashtable_init(struct exa_hashtable * restrict ht)
 }
 
 static inline uint32_t
-exa_endpoint_hash(struct exa_endpoint * restrict e)
+exa_hashtable_hash(struct exa_hashtable_key * restrict key)
 {
-    uint32_t a = e->addr.local;
-    uint32_t b = e->addr.peer;
-    uint32_t c = ((uint32_t)e->port.peer << 16) | e->port.local;
+    uint32_t a = key->addr[0];
+    uint32_t b = key->addr[1];
+    uint32_t c = ((uint32_t)key->port[0] << 16) | key->port[1];
 
     /* Based on final stage of the lookup3 hash function by Bob Jenkins.
      * http://burtleburtle.net/bob/c/lookup3.c */
@@ -196,12 +233,15 @@ exa_endpoint_hash(struct exa_endpoint * restrict e)
     return c;
 }
 
+#define EXA_HASHTABLE_IDX(key)   \
+                (exa_hashtable_hash(key) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1))
+
 static inline void
-exa_hashtable_insert(struct exa_hashtable * restrict ht, int fd)
+exa_hashtable_insert(struct exa_hashtable * restrict ht,
+                     struct exa_socket * restrict sock, int fd,
+                     struct exa_hashtable_key * restrict key)
 {
-    struct exa_socket * restrict sock = exa_socket_get(fd);
-    uint32_t idx = exa_endpoint_hash(&sock->bind.ip) &
-        ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    uint32_t idx = EXA_HASHTABLE_IDX(key);
 
     exa_lock(&ht->write_lock);
     sock->hashtable_next_fd = ht->table[idx];
@@ -210,11 +250,11 @@ exa_hashtable_insert(struct exa_hashtable * restrict ht, int fd)
 }
 
 static inline void
-exa_hashtable_remove(struct exa_hashtable * restrict ht, int remove_fd)
+exa_hashtable_remove(struct exa_hashtable * restrict ht,
+                     struct exa_socket * restrict remove_sock, int remove_fd,
+                     struct exa_hashtable_key * restrict key)
 {
-    struct exa_socket * restrict remove_sock = exa_socket_get(remove_fd);
-    uint32_t idx = exa_endpoint_hash(&remove_sock->bind.ip) &
-        ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    uint32_t idx = EXA_HASHTABLE_IDX(key);
     int fd;
 
     exa_lock(&ht->write_lock);
@@ -241,16 +281,83 @@ exa_hashtable_remove(struct exa_hashtable * restrict ht, int remove_fd)
     assert(false);
 }
 
-static inline int
-exa_hashtable_lookup(struct exa_hashtable * restrict ht,
-                     struct exa_endpoint * restrict e, bool allow_any)
+static inline void
+exa_hashtable_ucast_insert(struct exa_hashtable * restrict ht, int fd)
 {
-    struct exa_endpoint ep = *e;
+    struct exa_socket * restrict sock = exa_socket_get(fd);
+    struct exa_hashtable_key key;
+
+    key.addr[0] = sock->bind.ip.addr.local;
+    key.addr[1] = sock->bind.ip.addr.peer;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = sock->bind.ip.port.peer;
+
+    exa_hashtable_insert(ht, sock, fd, &key);
+}
+
+static inline void
+exa_hashtable_ucast_remove(struct exa_hashtable * restrict ht, int fd)
+{
+    struct exa_socket * restrict sock = exa_socket_get(fd);
+    struct exa_hashtable_key key;
+
+    key.addr[0] = sock->bind.ip.addr.local;
+    key.addr[1] = sock->bind.ip.addr.peer;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = sock->bind.ip.port.peer;
+
+    exa_hashtable_remove(ht, sock, fd, &key);
+}
+
+static inline void
+exa_hashtable_mcast_insert(struct exa_hashtable * restrict ht, int fd,
+                           struct exa_mcast_endpoint * restrict mc_ep)
+{
+    struct exa_socket * restrict sock = exa_socket_get(fd);
+    struct exa_hashtable_key key;
+
+    /* For multicast entries peer addr is not used as a hash key
+     * and interface address is used instead. It is fine as long as
+     * IP_ADD_SOURCE_MEMBERSHIP socket option is not supported.
+     */
+    key.addr[0] = mc_ep->multiaddr;
+    key.addr[1] = mc_ep->interface;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = 0;
+
+    exa_hashtable_insert(ht, sock, fd, &key);
+}
+
+static inline void
+exa_hashtable_mcast_remove(struct exa_hashtable * restrict ht, int fd,
+                           struct exa_mcast_endpoint * restrict mc_ep)
+{
+    struct exa_socket * restrict sock = exa_socket_get(fd);
+    struct exa_hashtable_key key;
+
+    key.addr[0] = mc_ep->multiaddr;
+    key.addr[1] = mc_ep->interface;
+    key.port[0] = sock->bind.ip.port.local;
+    key.port[1] = 0;
+
+    exa_hashtable_remove(ht, sock, fd, &key);
+}
+
+static inline int
+exa_hashtable_ucast_lookup(struct exa_hashtable * restrict ht,
+                          struct exa_endpoint * restrict e)
+{
+    struct exa_hashtable_key key;
     uint32_t idx;
     int fd;
 
+    key.addr[0] = e->addr.local;
+    key.addr[1] = e->addr.peer;
+    key.port[0] = e->port.local;
+    key.port[1] = e->port.peer;
+
     /* Look up by (local addr, local port, peer addr, peer port) */
-    idx = exa_endpoint_hash(&ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -265,13 +372,10 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
         fd = sock->hashtable_next_fd;
     }
 
-    if (!allow_any)
-        return -1;
-
     /* Look up by (local addr, local port) */
-    ep.addr.peer = htonl(INADDR_ANY);
-    ep.port.peer = 0;
-    idx = exa_endpoint_hash(&ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    key.addr[1] = htonl(INADDR_ANY);    /* peer addr */
+    key.port[1] = 0;                    /* peer port */
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -287,8 +391,8 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
     }
 
     /* Look up by local port only */
-    ep.addr.local = htonl(INADDR_ANY);
-    idx = exa_endpoint_hash(&ep) & ((1 << EXA_HASHTABLE_SIZE_LOG2) - 1);
+    key.addr[0] = htonl(INADDR_ANY);    /* local addr */
+    idx = EXA_HASHTABLE_IDX(&key);
     fd = ht->table[idx];
     while (fd != -1)
     {
@@ -306,70 +410,41 @@ exa_hashtable_lookup(struct exa_hashtable * restrict ht,
     return -1;
 }
 
-static inline void
-exa_socket_list_add(struct exa_socket_list * restrict list,
-                    struct exa_socket * restrict sock)
+static inline int
+exa_hashtable_mcast_lookup(struct exa_hashtable * restrict ht,
+                           struct exa_endpoint * restrict e,
+                           in_addr_t if_addr)
 {
-    assert(sock->list_next == NULL);
-    assert(sock->list_prev == NULL);
+    struct exa_hashtable_key key;
+    uint32_t idx;
+    int fd;
 
-    if (list->head == NULL)
+    /* For multicast entries peer addr is not used as a hash key
+     * and interface address is used instead. It is fine as long as
+     * IP_ADD_SOURCE_MEMBERSHIP socket option is not supported.
+     */
+    key.addr[0] = e->addr.local;    /* multicast address */
+    key.addr[1] = if_addr;          /* interface address */
+    key.port[0] = e->port.local;    /* local port */
+    key.port[1] = 0;                /* not used */
+
+    /* Look up by (multicast addr, local port, interface addr) */
+    idx = EXA_HASHTABLE_IDX(&key);
+    fd = ht->table[idx];
+    while (fd != -1)
     {
-        /* First item in list */
-        sock->list_next = sock->list_prev = sock;
-        list->head = sock;
+        struct exa_socket * restrict sock = exa_socket_get(fd);
+
+        if (sock->bind.ip.port.local == e->port.local &&
+            sock->bind.ip.port.peer == 0 &&
+            sock->ip_membership.mcast_ep.multiaddr == e->addr.local &&
+            sock->ip_membership.mcast_ep.interface == if_addr)
+                return fd;
+
+        fd = sock->hashtable_next_fd;
     }
-    else
-    {
-        /* Insert after existing items in list */
-        struct exa_socket *next = list->head;
-        struct exa_socket *prev = next->list_prev;
-        sock->list_next = next;
-        sock->list_prev = prev;
-        prev->list_next = sock;
-        next->list_prev = sock;
-    }
+
+    return -1;
 }
 
-static inline void
-exa_socket_list_del(struct exa_socket_list * restrict list,
-                    struct exa_socket * restrict sock)
-{
-    assert(sock->list_next != NULL);
-    assert(sock->list_prev != NULL);
-
-    if (sock->list_next == sock)
-    {
-        /* Only item in list */
-        assert(list->head == sock);
-        list->head = NULL;
-        sock->list_next = sock->list_prev = NULL;
-    }
-    else
-    {
-        /* Other items exist */
-        if (list->head == sock)
-            list->head = sock->list_next;
-        sock->list_prev->list_next = sock->list_next;
-        sock->list_next->list_prev = sock->list_prev;
-        sock->list_prev = sock->list_next = NULL;
-    }
-}
-
-static inline struct exa_socket *
-exa_socket_list_begin(struct exa_socket_list * restrict list)
-{
-    return list->head;
-}
-
-static inline struct exa_socket *
-exa_socket_list_next(struct exa_socket_list * restrict list,
-                     struct exa_socket * restrict sock)
-{
-    if (sock->list_next != list->head)
-        return sock->list_next;
-    else
-        return NULL;
-}
-
-#endif /* STRUCTS_H_562CD82818334BCAAEA0F7C939E7DDA3 */
+#endif /* EXASOCK_STRUCTS_H */

@@ -1,5 +1,5 @@
-#ifndef EXASOCK_KERNEL_STRUCTS_H_3184709AEFC64CF680494E0D75134908
-#define EXASOCK_KERNEL_STRUCTS_H_3184709AEFC64CF680494E0D75134908
+#ifndef EXASOCK_KERNEL_STRUCTS_H
+#define EXASOCK_KERNEL_STRUCTS_H
 
 static inline uint32_t
 exa_dst_hash(uint32_t a)
@@ -47,7 +47,7 @@ struct exa_udp_state
 #define EXA_TCP_LAST_ACK                9
 #define EXA_TCP_TIME_WAIT               10
 
-#define EXA_TCP_MAX_RX_SEGMENTS         5
+#define EXA_TCP_MAX_RX_SEGMENTS         6
 
 /*
  * Locking in TCP state structs
@@ -59,10 +59,10 @@ struct exa_udp_state
  *   (Must check read_seq after read)
  *
  * tx_lock is needed for:
- * - Updating send_seq and send_ack
+ * - Updating send_seq
  *
  * rx_lock is needed for:
- * - Updating read_seq and recv_seq
+ * - Updating read_seq, recv_seq and send_ack
  * - Reading or updating recv_seg
  */
 
@@ -73,10 +73,6 @@ struct exa_tcp_state
     /* Next send sequence number.
      * Data must be written to the tx_buffer before send_seq is incremented. */
     uint32_t send_seq;
-    /* Next unacknowledged sent sequence number */
-    uint32_t send_ack;
-    /* Receiver window */
-    uint32_t rwnd;
 
     uint8_t __reserved0[4];
 
@@ -93,6 +89,23 @@ struct exa_tcp_state
     } recv_seg[EXA_TCP_MAX_RX_SEGMENTS];
 
     /* 64 */
+    /* either user read-write and kernel read-mostly, or
+     * user read-mostly and kernel read-write.
+     * Note: In most of scenarios the first case applies. The second
+     *       case applies when kernel is ahead of the library with acknowledged
+     *       sequence numbers tracking (might happen when application does not
+     *       poll receive buffer for a while).
+     */
+
+    /* Next unacknowledged sent sequence number */
+    uint32_t send_ack;
+    /* First send sequence number beyond receiver window
+     * (send_ack + Receiver Window Size) */
+    uint32_t rwnd_end;
+
+    uint8_t __reserved1[56];
+
+    /* 128 */
     /* user read-mostly, kernel read-mostly */
 
     /* Receiver maximum segment size */
@@ -104,9 +117,9 @@ struct exa_tcp_state
     /* Slow start after idle? */
     uint8_t ss_after_idle;
 
-    uint8_t __reserved1[59];
+    uint8_t __reserved2[59];
 
-    /* 128 */
+    /* 192 */
     /* user read-mostly, kernel read-write */
 
     /* Congestion window */
@@ -114,13 +127,25 @@ struct exa_tcp_state
     /* Slow start threshold */
     uint32_t ssthresh;
 
-    uint8_t __reserved2[56];
+    uint8_t __reserved3[56];
 
-    /* 192 */
+    /* 256 */
     /* user write-mostly, kernel read-write */
 
     /* Set to true to signal that an ACK is needed */
     uint8_t ack_pending;
+
+    uint8_t __reserved4[63];
+
+    /* 320 */
+    /* Stats related info: user initialize, kernel read-write */
+
+    struct {
+        uint32_t init_send_seq;
+        uint32_t init_recv_seq;
+
+        uint8_t __reserved[56];
+    } stats;
 };
 
 struct exa_socket_state
@@ -203,4 +228,28 @@ struct exa_tcp_new_connection
     uint32_t __reserved[2];
 };
 
-#endif /* EXASOCK_KERNEL_STRUCTS_H_3184709AEFC64CF680494E0D75134908 */
+#define EXASOCK_EPOLL_FD_READY_RING_SIZE 512    /* Must be a power of 2 */
+#define EXASOCK_EPOLL_FD_READY_IDX_MASK \
+                            (EXASOCK_EPOLL_FD_READY_RING_SIZE - 1)
+#define EXASOCK_EPOLL_FD_READY_IDX_NEXT(idx) \
+                            (((idx) + 1) & EXASOCK_EPOLL_FD_READY_IDX_MASK)
+#define EXASOCK_EPOLL_FD_READY_IDX_INC(idx) \
+                            ((idx) = EXASOCK_EPOLL_FD_READY_IDX_NEXT(idx))
+#define EXASOCK_EPOLL_FD_READY_RING_FULL(n_rd, n_wr) \
+                            (EXASOCK_EPOLL_FD_READY_IDX_NEXT(n_wr) == n_rd)
+
+struct exasock_epoll_state
+{
+    /* Ring to notify user about listening sockets got ready for reading */
+    int fd_ready[EXASOCK_EPOLL_FD_READY_RING_SIZE];
+
+    /* Index of a next entry in fd_ready ring to be read by user.
+     * This index is updated by user. */
+    int next_read;
+
+    /* Index of a next entry in fd_ready ring to be written by kernel.
+     * This index is updated by kernel.  */
+    int next_write;
+};
+
+#endif /* EXASOCK_KERNEL_STRUCTS_H */

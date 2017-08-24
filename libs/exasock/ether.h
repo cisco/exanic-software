@@ -1,5 +1,5 @@
-#ifndef ETHER_H_D593FD9C788949B78EC67715F5ED77EC
-#define ETHER_H_D593FD9C788949B78EC67715F5ED77EC
+#ifndef EXASOCK_ETHER_H
+#define EXASOCK_ETHER_H
 
 struct vlan_hdr
 {
@@ -109,8 +109,10 @@ exa_eth_parse_hdr(struct exa_eth * restrict ctx, char *hdr,
     /* Check for VLAN tag */
     if (h->h_proto == htons(ETH_P_8021Q))
         return exa_eth_parse_vlan_hdr(ctx, *next_hdr, read_end, next_hdr);
-    else
-        return h->h_proto;
+    else if (ctx->vlan_id != 0)
+        return -1;
+
+    return h->h_proto;
 }
 
 static inline void
@@ -140,4 +142,4 @@ exa_eth_build_hdr(struct exa_eth_tx * restrict ctx, char ** restrict hdr,
     }
 }
 
-#endif /* ETHER_H_D593FD9C788949B78EC67715F5ED77EC */
+#endif /* EXASOCK_ETHER_H */

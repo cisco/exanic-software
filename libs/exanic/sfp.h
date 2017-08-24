@@ -2,8 +2,8 @@
  * \file
  * \brief Functions for communicating with SFPs
  */
-#ifndef SFP_H_5D340520BDCF0C0AFC6F51B0FE7E8948
-#define SFP_H_5D340520BDCF0C0AFC6F51B0FE7E8948
+#ifndef EXANIC_SFP_H
+#define EXANIC_SFP_H
 
 typedef struct exanic_sfp_info
 {
@@ -54,4 +54,4 @@ int exanic_get_qsfp_diag_info(exanic_t *exanic, int port_number,
                              exanic_qsfp_diag_info_t *info);
 
 
-#endif /* SFP_H_5D340520BDCF0C0AFC6F51B0FE7E8948 */
+#endif /* EXANIC_SFP_H */

@@ -8,8 +8,8 @@
  *
  * This documentation describes \ref REG_EXANIC_PCIE_IF_VER = 1.
  */
-#ifndef PCIE_IF_H_444319FB44A54F3CA89B95C248BAA2E3
-#define PCIE_IF_H_444319FB44A54F3CA89B95C248BAA2E3
+#ifndef EXANIC_PCIE_IF_H
+#define EXANIC_PCIE_IF_H
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 4096UL
@@ -48,7 +48,7 @@ enum
     EXANIC_TX_REGION_MAX_NUM_PAGES  = 512,  /* 2M */
 
     /** Number of DWORDs for a filter component. */
-    EXANIC_FILTER_NUM_DWORDS        = 10,   /* 40 bytes */
+    EXANIC_FILTER_NUM_DWORDS        = 11,   /* 44 bytes */
 
     /** The size of an RX chunk including the metadata (in bytes) */
     EXANIC_RX_CHUNK_SIZE            = 128,
@@ -1484,4 +1484,4 @@ enum ptp_best_master_state
     EXANIC_PTP_PORT_STATE_SLAVE = 9,
 };
 
-#endif /* PCIE_IF_H_444319FB44A54F3CA89B95C248BAA2E3 */
+#endif /* EXANIC_PCIE_IF_H */

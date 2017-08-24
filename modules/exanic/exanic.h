@@ -3,7 +3,10 @@
  * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
  */
 
-#define DRV_VERSION "1.8.1-git"
+#ifndef _EXANIC_H_
+#define _EXANIC_H_
+
+#define DRV_VERSION "2.0.0-git"
 #define DRV_NAME    "exanic"
 
 #define PCI_DEVICE_ID_EXANIC_OLD        0x2B00
@@ -15,6 +18,7 @@
 #define PCI_DEVICE_ID_EXANIC_X10_GM     0x0004
 #define PCI_DEVICE_ID_EXANIC_X40        0x0005
 #define PCI_DEVICE_ID_EXANIC_X10_HPT    0x0006
+#define PCI_DEVICE_ID_EXANIC_X40_40G    0x0007
 
 /* Interface to exanic_(get|set)_feature_cfg */
 enum exanic_feature
@@ -130,3 +134,5 @@ int exanic_x4_x2_set_speed(struct exanic *exanic, unsigned port_number,
 /* exanic-z10.c */
 int exanic_z10_poweron_port(struct exanic *exanic, unsigned port_num);
 int exanic_z10_poweroff_port(struct exanic *exanic, unsigned port_num);
+
+#endif /* _EXANIC_H_ */

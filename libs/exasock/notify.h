@@ -1,5 +1,5 @@
-#ifndef NOTIFY_H_66E233BF29384BDEB8983BF248D2C6FB
-#define NOTIFY_H_66E233BF29384BDEB8983BF248D2C6FB
+#ifndef EXASOCK_NOTIFY_H
+#define EXASOCK_NOTIFY_H
 
 #define EXA_NOTIFY_MAX_QUEUE 32
 
@@ -9,6 +9,21 @@
 #define EXA_NOTIFY_ERR  0x00000008
 #define EXA_NOTIFY_HUP  0x00000010
 #define EXA_NOTIFY_ET   0x80000000
+
+struct exa_notify_kern_epoll
+{
+    uint32_t lock;
+
+    /* File descriptor of this epoll if exasock kernel instance exists */
+    int fd;
+
+    /* Number of exasock file descriptors added to this exasock kernel instance
+     * of epoll */
+    int ref_cnt;
+
+    /* State of epoll shared between kernel and user */
+    struct exasock_epoll_state *state;
+};
 
 struct exa_notify_fd
 {
@@ -33,6 +48,17 @@ struct exa_notify_fd
     int list_prev;
 };
 
+struct exa_notify_fd_cnt
+{
+    uint32_t lock;
+
+    /* Number of bypass file descriptors belonging to this epoll */
+    unsigned int bypass;
+
+    /* Number of native file descriptors belonging to this epoll */
+    unsigned int native;
+};
+
 struct exa_notify
 {
     struct exa_notify_fd *fd_table;
@@ -46,26 +72,48 @@ struct exa_notify
     int queue[EXA_NOTIFY_MAX_QUEUE];
     uint32_t queue_lock;
 
-    /* Does this epoll have any native file descriptors? */
-    bool have_native;
+    /* File descriptor counters */
+    struct exa_notify_fd_cnt fd_cnt;
+
+    /* State of exasock kernel instance of epoll */
+    struct exa_notify_kern_epoll ep;
 };
 
+int exa_notify_kern_epoll_add(struct exa_notify * restrict no,
+                              struct exa_socket * restrict sock);
 struct exa_notify *exa_notify_alloc(void);
-void exa_notify_free(struct exa_notify *no);
-int exa_notify_insert_sock(struct exa_notify *no, struct exa_socket *sock,
+void exa_notify_free(struct exa_notify * restrict no);
+int exa_notify_insert_sock(struct exa_notify * restrict no,
+                           struct exa_socket * restrict sock,
                            uint32_t events);
-int exa_notify_modify_sock(struct exa_notify *no, struct exa_socket *sock,
+int exa_notify_modify_sock(struct exa_notify * restrict no,
+                           struct exa_socket * restrict sock,
                            uint32_t events);
-int exa_notify_remove_sock(struct exa_notify *no, struct exa_socket *sock);
-void exa_notify_remove_sock_all(struct exa_socket *sock);
-void exa_notify_udp_init(struct exa_socket *sock);
-void exa_notify_tcp_init(struct exa_socket *sock);
+int exa_notify_remove_sock(struct exa_notify * restrict no,
+                           struct exa_socket * restrict sock);
+void exa_notify_remove_sock_all(struct exa_socket * restrict sock);
+void exa_notify_udp_init(struct exa_socket * restrict sock);
+void exa_notify_tcp_init(struct exa_socket * restrict sock);
 
 static inline bool
 exa_notify_has_sock(struct exa_notify * restrict no,
                     struct exa_socket * restrict sock)
 {
     return sock->notify_parent == no;
+}
+
+static inline void
+exa_notify_enable_sock_bypass(struct exa_socket * restrict sock)
+{
+    struct exa_notify * restrict no = sock->notify_parent;
+
+    if (no != NULL)
+    {
+        exa_lock(&no->fd_cnt.lock);
+        no->fd_cnt.bypass++;
+        no->fd_cnt.native--;
+        exa_unlock(&no->fd_cnt.lock);
+    }
 }
 
 /* Add a socket to the maybe-ready queue */
@@ -147,6 +195,28 @@ exa_notify_queue_clear(struct exa_notify * restrict no, int fd)
     assert(fd >= 0 && fd < exa_socket_table_size);
 
     no->fd_table[fd].enqueued = false;
+}
+
+/* Remove a socket from the maybe-ready queue if it is there */
+static inline void
+exa_notify_queue_remove(struct exa_notify * restrict no, int fd)
+{
+    int i;
+
+    exa_lock(&no->queue_lock);
+
+    for (i = 0; i < no->queue_len; i++)
+    {
+        if (no->queue[i] == fd)
+        {
+            no->queue_len--;
+            memcpy(&no->queue[i], &no->queue[i + 1],
+                   (no->queue_len - i) * sizeof(int));
+            break;
+        }
+    }
+
+    exa_unlock(&no->queue_lock);
 }
 
 /* Called once when socket is ready for reading */
@@ -317,4 +387,4 @@ exa_notify_update(struct exa_socket * restrict sock)
         exa_notify_tcp_update(sock);
 }
 
-#endif /* NOTIFY_H_66E233BF29384BDEB8983BF248D2C6FB */
+#endif /* EXASOCK_NOTIFY_H */

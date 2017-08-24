@@ -1,8 +1,8 @@
-#ifndef EXASOCK_KERNEL_API_H_E93E80DA56F0480CA7B1A4F373471638
-#define EXASOCK_KERNEL_API_H_E93E80DA56F0480CA7B1A4F373471638
+#ifndef EXASOCK_KERNEL_API_H
+#define EXASOCK_KERNEL_API_H
 
 #define EXASOCK_DEVICE "/dev/exasock"
-#define EXASOCK_API_VERSION 13
+#define EXASOCK_API_VERSION 14
 
 #define EXASOCK_IOCTL_TYPE          'x'
 #define EXASOCK_IOCTL_SOCKET        _IOW(EXASOCK_IOCTL_TYPE, 0x50, int)
@@ -18,8 +18,13 @@
                                           struct exasock_dst_request)
 #define EXASOCK_IOCTL_UPDATE        _IOW(EXASOCK_IOCTL_TYPE, 0x5d, \
                                          struct exasock_endpoint)
+#define EXASOCK_IOCTL_EPOLL_CREATE  _IO(EXASOCK_IOCTL_TYPE, 0x5e)
+#define EXASOCK_IOCTL_EPOLL_CTL     _IOW(EXASOCK_IOCTL_TYPE, 0x5f, \
+                                          struct exasock_epoll_ctl_request)
 
-/* Arguments for EXASOCK_IOCTL_BIND_UDP and EXASOCK_IOCTL_BIND_TCP */
+/* Arguments for EXASOCK_IOCTL_BIND, EXASOCK_IOCTL_CONNECT
+ * and EXASOCK_IOCTL_UPDATE
+ */
 struct exasock_endpoint
 {
     uint32_t local_addr;
@@ -47,6 +52,21 @@ struct exasock_opt_request
     unsigned int optlen;
 };
 
+enum exasock_epoll_ctl_op
+{
+    EXASOCK_EPOLL_CTL_ADD,
+    EXASOCK_EPOLL_CTL_DEL
+};
+
+/* Argument for EXASOCK_IOCTL_EPOLL_CTL */
+struct exasock_epoll_ctl_request
+{
+    enum exasock_epoll_ctl_op op;
+    uint32_t local_addr;
+    uint16_t local_port;
+    int fd;
+};
+
 struct exasock_kernel_info
 {
     uint32_t api_version;
@@ -59,8 +79,10 @@ struct exasock_kernel_info
 #define EXASOCK_OFFSET_DST_USED_FLAGS   0x1800000
 #define EXASOCK_OFFSET_RX_BUFFER        0x2000000
 #define EXASOCK_OFFSET_TX_BUFFER        0x3000000
+#define EXASOCK_OFFSET_EPOLL_STATE      0x4000000
 
 #define EXASOCK_KERNEL_INFO_SIZE        0x1000
 #define EXASOCK_SOCKET_STATE_SIZE       0x1000
+#define EXASOCK_EPOLL_STATE_SIZE        0x1000
 
-#endif /* EXASOCK_KERNEL_API_H_E93E80DA56F0480CA7B1A4F373471638 */
+#endif /* EXASOCK_KERNEL_API_H */

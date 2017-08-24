@@ -7,7 +7,7 @@
 #define PICOS_PER_SEC (1000ULL * 1000 * 1000 * 1000)
 
 /* Read 64 bit hardware time, correcting for rollover.
- * Note that exanic_cycles_t is a signed 64-bit value and, for the
+ * Note that exanic_cycles_t is a signed 64 bit value and, for the
  * 4Ghz counter on the ExaNIC HPT variant, will overflow in 2043.
  * After that we'll need to move to 128 bit integers or find another
  * solution.
@@ -51,8 +51,13 @@ void exanic_cycles_to_timespecps(exanic_t *exanic, exanic_cycles_t cycles,
         struct exanic_timespecps *tsps)
 {
     tsps->tv_sec  = cycles / exanic->tick_hz;
-    tsps->tv_psec = (cycles % exanic->tick_hz) * PICOS_PER_SEC /
-            exanic->tick_hz;
+
+    /* This complicated bit of maths is necessary to avoid overflows while
+     * maintaining precision in the conversion between cycles and picoseconds */
+    uint64_t frac_cycles = cycles % exanic->tick_hz;
+    tsps->tv_psec = (frac_cycles * (PICOS_PER_SEC / exanic->tick_hz)) +
+            (frac_cycles * (PICOS_PER_SEC % exanic->tick_hz) / exanic->tick_hz);
+
 }
 
 void exanic_cycles_to_timespec(exanic_t *exanic, exanic_cycles_t cycles,

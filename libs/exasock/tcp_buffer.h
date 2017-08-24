@@ -1,5 +1,5 @@
-#ifndef TCP_BUFFER_H_23FE16BB58874EA5A781BFA0F29B324A
-#define TCP_BUFFER_H_23FE16BB58874EA5A781BFA0F29B324A
+#ifndef EXASOCK_TCP_BUFFER_H
+#define EXASOCK_TCP_BUFFER_H
 
 static inline int
 seq_compare(uint32_t a, uint32_t b)
@@ -378,4 +378,4 @@ exa_tcp_tx_buffer_empty(struct exa_socket * restrict sock)
     return (tcp->send_ack == tcp->send_seq);
 }
 
-#endif /* TCP_BUFFER_H_23FE16BB58874EA5A781BFA0F29B324A */
+#endif /* EXASOCK_TCP_BUFFER_H */

@@ -22,7 +22,6 @@
 #include "tcp.h"
 
 struct exa_hashtable __exa_tcp_sockfds;
-uint32_t __exa_tcp_sockfds_write_lock;
 
 __attribute__((constructor))
 void

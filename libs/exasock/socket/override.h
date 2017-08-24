@@ -1,5 +1,5 @@
-#ifndef OVERRIDE_H_DC43521EC0204430846EB44C89D56BB9
-#define OVERRIDE_H_DC43521EC0204430846EB44C89D56BB9
+#ifndef EXASOCK_SOCKET_OVERRIDE_H
+#define EXASOCK_SOCKET_OVERRIDE_H
 
 extern int (*libc_socket)(int, int, int);
 extern int (*libc_close)(int);
@@ -53,4 +53,4 @@ extern bool __thread signal_interrupted;
 
 extern bool __thread override_disabled;
 
-#endif /* OVERRIDE_H_DC43521EC0204430846EB44C89D56BB9 */
+#endif /* EXASOCK_SOCKET_OVERRIDE_H */

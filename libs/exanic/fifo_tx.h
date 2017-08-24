@@ -2,8 +2,8 @@
  * \file
  * \brief Functions for transmitting data on ExaNICs.
  */
-#ifndef FIFO_TX_H_BB41CD6329C4DFF3E94B5DFA83448F89
-#define FIFO_TX_H_BB41CD6329C4DFF3E94B5DFA83448F89
+#ifndef EXANIC_FIFO_TX_H
+#define EXANIC_FIFO_TX_H
 
 #include "exanic.h"
 #include "pcie_if.h"
@@ -139,4 +139,4 @@ exanic_cycles32_t exanic_get_tx_timestamp(exanic_tx_t *tx);
 }
 #endif
 
-#endif /* FIFO_TX_H_BB41CD6329C4DFF3E94B5DFA83448F89 */
+#endif /* EXANIC_FIFO_TX_H */

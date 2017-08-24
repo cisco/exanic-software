@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/kobject.h>
 #include <linux/netdevice.h>
+#include <linux/ethtool.h>
 #include <linux/miscdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/net_tstamp.h>
@@ -18,7 +19,7 @@
 #include "../../libs/exanic/fifo_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 /**
  * Module command line parameters
@@ -44,6 +45,29 @@ MODULE_PARM_DESC(disable_exasock, "Disable loading of exasock module");
 #define tx_hw_tstamp_flag(skb) skb_tx(skb)->hardware
 #else
 #define tx_hw_tstamp_flag(skb) (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 32)
+#define netdev_tx_t int
+#endif
+
+#ifndef SUPPORTED_1000baseKX_Full
+#define SUPPORTED_1000baseKX_Full	(1 << 17)
+#endif
+#ifndef SUPPORTED_10000baseKR_Full
+#define SUPPORTED_10000baseKR_Full	(1 << 19)
+#endif
+#ifndef SUPPORTED_40000baseCR4_Full
+#define SUPPORTED_40000baseCR4_Full	(1 << 24)
+#endif
+#ifndef SUPPORTED_40000baseSR4_Full
+#define SUPPORTED_40000baseSR4_Full	(1 << 25)
+#endif
+#ifndef SUPPORTED_40000baseLR4_Full
+#define SUPPORTED_40000baseLR4_Full	(1 << 26)
+#endif
+#ifndef SPEED_40000
+#define SPEED_40000 40000
 #endif
 
 #ifndef SIOCGHWTSTAMP
@@ -125,7 +149,7 @@ enum
 {
     FEEDBACK_INTERVAL = 512,
 
-    MAX_RX_PACKET_SIZE = 1522,
+    MAX_ETH_OVERHEAD_BYTES = 26, /* header + 2 VLAN tags + FCS */
 
     /* Additional RX error codes */
     EXANIC_RX_FRAME_SWOVFL = 256,
@@ -341,9 +365,9 @@ static struct tx_chunk *exanic_prepare_tx_chunk(struct exanic_netdev_tx *tx,
             return NULL;
 
         if (--timeout == 0)
-           return NULL; 
+           return NULL;
     }
-    
+
     return (struct tx_chunk *)(tx->buffer + tx->next_offset);
 }
 
@@ -472,7 +496,11 @@ void exanic_netdev_rx_irq_handler(struct net_device *ndev)
 static int exanic_netdev_kernel_start(struct net_device *ndev)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
-    size_t tx_buf_size = PAGE_SIZE;
+    size_t max_frame_size = ndev->mtu + MAX_ETH_OVERHEAD_BYTES;
+    size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
+    size_t max_chunk_size = ALIGN(max_frame_size + padding
+                                  + sizeof(struct tx_chunk), 8);
+    size_t tx_buf_size = PAGE_ALIGN((max_chunk_size + FEEDBACK_INTERVAL) * 2);
     size_t tx_buf_offset;
     unsigned feedback_slot;
     int queue_len;
@@ -524,7 +552,7 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
     hrtimer_init(&priv->rx_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     priv->rx_hrtimer.function = &exanic_hrtimer_callback;
     priv->rx_coalesce_timeout_ns = DEFAULT_RX_COALESCE_US * 1000;
-    
+
     napi_enable(&priv->napi);
     netif_start_queue(ndev);
 
@@ -833,6 +861,18 @@ static int exanic_netdev_set_mac_addr(struct net_device *ndev, void *p)
 }
 
 /**
+ * Handle user setting the MTU on an ExaNIC interface.
+ */
+static int exanic_netdev_change_mtu(struct net_device *ndev, int new_mtu)
+{
+    if (netif_running(ndev))
+        return -EBUSY;
+
+    ndev->mtu = new_mtu;
+    return 0;
+}
+
+/**
  * Handle ioctl request on a ExaNIC interface.
  */
 int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
@@ -899,6 +939,7 @@ int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
             return 0;
         }
     case SIOCGHWTSTAMP:
+    case EXAIOCGHWTSTAMP:
         {
             struct hwtstamp_config config;
 
@@ -936,6 +977,7 @@ static struct net_device_ops exanic_ndos = {
     .ndo_start_xmit         = exanic_netdev_xmit,
     .ndo_set_rx_mode        = exanic_netdev_set_rx_mode,
     .ndo_set_mac_address    = exanic_netdev_set_mac_addr,
+    .ndo_change_mtu         = exanic_netdev_change_mtu,
     .ndo_do_ioctl           = exanic_netdev_ioctl,
 };
 
@@ -953,6 +995,10 @@ static int exanic_netdev_get_settings(struct net_device *ndev,
         cmd->supported |= SUPPORTED_1000baseT_Full | SUPPORTED_1000baseKX_Full | SUPPORTED_Autoneg;
     if (reg & EXANIC_CAP_10G)
         cmd->supported |= SUPPORTED_10000baseKR_Full;
+    if (reg & EXANIC_CAP_40G)
+         cmd->supported |= SUPPORTED_40000baseCR4_Full |
+                           SUPPORTED_40000baseSR4_Full |
+                           SUPPORTED_40000baseLR4_Full;
 
     reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_SPEED)]);
     ethtool_cmd_speed_set(cmd, reg);
@@ -984,7 +1030,8 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
     {
         if ((speed == SPEED_100 && (caps & EXANIC_CAP_100M)) ||
             (speed == SPEED_1000 && (caps & EXANIC_CAP_1G)) ||
-            (speed == SPEED_10000 && (caps & EXANIC_CAP_10G)))
+            (speed == SPEED_10000 && (caps & EXANIC_CAP_10G)) ||
+            (speed == SPEED_40000 && (caps & EXANIC_CAP_40G)))
         {
             /* Card specific updates */
             if (priv->exanic->hw_id == EXANIC_HW_X4 ||
@@ -1168,7 +1215,7 @@ out:
     return err;
 }
 
-static int exanic_netdev_get_coalesce(struct net_device *ndev, 
+static int exanic_netdev_get_coalesce(struct net_device *ndev,
                                       struct ethtool_coalesce *ec)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1176,7 +1223,7 @@ static int exanic_netdev_get_coalesce(struct net_device *ndev,
     return 0;
 }
 
-static int exanic_netdev_set_coalesce(struct net_device *ndev, 
+static int exanic_netdev_set_coalesce(struct net_device *ndev,
                                       struct ethtool_coalesce *ec)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1192,9 +1239,9 @@ static int exanic_netdev_set_coalesce(struct net_device *ndev,
 static int exanic_netdev_get_ts_info(struct net_device *ndev,
                                      struct ethtool_ts_info *eti)
 {
+#if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
 
-#if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     if (priv->exanic->ptp_clock != NULL)
     {
         eti->so_timestamping = SOF_TIMESTAMPING_RX_HARDWARE |
@@ -1269,6 +1316,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         container_of(napi, struct exanic_netdev_priv, napi);
     struct exanic_netdev_rx *rx = &priv->rx;
     struct net_device *ndev = priv->ndev;
+    size_t max_frame_size = ndev->mtu + MAX_ETH_OVERHEAD_BYTES;
     int received = 0, chunk_count = 0;
     ssize_t len;
     uint32_t chunk_id = 0, tstamp;
@@ -1281,7 +1329,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         if (priv->skb == NULL)
         {
             /* New packet */
-            priv->skb = netdev_alloc_skb(ndev, MAX_RX_PACKET_SIZE + 2);
+            priv->skb = netdev_alloc_skb(ndev, max_frame_size + NET_IP_ALIGN);
             if (priv->skb == NULL)
                 break;
             skb_reserve(priv->skb, NET_IP_ALIGN);

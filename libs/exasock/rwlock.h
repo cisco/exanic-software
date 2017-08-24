@@ -1,5 +1,5 @@
-#ifndef RWLOCK_H_6A72AAD751B0F7ADA6CB106151C73685
-#define RWLOCK_H_6A72AAD751B0F7ADA6CB106151C73685
+#ifndef EXASOCK_RWLOCK_H
+#define EXASOCK_RWLOCK_H
 
 struct exa_rwlock
 {
@@ -132,4 +132,4 @@ exa_read_unlock(struct exa_rwlock *lock)
     __sync_add_and_fetch((uint8_t *)lock, 1);
 }
 
-#endif /* RWLOCK_H_6A72AAD751B0F7ADA6CB106151C73685 */
+#endif /* EXASOCK_RWLOCK_H */

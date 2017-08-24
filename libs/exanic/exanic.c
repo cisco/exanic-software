@@ -71,14 +71,21 @@ exanic_t * exanic_acquire_handle(const char *device_name)
         goto err_mmap_registers;
     }
 
+    uint32_t caps = registers[REG_EXANIC_INDEX(REG_EXANIC_CAPS)];
+    uint32_t tick_hz = registers[REG_EXANIC_INDEX(REG_EXANIC_CLK_HZ)];
+
     /* Map info page */
     struct exanic_info_page *info_page = mmap(NULL,
             EXANIC_INFO_NUM_PAGES * PAGE_SIZE, PROT_READ, MAP_SHARED, fd,
             EXANIC_PGOFF_INFO * PAGE_SIZE);
     if (info_page == MAP_FAILED)
     {
-        exanic_err_printf("info page mmap failed: %s", strerror(errno));
-        goto err_mmap_info_page;
+        /* Card may be unsupported or using an old driver that does not
+         * support the info page.  If the info page is required to obtain
+         * the time on this card, disable timestamping. */
+        info_page = NULL;
+        if (!(caps & EXANIC_CAP_HW_TIME_HI))
+          tick_hz = 0;
     }
 
     /* Map TX feedback slots and TX buffer if available */
@@ -168,8 +175,8 @@ exanic_t * exanic_acquire_handle(const char *device_name)
     exanic->tx_buffer_size = info.tx_buffer_size;
     exanic->filters = filters;
     exanic->filters_size = info.filters_size;
-    exanic->tick_hz = registers[REG_EXANIC_INDEX(REG_EXANIC_CLK_HZ)];
-    exanic->caps = registers[REG_EXANIC_INDEX(REG_EXANIC_CAPS)];
+    exanic->tick_hz = tick_hz;
+    exanic->caps = caps;
     exanic->fd = fd;
     exanic->max_filter_buffers = info.max_buffers;
     strncpy(exanic->name, device_name, sizeof(exanic->name));
@@ -199,8 +206,8 @@ err_mmap_tx:
     if (feedback_slots != NULL)
         munmap(feedback_slots, EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE);
 err_mmap_feedback:
-    munmap(info_page, EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
-err_mmap_info_page:
+    if (info_page != NULL)
+        munmap(info_page, EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
     munmap(registers, EXANIC_REGS_NUM_PAGES * PAGE_SIZE);
 err_mmap_registers:
 err_ioctl:
@@ -235,9 +242,19 @@ void exanic_release_handle(exanic_t *exanic)
         }
 
     /* Unmap buffers and free the exanic struct */
-    munmap((void *)exanic->tx_buffer, exanic->tx_buffer_size);
-    munmap((void *)exanic->tx_feedback_slots,
-            EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE);
+    if (exanic->devkit_mem_region != NULL)
+        munmap((void *)exanic->devkit_mem_region, exanic->devkit_mem_size);
+    if (exanic->devkit_regs_region != NULL)
+        munmap((void *)exanic->devkit_regs_region, exanic->devkit_regs_size);
+    if (exanic->filters != NULL)
+        munmap((void *)exanic->filters, exanic->filters_size);
+    if (exanic->tx_buffer != NULL)
+        munmap((void *)exanic->tx_buffer, exanic->tx_buffer_size);
+    if (exanic->tx_feedback_slots != NULL)
+        munmap((void *)exanic->tx_feedback_slots,
+                EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE);
+    if (exanic->info_page != NULL)
+        munmap((void *)exanic->info_page, EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
     munmap((void *)exanic->registers, EXANIC_REGS_NUM_PAGES * PAGE_SIZE);
     close(exanic->fd);
 

@@ -3,6 +3,9 @@
  * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
  */
 
+#ifndef _EXANIC_STRUCTS_H_
+#define _EXANIC_STRUCTS_H_
+
 #if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
 #include <linux/ptp_clock_kernel.h>
 #endif
@@ -193,3 +196,5 @@ static inline void *exanic_rx_region(struct exanic *exanic, unsigned port_num)
 {
     return exanic->port[port_num].rx_region_virt;
 }
+
+#endif /* _EXANIC_STRUCTS_H_ */

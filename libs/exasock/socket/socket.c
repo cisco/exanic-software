@@ -26,6 +26,9 @@
 
 #include <linux/sockios.h>
 
+#include <exasock/socket.h>
+
+#include "../kernel/api.h"
 #include "../kernel/consts.h"
 #include "../kernel/structs.h"
 #include "../lock.h"
@@ -72,6 +75,7 @@ socket(int domain, int type, int protocol)
 
         exa_socket_zero(sock);
         exa_socket_init(sock, domain, type & 0xF, protocol);
+        sock->valid = true;
 
         ret = libc_fcntl(fd, F_GETFL);
         if (ret != -1)
@@ -98,11 +102,18 @@ __linger_tcp_ready(struct exa_socket * restrict sock, int *ret, int dummy)
 static int
 linger_tcp(struct exa_socket * restrict sock, int fd)
 {
+    struct exa_timeo timeout;
+    bool nonblock;
     int ret;
 
-    /* Block until socket transmit buffer is empty */
-    /* FIXME: Exit after timeout */
-    do_socket_wait(sock, fd, false, __linger_tcp_ready, ret, 0);
+    /* Block until socket transmit buffer is empty or timeout occurs */
+    timeout.enabled = !!sock->so_linger.l_linger;
+    timeout.val.tv_sec = sock->so_linger.l_linger;
+    timeout.val.tv_usec = 0;
+    nonblock = (!timeout.enabled) || (sock->flags & O_NONBLOCK);
+    do_socket_wait(sock, fd, nonblock, timeout, __linger_tcp_ready, ret, 0);
+    if (errno == EAGAIN)
+        errno = EWOULDBLOCK;
     return ret;
 }
 
@@ -111,6 +122,7 @@ int
 close(int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
+    int linger_ret = 0;
     int ret;
 
     if (override_disabled)
@@ -135,7 +147,8 @@ close(int fd)
                     /* SO_LINGER is set */
                     /* Convert to read lock before blocking operation */
                     exa_rwlock_downgrade(&sock->lock);
-                    if (linger_tcp(sock, fd) == -1)
+                    linger_ret = linger_tcp(sock, fd);
+                    if ((linger_ret == -1) && (errno != EWOULDBLOCK))
                     {
                         exa_read_unlock(&sock->lock);
                         TRACE_RETURN(INT, -1);
@@ -148,7 +161,7 @@ close(int fd)
                     exa_write_lock(&sock->lock);
                     if (gen_id != sock->gen_id)
                     {
-                        exa_read_unlock(&sock->lock);
+                        exa_write_unlock(&sock->lock);
                         errno = EBADF;
                         TRACE_RETURN(INT, -1);
                         return -1;
@@ -156,6 +169,9 @@ close(int fd)
                 }
 
                 /* Reset the connection if it's not already closed */
+                /* FIXME: as soon as we are able to perform graceful closing
+                 *        in background, exanic_tcp_reset() should be called
+                 *        only if linger_tcp() returns with EWOULDBLOCK */
                 exa_lock(&sock->state->tx_lock);
                 exanic_tcp_reset(sock);
                 exa_unlock(&sock->state->tx_lock);
@@ -180,6 +196,11 @@ close(int fd)
     }
 
     ret = libc_close(fd);
+
+    /* If we had a linger timeout on the way, make sure we inform about it */
+    if (ret == 0)
+        ret = linger_ret;
+
     TRACE_RETURN(INT, ret);
     return ret;
 }
@@ -209,12 +230,10 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     if (!sock->bypass && !sock->disable_bypass)
     {
-        /* Put into bypass mode if address is an ExaNIC interface, INADDR_ANY,
-         * or a multicast address */
+        /* Put into bypass mode if address is an ExaNIC interface or INADDR_ANY */
         if (sock->domain == AF_INET && in_addr->sin_family == AF_INET)
         {
             if (in_addr->sin_addr.s_addr == htonl(INADDR_ANY) ||
-                IN_MULTICAST(ntohl(in_addr->sin_addr.s_addr)) ||
                 exanic_ip_find(in_addr->sin_addr.s_addr))
             {
                 /* On successful return we hold rx_lock and tx_lock */
@@ -266,7 +285,8 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 static int
-bind_to_device(struct exa_socket * restrict sock, const char *ifnamein, socklen_t ifnamelen)
+bind_to_device(struct exa_socket * restrict sock, const char *ifnamein,
+               socklen_t ifnamelen)
 {
     char ifname[IFNAMSIZ];
     in_addr_t address;
@@ -278,7 +298,7 @@ bind_to_device(struct exa_socket * restrict sock, const char *ifnamein, socklen_
     memcpy(ifname, ifnamein, ifnamelen);
     ifname[ifnamelen] = 0;
 
-    if (exanic_ip_find_by_interface(ifname, &address))
+    if (exanic_ip_find_by_interface(ifname, &address) && !sock->disable_bypass)
     {
         if (!sock->bypass)
         {
@@ -387,7 +407,7 @@ __accept_tcp_block_ready(struct exa_socket * restrict sock, int *ret,
  * On success, returns 0 with socket rx_lock held
  * Otherwise returns -1 with no locks held */
 static int
-accept_tcp_block(struct exa_socket * restrict sock, int sockfd,
+accept_tcp_block(struct exa_socket * restrict sock,
                  struct exa_endpoint * restrict ep,
                  struct exa_tcp_init_state * restrict tcp_state)
 {
@@ -396,14 +416,14 @@ accept_tcp_block(struct exa_socket * restrict sock, int sockfd,
 
     assert(exa_read_locked(&sock->lock));
 
-    do_socket_poll(sock, sockfd, nonblock, __accept_tcp_block_ready,
+    do_socket_poll(sock, nonblock, sock->so_rcvtimeo, __accept_tcp_block_ready,
                    ret, ep, tcp_state);
     return ret;
 }
 
 static int
-accept4_tcp(struct exa_socket * restrict sock, int sockfd,
-            struct sockaddr *addr, socklen_t *addrlen, int flags)
+accept4_tcp(struct exa_socket * restrict sock, struct sockaddr *addr,
+            socklen_t *addrlen, int flags)
 {
     struct exa_endpoint ep;
     struct exa_tcp_init_state tcp_state;
@@ -418,7 +438,7 @@ accept4_tcp(struct exa_socket * restrict sock, int sockfd,
         return -1;
     }
 
-    if (accept_tcp_block(sock, sockfd, &ep, &tcp_state) == -1)
+    if (accept_tcp_block(sock, &ep, &tcp_state) == -1)
         return -1;
 
     exa_unlock(&sock->state->rx_lock);
@@ -449,12 +469,38 @@ accept4_tcp(struct exa_socket * restrict sock, int sockfd,
     return fd;
 }
 
+static void
+accept_native_init(int fd, struct exa_socket * restrict ls_sock, int flags)
+{
+    struct exa_socket * restrict sock = exa_socket_get(fd);
+
+    if (sock != NULL)
+    {
+        exa_write_lock(&sock->lock);
+
+        exa_socket_zero(sock);
+        sock->valid = true;
+
+        if (ls_sock != NULL)
+        {
+            exa_socket_init(sock, ls_sock->domain, ls_sock->type & 0xF,
+                            ls_sock->protocol);
+            sock->disable_bypass = ls_sock->disable_bypass;
+        }
+
+        sock->flags = flags;
+
+        exa_write_unlock(&sock->lock);
+    }
+}
+
 __attribute__((visibility("default")))
 int
 accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     struct exa_socket * restrict sock = exa_socket_get(sockfd);
-    int ret;
+    bool native = false;
+    int fd;
 
     TRACE_CALL("accept");
     TRACE_ARG(INT, sockfd);
@@ -467,28 +513,35 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_accept(sockfd, addr, addrlen);
+            native = true;
+            fd = libc_accept(sockfd, addr, addrlen);
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
-            ret = accept4_tcp(sock, sockfd, addr, addrlen, 0);
+            fd = accept4_tcp(sock, addr, addrlen, 0);
             exa_read_unlock(&sock->lock);
         }
         else
         {
             exa_read_unlock(&sock->lock);
             errno = EOPNOTSUPP;
-            ret = -1;
+            fd = -1;
         }
     }
     else
-        ret = libc_accept(sockfd, addr, addrlen);
+    {
+        native = true;
+        fd = libc_accept(sockfd, addr, addrlen);
+    }
+
+    if (native && fd != -1)
+        accept_native_init(fd, sock, 0);
 
     TRACE_ARG(SOCKADDR_PTR, addr);
     TRACE_LAST_ARG(INT_PTR, addrlen);
-    TRACE_RETURN(INT, ret);
+    TRACE_RETURN(INT, fd);
 
-    return ret;
+    return fd;
 }
 
 __attribute__((visibility("default")))
@@ -496,7 +549,8 @@ int
 accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     struct exa_socket * restrict sock = exa_socket_get(sockfd);
-    int ret;
+    bool native = false;
+    int fd;
 
     TRACE_CALL("accept4");
     TRACE_ARG(INT, sockfd);
@@ -509,29 +563,36 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_accept4(sockfd, addr, addrlen, flags);
+            native = true;
+            fd = libc_accept4(sockfd, addr, addrlen, flags);
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
-            ret = accept4_tcp(sock, sockfd, addr, addrlen, flags);
+            fd = accept4_tcp(sock, addr, addrlen, flags);
             exa_read_unlock(&sock->lock);
         }
         else
         {
             exa_read_unlock(&sock->lock);
             errno = EOPNOTSUPP;
-            ret = -1;
+            fd = -1;
         }
     }
     else
-        ret = libc_accept4(sockfd, addr, addrlen, flags);
+    {
+        native = true;
+        fd = libc_accept4(sockfd, addr, addrlen, flags);
+    }
+
+    if (native && fd != -1)
+        accept_native_init(fd, sock, flags);
 
     TRACE_ARG(SOCKADDR_PTR, addr);
     TRACE_ARG(INT_PTR, addrlen);
     TRACE_LAST_ARG(BITS, flags, sock_flags);
-    TRACE_RETURN(INT, ret);
+    TRACE_RETURN(INT, fd);
 
-    return ret;
+    return fd;
 }
 
 /* This function will release rx_lock, tx_lock and socket lock */
@@ -547,7 +608,7 @@ connect_udp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
     assert(sock->bound);
     assert(!sock->connected);
 
-    if (sock->all_if && exa_dst_lookup_src(addr, NULL) == -1)
+    if (sock->listen.all_if && exa_dst_lookup_src(addr, NULL) == -1)
     {
         /* Destination not reachable on ExaNIC interface */
         errno = EINVAL;
@@ -627,7 +688,7 @@ connect_tcp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
         return ret;
     }
 
-    if (sock->flags & O_NONBLOCK)
+    if (nonblock)
     {
         /* Don't wait for connection to be established */
         exa_write_unlock(&sock->lock);
@@ -639,8 +700,15 @@ connect_tcp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
     exa_rwlock_downgrade(&sock->lock);
 
     /* Block until socket is connected */
-    do_socket_wait(sock, sockfd, nonblock, __connect_tcp_ready, ret, 0);
+    do_socket_wait(sock, sockfd, nonblock, sock->so_sndtimeo,
+                   __connect_tcp_ready, ret, 0);
+
     exa_read_unlock(&sock->lock);
+
+    /* connect does not return EAGAIN but EINPROGRESS */
+    if (errno == EAGAIN)
+        errno = EINPROGRESS;
+
     return ret;
 }
 
@@ -1005,7 +1073,7 @@ ioctl(int fd, unsigned long int request, ...)
     {
     case FIONBIO:
         {
-            if (sock != NULL && sock->bypass)
+            if (sock != NULL)
             {
                 if (*va_arg(ap, int *) == 0)
                     sock->flags &= ~O_NONBLOCK;
@@ -1286,7 +1354,74 @@ getsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             out_int = true;
             ret = 0;
             break;
+        case SO_SNDTIMEO:
+            if (*optlen > sizeof(struct timeval))
+                *optlen = sizeof(struct timeval);
+            memcpy(optval, &sock->so_sndtimeo.val, sizeof(struct timeval));
+            ret = 0;
+            break;
+        case SO_RCVTIMEO:
+            if (*optlen > sizeof(struct timeval))
+                *optlen = sizeof(struct timeval);
+            memcpy(optval, &sock->so_rcvtimeo.val, sizeof(struct timeval));
+            ret = 0;
+            break;
         }
+    }
+
+    exa_read_unlock(&sock->lock);
+
+    if (out_int)
+    {
+        if (*optlen >= sizeof(int))
+        {
+            *(int *)optval = val;
+            *optlen = sizeof(int);
+        }
+        else if (*optlen >= sizeof(unsigned char))
+        {
+            *(unsigned char *)optval = val;
+            *optlen = sizeof(unsigned char);
+        }
+    }
+
+    return ret;
+}
+
+static int
+getsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
+                   void *optval, socklen_t *optlen)
+{
+    int val;
+    int ret;
+    bool out_int = false;
+
+    if (sock == NULL)
+    {
+        /* Unfortunatelly Exasock has no control over this file descriptor,
+         * so there is no way to obtain state of its options at this level */
+        errno = EBADFD;
+        return -1;
+    }
+    if (!sock->valid)
+    {
+        /* Not a valid socket */
+        errno = ENOTSOCK;
+        return -1;
+    }
+
+    exa_read_lock(&sock->lock);
+
+    switch (optname)
+    {
+    case SO_EXA_NO_ACCEL:
+        val = sock->disable_bypass;
+        out_int = true;
+        ret = 0;
+        break;
+    default:
+        errno = ENOPROTOOPT;
+        ret = -1;
     }
 
     exa_read_unlock(&sock->lock);
@@ -1321,12 +1456,14 @@ getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
     TRACE_ARG(ENUM, optname, sockopt);
     TRACE_FLUSH();
 
-    if ((sock != NULL) && (level == IPPROTO_IP))
+    if (level == SOL_EXASOCK)
+        ret = getsockopt_exasock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == SOL_SOCKET))
+        ret = getsockopt_sock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == IPPROTO_IP))
         ret = getsockopt_ip(sock, sockfd, optname, optval, optlen);
     else if ((sock != NULL) && (level == IPPROTO_TCP))
         ret = getsockopt_tcp(sock, sockfd, optname, optval, optlen);
-    else if ((sock != NULL) && (level == SOL_SOCKET))
-        ret = getsockopt_sock(sock, sockfd, optname, optval, optlen);
     else
         ret = libc_getsockopt(sockfd, level, optname, optval, optlen);
 
@@ -1343,6 +1480,8 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 {
     int val = 0;
     int ret;
+    struct exa_mcast_endpoint mcast_ep;
+    bool is_exanic = false;
 
     if (optname == IP_MULTICAST_TTL || optname == IP_MULTICAST_LOOP)
     {
@@ -1370,6 +1509,111 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             goto err_exit;
         }
         break;
+
+    case IP_ADD_MEMBERSHIP:
+    case IP_DROP_MEMBERSHIP:
+        if (sock->type == SOCK_DGRAM)
+        {
+            if (optlen >= sizeof(struct ip_mreqn))
+            {
+                struct ip_mreqn *mreqn = (struct ip_mreqn *)optval;
+                char devname[IF_NAMESIZE];
+
+                if (mreqn->imr_ifindex)
+                {
+                    mcast_ep.interface = htonl(INADDR_ANY);
+                    is_exanic = exanic_ip_find_by_interface(
+                                    if_indextoname(mreqn->imr_ifindex, devname),
+                                    &mcast_ep.interface);
+                    if (mcast_ep.interface == htonl(INADDR_ANY))
+                    {
+                        /* No interface found */
+                        errno = EINVAL;
+                        goto err_exit;
+                    }
+                }
+                else
+                {
+                    mcast_ep.interface = mreqn->imr_address.s_addr;
+                    is_exanic = exanic_ip_find(mcast_ep.interface);
+                }
+                mcast_ep.multiaddr = mreqn->imr_multiaddr.s_addr;
+            }
+            else if (optlen >= sizeof(struct ip_mreq))
+            {
+                struct ip_mreq *mreq = (struct ip_mreq *)optval;
+
+                mcast_ep.interface = mreq->imr_interface.s_addr;
+                is_exanic = exanic_ip_find(mcast_ep.interface);
+                mcast_ep.multiaddr = mreq->imr_multiaddr.s_addr;
+            }
+            else
+            {
+                errno = EINVAL;
+                goto err_exit;
+            }
+
+            if (optname == IP_ADD_MEMBERSHIP)
+            {
+                if (!is_exanic && (mcast_ep.interface != htonl(INADDR_ANY)) &&
+                    sock->bypass)
+                {
+                    /* Unable to join multicast on an accelerated socket with
+                     * non-exanic interface
+                     */
+                    errno = EOPNOTSUPP;
+                    goto err_exit;
+                }
+
+                if (is_exanic && !sock->disable_bypass)
+                {
+                    /* Joining multicast groups with mixed (exanic and
+                     * non-exanic) interfaces on the same socket is not
+                     * supported. An attempt to enable bypass on such a socket
+                     * would cause no ability to receive multicast packets from
+                     * groups joined with non-exanic interfaces.
+                     */
+                    if (sock->ip_membership.num_not_bypassed > 0)
+                    {
+                        errno = EOPNOTSUPP;
+                        goto err_exit;
+                    }
+
+                    /* FIXME: No support for multiple multicast groups joined on
+                     * the same accelerated socket
+                     */
+                    if (sock->ip_membership.mcast_ep_valid)
+                    {
+                        errno = EOPNOTSUPP;
+                        goto err_exit;
+                    }
+                }
+            }
+            else /* IP_DROP_MEMBERSHIP */
+            {
+                if (is_exanic && !sock->disable_bypass)
+                {
+                    if (!sock->bypass || !sock->ip_membership.mcast_ep_valid ||
+                        (sock->ip_membership.mcast_ep.interface !=
+                                mcast_ep.interface) ||
+                        (sock->ip_membership.mcast_ep.multiaddr !=
+                                mcast_ep.multiaddr))
+                    {
+                        errno = EINVAL;
+                        goto err_exit;
+                    }
+                }
+                else
+                {
+                    if (sock->ip_membership.num_not_bypassed == 0)
+                    {
+                        errno = EINVAL;
+                        goto err_exit;
+                    }
+                }
+            }
+        }
+        break;
     }
 
     if (sock->bypass)
@@ -1380,10 +1624,67 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     if (ret == -1)
         goto err_exit;
 
-    /* Keep track of some socket options which we will need to know
-     * if this socket is put into bypass mode */
+    /* Process some socket options on exasock level or keep track of those
+     * we will need to know if this socket is put into bypass mode
+     */
     switch (optname)
     {
+    case IP_ADD_MEMBERSHIP:
+        if (is_exanic && !sock->disable_bypass)
+        {
+            if (!sock->bypass)
+            {
+                /* Put socket into bypass mode.
+                 * On successful return we hold rx_lock and tx_lock.
+                 */
+                ret = exa_socket_enable_bypass(sock);
+                if (ret == -1)
+                {
+                    libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval,
+                                    optlen);
+                    goto err_exit;
+                }
+                exa_unlock(&sock->state->rx_lock);
+                exa_unlock(&sock->state->tx_lock);
+                assert(sock->bypass);
+            }
+
+            if (sock->bound)
+            {
+                ret = exa_socket_add_mcast(sock, &mcast_ep);
+                if (ret == -1)
+                    goto err_exit;
+            }
+
+            sock->ip_membership.mcast_ep = mcast_ep;
+            sock->ip_membership.mcast_ep_valid = true;
+        }
+        else
+        {
+            sock->ip_membership.num_not_bypassed++;
+        }
+        break;
+
+    case IP_DROP_MEMBERSHIP:
+        if (is_exanic && !sock->disable_bypass)
+        {
+            if (sock->bound)
+            {
+                ret = exa_socket_del_mcast(sock, &mcast_ep);
+                if (ret == -1)
+                    goto err_exit;
+            }
+
+            sock->ip_membership.mcast_ep_valid = false;
+            sock->ip_membership.mcast_ep.interface = htonl(INADDR_ANY);
+            sock->ip_membership.mcast_ep.multiaddr = htonl(INADDR_ANY);
+        }
+        else
+        {
+            sock->ip_membership.num_not_bypassed--;
+        }
+        break;
+
     case IP_MULTICAST_IF:
         if (optlen >= sizeof(struct ip_mreqn))
         {
@@ -1496,6 +1797,8 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             optname == SO_TIMESTAMP ||
             optname == SO_TIMESTAMPNS ||
             optname == SO_TIMESTAMPING ||
+            optname == SO_SNDTIMEO ||
+            optname == SO_RCVTIMEO ||
            (optname == SO_REUSEADDR && sock->type == SOCK_STREAM))
             ret = 0;
         else
@@ -1516,6 +1819,11 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
         case SO_LINGER:
             if (optlen >= sizeof(struct linger))
                 memcpy(&sock->so_linger, optval, sizeof(struct linger));
+            else
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
             break;
         case SO_TIMESTAMP:
             sock->so_timestamp = (val != 0);
@@ -1534,7 +1842,88 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             if (sock->bypass)
                 exa_socket_update_timestamping(sock);
             break;
+        case SO_SNDTIMEO:
+            if (optlen >= sizeof(struct timeval))
+                memcpy(&sock->so_sndtimeo.val, optval, sizeof(struct timeval));
+            else
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
+            sock->so_sndtimeo.enabled =
+                sock->so_sndtimeo.val.tv_sec || sock->so_sndtimeo.val.tv_usec;
+            break;
+        case SO_RCVTIMEO:
+            if (optlen >= sizeof(struct timeval))
+                memcpy(&sock->so_rcvtimeo.val, optval, sizeof(struct timeval));
+            else
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
+            sock->so_rcvtimeo.enabled =
+                sock->so_rcvtimeo.val.tv_sec || sock->so_rcvtimeo.val.tv_usec;
+            break;
         }
+    }
+
+    exa_write_unlock(&sock->lock);
+    return ret;
+}
+
+static int
+setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
+                   const void *optval, socklen_t optlen)
+{
+    int val = 0;
+    int ret;
+
+    if (sock == NULL)
+    {
+        /* Unfortunatelly Exasock has no control over this file descriptor,
+         * so there is no way to manipulate its options at this level */
+        errno = EBADFD;
+        return -1;
+    }
+    if (!sock->valid)
+    {
+        /* Not a valid socket */
+        errno = ENOTSOCK;
+        return -1;
+    }
+
+    if (optname == SO_EXA_NO_ACCEL)
+    {
+        if (optlen >= sizeof(int))
+            val = *(int *)optval;
+        else if (optlen >= sizeof(unsigned char))
+            val = *(unsigned char *)optval;
+        else
+        {
+            errno = EINVAL;
+            return -1;
+        }
+    }
+
+    exa_write_lock(&sock->lock);
+
+    switch (optname)
+    {
+        case SO_EXA_NO_ACCEL:
+            if ((val && sock->bypass) || (val == 0 && sock->disable_bypass))
+            {
+                errno = EPERM;
+                ret = -1;
+            }
+            else
+            {
+                sock->disable_bypass = (val != 0);
+                ret = 0;
+            }
+            break;
+        default:
+            errno = ENOPROTOOPT;
+            ret = -1;
     }
 
     exa_write_unlock(&sock->lock);
@@ -1557,12 +1946,14 @@ setsockopt(int sockfd, int level, int optname, const void *optval,
     TRACE_LAST_ARG(INT, optlen);
     TRACE_FLUSH();
 
-    if ((sock != NULL) && (level == IPPROTO_IP))
+    if (level == SOL_EXASOCK)
+        ret = setsockopt_exasock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == SOL_SOCKET))
+        ret = setsockopt_sock(sock, sockfd, optname, optval, optlen);
+    else if ((sock != NULL) && (level == IPPROTO_IP))
         ret = setsockopt_ip(sock, sockfd, optname, optval, optlen);
     else if ((sock != NULL) && (level == IPPROTO_TCP))
         ret = setsockopt_tcp(sock, sockfd, optname, optval, optlen);
-    else if ((sock != NULL) && (level == SOL_SOCKET))
-        ret = setsockopt_sock(sock, sockfd, optname, optval, optlen);
     else
         ret = libc_setsockopt(sockfd, level, optname, optval, optlen);
 

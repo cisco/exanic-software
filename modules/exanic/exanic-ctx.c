@@ -17,7 +17,7 @@
 #include "../../libs/exanic/fifo_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
-#include "structs.h"
+#include "exanic-structs.h"
 
 
 /**

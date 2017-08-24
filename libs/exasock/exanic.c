@@ -34,7 +34,9 @@
 #include <exanic/config.h>
 #include <exanic/port.h>
 #include <exanic/time.h>
+#include <exanic/ioctl.h>
 
+#include "kernel/api.h"
 #include "kernel/consts.h"
 #include "kernel/structs.h"
 #include "override.h"
@@ -214,7 +216,7 @@ __exanic_ip_update_timestamping(struct exanic_ip * restrict ctx)
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-    if (ioctl(fd, SIOCGHWTSTAMP, &ifr) == 0)
+    if (ioctl(fd, EXAIOCGHWTSTAMP, &ifr) == 0)
         ctx->rx_hw_timestamp = (hwtc.rx_filter != HWTSTAMP_FILTER_NONE);
 
     close(fd);
@@ -423,6 +425,7 @@ exanic_ip_find_by_interface(const char *ifname, in_addr_t *addr)
     char device[16];
     int port_number;
     uint16_t vlan_id;
+    bool found = false;
 
     exasock_override_off();
 
@@ -448,18 +451,19 @@ exanic_ip_find_by_interface(const char *ifname, in_addr_t *addr)
 
         exanic_ip_get_real_device(ifname, ifname_real, sizeof(ifname_real), &vlan_id);
         if (exanic_find_port_by_interface_name(ifname_real, device, sizeof(device),
-                &port_number) == -1)
-            break; /* exists but not an ExaNIC */
+                &port_number) == 0)
+            found = true;
 
+        /* If we are here with (found == false), the interface exists but it is
+         * not an ExaNIC. We pass its address anyway.
+         */
         *addr = ((struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr;
-        freeifaddrs(ifaddrs);
-        exasock_override_on();
-        return true;
+        break;
     }
 
     freeifaddrs(ifaddrs);
     exasock_override_on();
-    return false;
+    return found;
 }
 
 struct exanic_ip *
@@ -898,7 +902,7 @@ exanic_poll(void)
                     goto abort_frame;
 
                 /* Find socket matching this packet */
-                if ((fd = exa_udp_lookup(&ep)) == -1)
+                if ((fd = exa_udp_lookup(&ep, ctx->ifaddr.address)) == -1)
                     goto abort_frame;
                 sock = exa_socket_get(fd);
                 exa_lock(&sock->state->rx_lock);
@@ -1318,7 +1322,7 @@ exanic_tcp_connect(struct exa_socket * restrict sock,
                    struct exa_endpoint * restrict ep)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
-    struct exanic_ip * restrict ip_ctx = sock->listen_if;
+    struct exanic_ip * restrict ip_ctx = sock->listen.interface;
 
     assert(ctx != NULL);
     assert(ip_ctx != NULL);
@@ -1358,7 +1362,7 @@ exanic_tcp_accept(struct exa_socket * restrict sock,
                   struct exa_tcp_init_state * restrict tcp_state)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
-    struct exanic_ip * restrict ip_ctx = sock->listen_if;
+    struct exanic_ip * restrict ip_ctx = sock->listen.interface;
 
     assert(ctx != NULL);
     assert(ip_ctx != NULL);

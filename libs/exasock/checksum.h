@@ -1,5 +1,5 @@
-#ifndef CHECKSUM_H_6851ECBF8EF2424CC794BCFAF5B5DBFE
-#define CHECKSUM_H_6851ECBF8EF2424CC794BCFAF5B5DBFE
+#ifndef EXASOCK_CHECKSUM_H
+#define EXASOCK_CHECKSUM_H
 
 #if defined(__amd64__)
 #include "checksum_amd64.h"
@@ -89,4 +89,4 @@ csum_iov(const struct iovec * restrict iov, size_t iovcnt, size_t skip_len,
     return csum_pack(sum);
 }
 
-#endif /* CHECKSUM_H_6851ECBF8EF2424CC794BCFAF5B5DBFE */
+#endif /* EXASOCK_CHECKSUM_H */

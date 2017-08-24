@@ -1,5 +1,5 @@
-#ifndef IP_H_D777DC8439194DBABF97F847E8E8DE4C
-#define IP_H_D777DC8439194DBABF97F847E8E8DE4C
+#ifndef EXASOCK_IP_H
+#define EXASOCK_IP_H
 
 /* Partial checksum of address */
 static inline uint64_t
@@ -152,4 +152,4 @@ exa_ip_build_hdr(struct exa_ip_tx * restrict ctx, char ** restrict hdr,
     *hdr_len += sizeof(struct ip);
 }
 
-#endif /* IP_H_D777DC8439194DBABF97F847E8E8DE4C */
+#endif /* EXASOCK_IP_H */
