@@ -4,10 +4,13 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdarg.h>
+#include <dirent.h>
 
 #include <exanic/exanic.h>
 #include <exanic/pcie_if.h>
 #include <exanic/register.h>
+#include <exanic/config.h>
+#include <exanic/util.h>
 
 #define CR_DEFAULT                  (0x9803) // everything except bit 15 is don't care
 #define FLASH_VENDOR_ID             (0x89)
@@ -276,9 +279,164 @@ int verify_download(char **prom_data, exanic_t *regs)
   }
 
 done:
-  printf("done\nThe new firmware will take effect after the next system reboot.\n");
+  printf("done\n");
   return 0;
 
+}
+
+/*
+ * Check that the currently loaded firmware has support for hot reloading
+ */
+int check_firmware_can_hot_reload(exanic_t *exanic, int silent)
+{
+  uint32_t caps;
+  caps = exanic_register_read(exanic, REG_EXANIC_INDEX(REG_EXANIC_CAPS));
+
+  exanic_function_id_t function = exanic_get_function_id(exanic);
+  if (function == EXANIC_FUNCTION_DEVKIT && exanic_is_devkit_demo(exanic))
+  {
+    if (!silent)
+      printf("ERROR: the hot reload feature is not available for evaluation FDKs\n");
+    return -1;
+  }
+ 
+  if((caps & EXANIC_CAP_HOT_RELOAD) == 0)
+  {
+    if (!silent)
+      printf("ERROR: the firmware version that is currently loaded does not support reconfiguring the FPGA without a host reset\n");
+    return -1;
+  }
+
+  return 0;
+}
+
+/*
+ * Check that that the user has permission to rescan the PCI bus, and then that
+   the firmware supports hot reloading
+ */
+int check_can_hot_reload(exanic_t *exanic, int silent)
+{
+  FILE *f = fopen("/sys/bus/pci/rescan", "w");
+  if(!f)
+  {
+    if (!silent)
+      printf("ERROR: you must be root to reconfigure the FPGA without a host reset\n");
+    return -1;
+  }
+  fclose(f);
+
+  return check_firmware_can_hot_reload(exanic, silent);
+}
+
+/*
+ * Utility function for writing the character '1' to files in the /sys filesystem.
+ */
+int write_1_to_file(char *fname)
+{
+  FILE *f = fopen(fname, "w");
+  if(!f)
+  {
+    printf("ERROR: could not open %s for writing\n", fname);
+    return -1;
+  }
+  if(fputc('1', f) == EOF)
+  {
+    printf("ERROR: failed to write to %s\n", fname);
+    return -1;
+  }
+  fclose(f);
+  return 0;
+}
+
+/*
+ * Reload firmware without requiring a host reset
+ */
+int firmware_reload(exanic_t *exanic)
+{
+  char ifname[64];
+  char remove_path[256];
+  char device_path[256];
+  char resolved_path[PATH_MAX];
+  DIR *d;
+  struct dirent *dir;
+  char new_intf_name[64];
+  int  new_intf_port;
+
+  printf("Reloading card...");
+  fflush(stdout);
+
+  /* Get the interface name of the first port on the device */
+  if (exanic_get_interface_name(exanic, 0, ifname, sizeof(ifname)) == -1)
+  {
+    printf("Error: could not get interface name\n");
+    return -1;
+  }
+
+  /* Get the sysfs path (with symlinks) into the pci device section of our net interface */
+  snprintf(device_path, 256, "/sys/class/net/%s/device/net", ifname);
+
+  /* Remove the symlinks so that the path contains no references to the net interface (which may change) */
+  realpath(device_path, resolved_path);
+
+  snprintf(remove_path, 256, "/sys/class/net/%s/device/remove", ifname);
+    
+  exanic_register_write(exanic, REG_HW_INDEX(REG_HW_RELOAD_RESET_FPGA), 0x1);
+  exanic_release_handle(exanic);
+  if (write_1_to_file(remove_path) == -1)
+    return -1;
+
+  /* Wait for the firmware reload to trigger */
+  sleep(1);
+  putchar('.');
+  fflush(stdout);
+
+  if (write_1_to_file("/sys/bus/pci/rescan") == -1)
+    return -1;
+
+  /* Wait for the rescan */
+  sleep(1);
+  putchar('.');
+  fflush(stdout);
+
+  d = opendir(resolved_path);
+  /* Open the sysfs path corresponding to the PCI device we are using that we saved before */
+  if (d == NULL)
+  {
+    printf("ERROR: unable to open directory: %s\n", resolved_path);
+    return -1;
+  }
+
+  /* Find a file in this directory that looks like a network interface */
+  while ((dir = readdir(d)) != NULL)
+  {
+    if(strcmp(dir->d_name, ".") && strcmp(dir->d_name, "..") && dir->d_type == DT_DIR)
+      break;
+  }
+
+  if (dir == NULL)
+  {
+    printf("ERROR: unable to find network interface in directory: %s\n", resolved_path);
+    return -1;
+  }
+
+  if (exanic_find_port_by_interface_name(dir->d_name, new_intf_name, sizeof(new_intf_name), &new_intf_port) == -1)
+  {
+    printf("Error: unable to get exanic device name for interface name: %s\n", dir->d_name);
+    return -1;
+  }
+ 
+  /* Try to reacquire handle */
+  if ((exanic = exanic_acquire_handle(new_intf_name)) == NULL)
+  {
+    printf("%s: %s\n", new_intf_name, exanic_get_last_error());
+    return -1;
+  }
+  else
+  {
+    printf("done\nThe new firmware will take effect immediately.\n");
+    exanic_release_handle(exanic);
+  }
+  return 0;
 }
 
 void single_word_write(unsigned long addr, unsigned int data, exanic_t *regs)
@@ -983,6 +1141,7 @@ void range_unlock_and_erase(int init_partn, int fin_partn,
   int p, b;
 
   printf("Erasing...");
+  fflush(stdout);
   for(p = init_partn; p <= fin_partn; p++)
   {
     for(b = init_blk; b <= fin_blk; b++)
@@ -1004,17 +1163,45 @@ void range_unlock_and_erase(int init_partn, int fin_partn,
 
 int verify(exanic_t *regs, char **prom_data)
 {
-  return verify_download(&prom_data[1], regs);
+  int result = verify_download(&prom_data[1], regs);
+  exanic_release_handle(regs);
+  return result;
 }
 
-int program(exanic_t *regs, char **prom_data)
+int program(exanic_t *regs, char **prom_data, int hot_reload)
 {
   if (check_target_hardware(prom_data[0], regs) == -1)
-    return 1;
+    return -1;
+  if (hot_reload && (check_can_hot_reload(regs, 0) == -1))
+    return -1;
   range_unlock_and_erase(0, 1, 0, get_num_blocks(), regs);
   if (write_prom_data(&prom_data[1], regs) != 0)
-    return 1;
-  return verify_download(&prom_data[1], regs);
+    return -1;
+  if (verify_download(&prom_data[1], regs))
+    return -1;
+
+  if (hot_reload)
+  {
+    return firmware_reload(regs);
+  }
+  else if (check_firmware_can_hot_reload(regs, 1) == 0)
+  {
+    printf("The new firmware will take effect after the next system reboot" \
+           ", or you can load it now using the exanic-fwupdate reload command.\n");
+  }
+  else
+  {
+    printf("The new firmware will take effect after the next system reboot.\n");
+  }
+  exanic_release_handle(regs);
+  return 0;
+}
+
+int reload(exanic_t *regs)
+{
+  if (check_can_hot_reload(regs, 0) == -1)
+    return -1;
+  return firmware_reload(regs);
 }
 
 char **read_prom_file(char *filename)
@@ -1031,43 +1218,44 @@ char **read_prom_file(char *filename)
   return prom_data;
 }
 
-static struct {
-  const char *command;
-  int (*fn)(exanic_t *regs, char **prom_data);
-  const char *help_text;
-} commands[] = {
-  { "program",     program,       "program new image and verify (default)" },
-  { "verify",      verify,        "verify against supplied file only" }
-};
-
 void usage(const char *command)
 {
-    int i;
-    printf("usage: %s [-d device] fw_file [command]\ncommands:\n", command);
-    for (i = 0; i < sizeof(commands)/sizeof(commands[0]); i++)
-        printf("%16s: %s\n", commands[i].command, commands[i].help_text);
+    printf("usage:\n"
+              "  %s [-d device] [-r] exanic_XXX_YYYYYY.fw\n"
+              "     - program, verify and optionally reload now (with -r)\n"
+              "  %s [-d device] exanic_XXX_YYYYYY.fw verify\n"
+              "     - verify only\n"
+              "  %s [-d device] reload\n"
+              "     - reload only\n", command, command, command);
 }
 
 int
 main(int argc, char *argv[])
 {
-    char *dev = NULL;
     char *command;
     char *fw_file;
     char **prom_data;
     exanic_t *exanic_regs;
-    int c, i, ret = 0;
+    int c, ret = -1;
+    int write_lower = 0, force = 0;
+    char *dev = NULL;
+    int hot_reload = 0;
 
-    while ((c = getopt(argc, argv, "rd:h?")) != -1)
+    while ((c = getopt(argc, argv, "rRfd:h?")) != -1)
     {
         switch (c)
         {
-            case 'r':
-                upper = 0;
-                printf("WARNING: loading recovery image portion of flash\n");
+            case 'R':
+                write_lower = 1;
+                break;
+            case 'f':
+                force = 1;
                 break;
             case 'd':
                 dev = optarg;
+                break;
+            case 'r':
+                hot_reload = 1;
                 break;
             default:
                 usage(argv[0]);
@@ -1075,17 +1263,14 @@ main(int argc, char *argv[])
         }
     }
 
+    //Every command requires at least one argument
     if (argc == optind)
     {
         usage(argv[0]);
         return 1;
     }
-    fw_file = argv[optind++];
-    if (argc == optind)
-        command = "program";
-    else
-        command = argv[optind];
 
+    //We need the device, regardless of the command, so get it now
     if (!dev)
     {
         exanic_regs = exanic_acquire_handle("exanic1");
@@ -1098,10 +1283,6 @@ main(int argc, char *argv[])
         dev = "exanic0";
     }
 
-    prom_data = read_prom_file(fw_file);
-    if (!prom_data)
-        return 1;
-
     if ((exanic_regs = exanic_acquire_handle(dev)) == NULL)
     {
         printf("%s: %s\n", dev, exanic_get_last_error());
@@ -1110,21 +1291,54 @@ main(int argc, char *argv[])
 
     /* TODO: We need to refactor this utility, but in the mean time... */
     global_hw_id = exanic_register_read(exanic_regs, REG_EXANIC_INDEX(REG_EXANIC_HW_ID));
-
     set_read_mode_async(exanic_regs);
 
-    for (i = 0; i < sizeof(commands)/sizeof(commands[0]); i++)
+    if (!strcmp("reload", argv[optind]))
     {
-        if (!strcmp(command, commands[i].command))
-        {
-            ret = commands[i].fn(exanic_regs, prom_data);
-            break;
-        }
+        reload(exanic_regs);
     }
-    if (i == sizeof(commands)/sizeof(commands[0]))
-        printf("%s: unrecognised command\n", command);
+    else
+    {
+        if (write_lower)
+        {
+            if (force)
+            {
+                upper = 0;
+                printf("WARNING: loading recovery image portion of flash\n");
+            }
+            else
+            {
+                printf("-f (force) is required to load the recovery image portion of flash\n");
+                return 1;
+            }
+        }
 
-    exanic_release_handle(exanic_regs);
-    free(prom_data);
-    return ret;
+        fw_file = argv[optind++];
+        if (argc == optind)
+            command = "program";
+        else
+            command = argv[optind];
+
+        prom_data = read_prom_file(fw_file);
+        if (!prom_data)
+            return 1;
+
+        if (!strcmp("program", command))
+        {
+            ret = program(exanic_regs, prom_data, hot_reload);
+        }
+        else if (!strcmp("verify", command))
+        {
+            ret = verify(exanic_regs, prom_data);
+        }
+        else
+        {
+            printf("%s: unrecognised command\n", command);
+        }
+
+        free(prom_data);
+
+    }
+
+    return (ret == -1) ? 1 : 0;
 }

@@ -249,12 +249,9 @@ enum
     REG_HW_BASE                         = 0x0100,
 
     /**
-     * [WO] ExaNIC X4/X2 reload/reinitialise
-     * Availability: X4, X2
-     * Writing a '1' to either register causes:
-     * Bit 1 [WO] - Re-initialise/reset FPGA
+     * [WO] Trigger a firmware reload by writing to the appropriate bit
+     * Availability: X10, X10-GM, X10-HPT, X40, X40-40G
      * Bit 0 [WO] - Reload FPGA image from flash
-     * Writing both bits simultaneously results in undefined behaviour
      */
     REG_HW_RELOAD_RESET_FPGA            = 0,
 
@@ -1057,6 +1054,7 @@ typedef enum
 {
     EXANIC_CAP_RX_MSI           = 0x00000001, /**< MSI interrupt on RX */
     EXANIC_CAP_STEER_TWO        = 0x00000002, /**< Two-tuple flow steering */
+    EXANIC_CAP_HOT_RELOAD       = 0x00000004, /**< Hot reload supported */
 
     EXANIC_CAP_HW_TIME_HI       = 0x00000100, /**< 64 bit time counter */
     EXANIC_CAP_CLK_ADJ_EXT      = 0x00000200, /**< Extended clock correction */
