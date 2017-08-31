@@ -216,6 +216,15 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
      * This must be done before reading the current hardware time */
     pps_reg = exanic_register_read(state->exanic, REG_EXANIC_INDEX(
                 REG_EXANIC_PPS_TIMESTAMP));
+    if (pps_reg != exanic_register_read(state->exanic, REG_EXANIC_INDEX(
+                REG_EXANIC_PPS_TIMESTAMP)))
+    {
+        /* Reading was unstable, this indicates PPS pulse may have
+         * arrived while we were reading
+         * To avoid errors, pretend that the register value has not changed
+         * The PPS pulse will be handled next time we poll the register */
+        pps_reg = state->pps_reg;
+    }
 
     /* Get current time from hardware clock */
     if (get_clock_time(state->clkfd, &poll_time_ns) == -1)
