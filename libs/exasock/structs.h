@@ -444,6 +444,23 @@ exa_hashtable_mcast_lookup(struct exa_hashtable * restrict ht,
         fd = sock->hashtable_next_fd;
     }
 
+    /* Look up by (multicast addr, local port) */
+    key.addr[1] = htonl(INADDR_ANY);    /* interface address */
+    idx = EXA_HASHTABLE_IDX(&key);
+    fd = ht->table[idx];
+    while (fd != -1)
+    {
+        struct exa_socket * restrict sock = exa_socket_get(fd);
+
+        if (sock->bind.ip.port.local == e->port.local &&
+            sock->bind.ip.port.peer == 0 &&
+            sock->ip_membership.mcast_ep.multiaddr == e->addr.local &&
+            sock->ip_membership.mcast_ep.interface == htonl(INADDR_ANY))
+                return fd;
+
+        fd = sock->hashtable_next_fd;
+    }
+
     return -1;
 }
 

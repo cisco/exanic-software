@@ -1475,6 +1475,52 @@ getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
 }
 
 static int
+parse_mreq(const void *optval, socklen_t optlen,
+           struct exa_mcast_endpoint *mcast_ep, bool *is_exanic)
+{
+    if (optlen >= sizeof(struct ip_mreqn))
+    {
+        struct ip_mreqn *mreqn = (struct ip_mreqn *)optval;
+        char devname[IF_NAMESIZE];
+
+        if (mreqn->imr_ifindex)
+        {
+            mcast_ep->interface = htonl(INADDR_ANY);
+            *is_exanic = exanic_ip_find_by_interface(
+                                   if_indextoname(mreqn->imr_ifindex, devname),
+                                   &mcast_ep->interface);
+            if (mcast_ep->interface == htonl(INADDR_ANY))
+            {
+                /* No interface found */
+                errno = EINVAL;
+                return -1;
+            }
+        }
+        else
+        {
+            mcast_ep->interface = mreqn->imr_address.s_addr;
+            *is_exanic = exanic_ip_find(mcast_ep->interface);
+        }
+        mcast_ep->multiaddr = mreqn->imr_multiaddr.s_addr;
+    }
+    else if (optlen >= sizeof(struct ip_mreq))
+    {
+        struct ip_mreq *mreq = (struct ip_mreq *)optval;
+
+        mcast_ep->interface = mreq->imr_interface.s_addr;
+        *is_exanic = exanic_ip_find(mcast_ep->interface);
+        mcast_ep->multiaddr = mreq->imr_multiaddr.s_addr;
+    }
+    else
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    return 0;
+}
+
+static int
 setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
               const void *optval, socklen_t optlen)
 {
@@ -1511,105 +1557,73 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
         break;
 
     case IP_ADD_MEMBERSHIP:
-    case IP_DROP_MEMBERSHIP:
         if (sock->type == SOCK_DGRAM)
         {
-            if (optlen >= sizeof(struct ip_mreqn))
-            {
-                struct ip_mreqn *mreqn = (struct ip_mreqn *)optval;
-                char devname[IF_NAMESIZE];
+            ret = parse_mreq(optval, optlen, &mcast_ep, &is_exanic);
+            if (ret == -1)
+                goto err_exit;
 
-                if (mreqn->imr_ifindex)
-                {
-                    mcast_ep.interface = htonl(INADDR_ANY);
-                    is_exanic = exanic_ip_find_by_interface(
-                                    if_indextoname(mreqn->imr_ifindex, devname),
-                                    &mcast_ep.interface);
-                    if (mcast_ep.interface == htonl(INADDR_ANY))
-                    {
-                        /* No interface found */
-                        errno = EINVAL;
-                        goto err_exit;
-                    }
-                }
-                else
-                {
-                    mcast_ep.interface = mreqn->imr_address.s_addr;
-                    is_exanic = exanic_ip_find(mcast_ep.interface);
-                }
-                mcast_ep.multiaddr = mreqn->imr_multiaddr.s_addr;
-            }
-            else if (optlen >= sizeof(struct ip_mreq))
+            if (!is_exanic && (mcast_ep.interface != htonl(INADDR_ANY)) &&
+                sock->bypass)
             {
-                struct ip_mreq *mreq = (struct ip_mreq *)optval;
-
-                mcast_ep.interface = mreq->imr_interface.s_addr;
-                is_exanic = exanic_ip_find(mcast_ep.interface);
-                mcast_ep.multiaddr = mreq->imr_multiaddr.s_addr;
-            }
-            else
-            {
-                errno = EINVAL;
+                /* Unable to join multicast on an accelerated socket with
+                 * non-exanic interface
+                 */
+                errno = EOPNOTSUPP;
                 goto err_exit;
             }
 
-            if (optname == IP_ADD_MEMBERSHIP)
+            if (is_exanic && !sock->disable_bypass)
             {
-                if (!is_exanic && (mcast_ep.interface != htonl(INADDR_ANY)) &&
-                    sock->bypass)
+                /* Joining multicast groups with mixed (exanic and
+                 * non-exanic) interfaces on the same socket is not
+                 * supported. An attempt to enable bypass on such a socket
+                 * would cause no ability to receive multicast packets from
+                 * groups joined with non-exanic interfaces.
+                 */
+                if (sock->ip_membership.num_not_bypassed > 0)
                 {
-                    /* Unable to join multicast on an accelerated socket with
-                     * non-exanic interface
-                     */
                     errno = EOPNOTSUPP;
                     goto err_exit;
                 }
 
-                if (is_exanic && !sock->disable_bypass)
+                /* FIXME: No support for multiple multicast groups joined on
+                 * the same accelerated socket
+                 */
+                if (sock->ip_membership.mcast_ep_valid)
                 {
-                    /* Joining multicast groups with mixed (exanic and
-                     * non-exanic) interfaces on the same socket is not
-                     * supported. An attempt to enable bypass on such a socket
-                     * would cause no ability to receive multicast packets from
-                     * groups joined with non-exanic interfaces.
-                     */
-                    if (sock->ip_membership.num_not_bypassed > 0)
-                    {
-                        errno = EOPNOTSUPP;
-                        goto err_exit;
-                    }
-
-                    /* FIXME: No support for multiple multicast groups joined on
-                     * the same accelerated socket
-                     */
-                    if (sock->ip_membership.mcast_ep_valid)
-                    {
-                        errno = EOPNOTSUPP;
-                        goto err_exit;
-                    }
+                    errno = EOPNOTSUPP;
+                    goto err_exit;
                 }
             }
-            else /* IP_DROP_MEMBERSHIP */
+        }
+        break;
+
+    case IP_DROP_MEMBERSHIP:
+        if (sock->type == SOCK_DGRAM)
+        {
+            ret = parse_mreq(optval, optlen, &mcast_ep, &is_exanic);
+            if (ret == -1)
+                goto err_exit;
+
+            if (is_exanic && !sock->disable_bypass)
             {
-                if (is_exanic && !sock->disable_bypass)
+                if (!sock->bypass || !sock->ip_membership.mcast_ep_valid ||
+                    (sock->ip_membership.mcast_ep.interface !=
+                            mcast_ep.interface) ||
+                    (sock->ip_membership.mcast_ep.multiaddr !=
+                            mcast_ep.multiaddr))
                 {
-                    if (!sock->bypass || !sock->ip_membership.mcast_ep_valid ||
-                        (sock->ip_membership.mcast_ep.interface !=
-                                mcast_ep.interface) ||
-                        (sock->ip_membership.mcast_ep.multiaddr !=
-                                mcast_ep.multiaddr))
-                    {
-                        errno = EINVAL;
-                        goto err_exit;
-                    }
+                    errno = EINVAL;
+                    goto err_exit;
                 }
-                else
+            }
+            else
+            {
+                if (sock->ip_membership.num_not_bypassed == 0)
                 {
-                    if (sock->ip_membership.num_not_bypassed == 0)
-                    {
-                        errno = EINVAL;
-                        goto err_exit;
-                    }
+                    errno = EINVAL;
+                    goto err_exit;
                 }
             }
         }
@@ -1877,6 +1891,8 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
 {
     int val = 0;
     int ret;
+    struct exa_mcast_endpoint mcast_ep;
+    bool is_exanic = false;
 
     if (sock == NULL)
     {
@@ -1909,25 +1925,94 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
 
     switch (optname)
     {
-        case SO_EXA_NO_ACCEL:
-            if ((val && sock->bypass) || (val == 0 && sock->disable_bypass))
-            {
-                errno = EPERM;
-                ret = -1;
-            }
-            else
-            {
-                sock->disable_bypass = (val != 0);
-                ret = 0;
-            }
-            break;
-        default:
-            errno = ENOPROTOOPT;
-            ret = -1;
+    case SO_EXA_NO_ACCEL:
+        if ((val && sock->bypass) || (val == 0 && sock->disable_bypass))
+        {
+            errno = EPERM;
+            goto err_exit;
+        }
+        else
+        {
+            sock->disable_bypass = (val != 0);
+        }
+        break;
+
+    case SO_EXA_MCAST_LISTEN:
+        if ((sock->type != SOCK_DGRAM) || (sock->disable_bypass))
+        {
+            errno = EPERM;
+            goto err_exit;
+        }
+        if (sock->ip_membership.num_not_bypassed > 0)
+        {
+            /* Enabling bypass on a socket which already has joined a multicast
+             * group with a non-exanic interface is not supported. It would
+             * cause lack of ability to receive multicast packets from this
+             * group.
+             */
+            errno = EOPNOTSUPP;
+            goto err_exit;
+        }
+        if (sock->ip_membership.mcast_ep_valid)
+        {
+            /* FIXME: Receiving packets of more than one multiple multicast
+             * group on the same accelerated socket is not supported.
+             */
+            errno = EOPNOTSUPP;
+            goto err_exit;
+        }
+
+        ret = parse_mreq(optval, optlen, &mcast_ep, &is_exanic);
+        if (ret == -1)
+            goto err_exit;
+        if (mcast_ep.interface == htonl(INADDR_ANY))
+        {
+            /* This socket will be receiving packets of the multicast group
+             * arriving through any ExaNIC interface
+             */
+            is_exanic = true;
+        }
+        if (!IN_MULTICAST(ntohl(mcast_ep.multiaddr)) || !is_exanic)
+        {
+            errno = EINVAL;
+            goto err_exit;
+        }
+
+        if (!sock->bypass)
+        {
+            /* Put socket into bypass mode.
+             * On successful return we hold rx_lock and tx_lock.
+             */
+            ret = exa_socket_enable_bypass(sock);
+            if (ret == -1)
+                goto err_exit;
+            exa_unlock(&sock->state->rx_lock);
+            exa_unlock(&sock->state->tx_lock);
+            assert(sock->bypass);
+        }
+
+        if (sock->bound)
+        {
+            ret = exa_socket_add_mcast(sock, &mcast_ep);
+            if (ret == -1)
+                goto err_exit;
+        }
+
+        sock->ip_membership.mcast_ep = mcast_ep;
+        sock->ip_membership.mcast_ep_valid = true;
+        break;
+
+    default:
+        errno = ENOPROTOOPT;
+        goto err_exit;
     }
 
     exa_write_unlock(&sock->lock);
-    return ret;
+    return 0;
+
+err_exit:
+    exa_write_unlock(&sock->lock);
+    return -1;
 }
 
 __attribute__((visibility("default")))
