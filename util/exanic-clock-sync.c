@@ -59,6 +59,7 @@ struct exanic_state
     } sync_type;
     enum pps_type pps_type;
     int pps_termination_disable;
+    enum pps_edge pps_edge;
     int64_t offset;
     unsigned interval;
     exanic_t *exanic;
@@ -271,6 +272,7 @@ static int parse_cmdline(int argc, char *argv[])
             s[n].sync_type = SYNC_INVALID;
             s[n].pps_type = PPS_SINGLE_ENDED;
             s[n].pps_termination_disable = 0;
+            s[n].pps_edge = PPS_RISING_EDGE;
             s[n].offset = offset;
             s[n].interval = DEFAULT_INTERVAL;
             s[n].exanic = NULL;
@@ -386,6 +388,7 @@ static int parse_config(char *filename)
             s[n].sync_type = SYNC_INVALID;
             s[n].pps_type = PPS_SINGLE_ENDED;
             s[n].pps_termination_disable = 0;
+            s[n].pps_edge = PPS_RISING_EDGE;
             s[n].offset = 0;
             s[n].interval = DEFAULT_INTERVAL;
             s[n].exanic = NULL;
@@ -416,6 +419,23 @@ static int parse_config(char *filename)
                     strcmp(key, "pps_term") == 0)
             {
                 s[c].pps_termination_disable = !parse_bool(value);
+            }
+            else if (strcmp(key, "pps_edge") == 0)
+            {
+                if (strcasecmp(value, "rising") == 0 ||
+                        strcasecmp(value, "positive") == 0)
+                    s[c].pps_edge = PPS_RISING_EDGE;
+                else if (strcasecmp(value, "falling") == 0 ||
+                        strcasecmp(value, "negative") == 0)
+                    s[c].pps_edge = PPS_FALLING_EDGE;
+                else
+                {
+                    fprintf(stderr, "%s: %s:%d: pps_edge must be "
+                            "\"rising\" or \"falling\"\n",
+                            prog, filename, linenum);
+                    ret = 1;
+                    goto cleanup;
+                }
             }
             else if (strcmp(key, "offset") == 0)
             {
@@ -696,7 +716,8 @@ int main(int argc, char *argv[])
         else if (s[i].sync_type == SYNC_EXANIC_PPS)
             s[i].exanic_pps_sync = init_exanic_pps_sync(s[i].name, s[i].clkfd,
                     s[i].exanic, s[i].pps_type, s[i].pps_termination_disable,
-                    tai_offset, auto_tai_offset, s[i].offset, s[i].interval);
+                    s[i].pps_edge, tai_offset, auto_tai_offset, s[i].offset,
+                    s[i].interval);
         else if (s[i].sync_type == SYNC_PHC_PHC)
             s[i].phc_phc_sync = init_phc_phc_sync(s[i].name, s[i].clkfd,
                     s[i].name_src, s[i].clkfd_src, s[i].exanic_src);

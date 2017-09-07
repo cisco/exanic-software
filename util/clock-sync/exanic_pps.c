@@ -50,8 +50,8 @@ struct exanic_pps_sync_state
 
 struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         exanic_t *exanic, enum pps_type pps_type, int pps_termination_disable,
-        int tai_offset, int auto_tai_offset, int64_t offset_ns,
-        unsigned interval)
+        enum pps_edge pps_edge, int tai_offset, int auto_tai_offset,
+        int64_t offset_ns, unsigned interval)
 {
     struct exanic_pps_sync_state *state;
     exanic_hardware_id_t hw_id;
@@ -128,6 +128,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             pps_type == PPS_SINGLE_ENDED ? "single-ended" : "differential");
     log_printf(LOG_INFO, "%s: Setting PPS termination %s", state->name,
             pps_termination_disable ? "disabled" : "enabled");
+    log_printf(LOG_INFO, "%s: Syncing to PPS %s edge", state->name,
+            pps_edge == PPS_RISING_EDGE ? "rising" : "falling");
     log_printf(LOG_INFO, "%s: Current TAI offset is %d", state->name,
             state->tai_offset);
     log_printf(LOG_INFO, "%s: Averaging interval: %d s", state->name,
@@ -139,10 +141,16 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         uint32_t reg;
 
         reg = exanic_register_read(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS));
+
         if (pps_type == PPS_SINGLE_ENDED)
             reg |= EXANIC_HW_SERIAL_PPS_SINGLE;
         else
             reg &= ~EXANIC_HW_SERIAL_PPS_SINGLE;
+
+        if (pps_edge == PPS_RISING_EDGE)
+            reg |= EXANIC_HW_SERIAL_PPS_EDGE_SEL;
+        else
+            reg &= ~EXANIC_HW_SERIAL_PPS_EDGE_SEL;
 
         exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), reg);
     }
@@ -157,6 +165,12 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             reg &= ~EXANIC_HW_SERIAL_PPS_TERM_EN;
         else
             reg |= EXANIC_HW_SERIAL_PPS_TERM_EN;
+
+        if (pps_edge == PPS_RISING_EDGE)
+            reg |= EXANIC_HW_SERIAL_PPS_EDGE_SEL;
+        else
+            reg &= ~EXANIC_HW_SERIAL_PPS_EDGE_SEL;
+
         reg &= ~EXANIC_HW_SERIAL_PPS_OUT_EN;
 
         exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), reg);
