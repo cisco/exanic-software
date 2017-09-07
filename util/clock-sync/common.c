@@ -30,6 +30,9 @@
 #define CLOCKFD 3
 #define FD_TO_CLOCKID(fd) ((~(clockid_t)(fd) << 3) | CLOCKFD)
 
+#ifndef ADJ_SETOFFSET
+#define ADJ_SETOFFSET 0x0100
+#endif
 
 /* clock_adjtime is not available in older versions of glibc */
 #if !__GLIBC_PREREQ(2, 14)
@@ -295,6 +298,27 @@ int set_clock_time(int clkfd, uint64_t time_ns)
     ts.tv_nsec = time_ns % 1000000000;
 
     return clock_settime(FD_TO_CLOCKID(clkfd), &ts);
+}
+
+
+int set_clock_time_offset(int clkfd, long offset_ns)
+{
+    struct timex tx;
+
+    memset(&tx, 0, sizeof(tx));
+    tx.modes = ADJ_SETOFFSET | ADJ_NANO;
+    if (offset_ns >= 0)
+    {
+        tx.time.tv_sec = offset_ns / 1000000000;
+        tx.time.tv_usec = offset_ns % 1000000000;
+    }
+    else
+    {
+        tx.time.tv_sec = offset_ns / 1000000000 - 1;
+        tx.time.tv_usec = offset_ns % 1000000000 + 1000000000;
+    }
+
+    return clock_adjtime(FD_TO_CLOCKID(clkfd), &tx);
 }
 
 

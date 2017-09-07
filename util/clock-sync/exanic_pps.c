@@ -426,21 +426,42 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
     if (fabs(state->pps_offset) > 1000000)
     {
         /* Offset is more than 1ms, reset clock */
-        uint64_t time_ns;
-
         if (state->log_reset)
             log_printf(LOG_WARNING, "%s: Clock error exceeds limits, "
                     "resetting clock: %.4f us",
                     state->name, state->pps_offset * 0.001);
 
-        time_ns = poll_time_ns - state->pps_offset;
-        if (set_clock_adj(state->clkfd, 0) == -1 ||
-                set_clock_time(state->clkfd, time_ns) == -1)
+        if (set_clock_adj(state->clkfd, 0) == -1)
         {
             if (!state->error_mode)
-                log_printf(LOG_ERR, "%s: Error resetting clock: %s",
+                log_printf(LOG_ERR, "%s: Error resetting clock adjustment: %s",
                         state->name, strerror(errno));
             goto clock_error;
+        }
+
+        if (fabs(state->pps_offset) > 100000000)
+        {
+            /* Set time directly */
+            uint64_t time_ns = poll_time_ns - state->pps_offset;
+            if (set_clock_time(state->clkfd, time_ns) == -1)
+            {
+                if (!state->error_mode)
+                    log_printf(LOG_ERR, "%s: Error setting clock time: %s",
+                            state->name, strerror(errno));
+                goto clock_error;
+            }
+        }
+        else
+        {
+            /* Set time by offset from current time */
+            if (set_clock_time_offset(state->clkfd,
+                        (long)-state->pps_offset) == -1)
+            {
+                if (!state->error_mode)
+                    log_printf(LOG_ERR, "%s: Error setting clock time: %s",
+                            state->name, strerror(errno));
+                goto clock_error;
+            }
         }
 
         state->pps_time_tick = 0;
@@ -500,6 +521,8 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             log_printf(LOG_INFO, "%s: Error state cleared", state->name);
             state->error_mode = 0;
         }
+
+        state->log_reset = 1;
 
         if (state->pps_signal == 1)
         {

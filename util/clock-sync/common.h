@@ -17,6 +17,7 @@ int get_clock_adj(int clkfd, double *adj);
 int set_clock_adj(int clkfd, double adj);
 int get_clock_time(int clkfd, uint64_t *time_ns);
 int set_clock_time(int clkfd, uint64_t time_ns);
+int set_clock_time_offset(int clkfd, long offset_ns);
 
 int get_tai_offset(int *offset);
 int set_tai_offset(int offset);
