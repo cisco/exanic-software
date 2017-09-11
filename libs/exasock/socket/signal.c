@@ -65,7 +65,7 @@ signal(int signum, sighandler_t handler)
     TRACE_FLUSH();
 
     if (signum < 0 || signum >= NSIG)
-        old = libc_signal(signum, handler);
+        old = LIBC(signal, signum, handler);
     else if (signal_override[signum])
     {
         if (sa_user[signum].sa_flags & SA_SIGINFO)
@@ -77,7 +77,7 @@ signal(int signum, sighandler_t handler)
         {
             /* Don't override SIG_DFL or SIG_IGN */
             signal_override[signum] = false;
-            libc_signal(signum, handler);
+            LIBC(signal, signum, handler);
         }
         else
         {
@@ -85,13 +85,13 @@ signal(int signum, sighandler_t handler)
             sa_user[signum].sa_handler = handler;
             sigemptyset(&sa_user[signum].sa_mask);
             sa_user[signum].sa_flags = 0;
-            libc_signal(signum, signal_override_handler);
+            LIBC(signal, signum, signal_override_handler);
         }
     }
     else
     {
         if (handler == SIG_DFL || handler == SIG_IGN)
-            old = libc_signal(signum, handler);
+            old = LIBC(signal, signum, handler);
         else
         {
             /* Install override */
@@ -99,7 +99,7 @@ signal(int signum, sighandler_t handler)
             sa_user[signum].sa_handler = handler;
             sigemptyset(&sa_user[signum].sa_mask);
             sa_user[signum].sa_flags = 0;
-            old = libc_signal(signum, signal_override_handler);
+            old = LIBC(signal, signum, signal_override_handler);
         }
     }
 
@@ -120,7 +120,7 @@ sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
     TRACE_FLUSH();
 
     if (signum < 0 || signum >= NSIG)
-        ret = libc_sigaction(signum, act, oldact);
+        ret = LIBC(sigaction, signum, act, oldact);
     else if (signal_override[signum])
     {
         struct sigaction sa_override;
@@ -134,7 +134,7 @@ sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
             if (act->sa_handler == SIG_DFL || act->sa_handler == SIG_IGN)
             {
                 signal_override[signum] = false;
-                ret = libc_sigaction(signum, act, NULL);
+                ret = LIBC(sigaction, signum, act, NULL);
             }
             else
             {
@@ -144,7 +144,7 @@ sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
                     sa_override.sa_sigaction = sigaction_override_handler;
                 else
                     sa_override.sa_handler = signal_override_handler;
-                ret = libc_sigaction(signum, &sa_override, NULL);
+                ret = LIBC(sigaction, signum, &sa_override, NULL);
             }
         }
         else
@@ -158,7 +158,7 @@ sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
             act->sa_handler == SIG_IGN)
         {
             /* No need to install override */
-            ret = libc_sigaction(signum, act, oldact);
+            ret = LIBC(sigaction, signum, act, oldact);
         }
         else
         {
@@ -169,7 +169,7 @@ sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
             else
                 sa_override.sa_handler = signal_override_handler;
             signal_override[signum] = true;
-            ret = libc_sigaction(signum, &sa_override, oldact);
+            ret = LIBC(sigaction, signum, &sa_override, oldact);
         }
     }
 
@@ -198,7 +198,7 @@ siginterrupt(int signum, int flag)
             sa_user[signum].sa_flags |= SA_RESTART;
     }
 
-    ret = libc_siginterrupt(signum, flag);
+    ret = LIBC(siginterrupt, signum, flag);
 
     TRACE_RETURN(INT, ret);
 

@@ -182,7 +182,7 @@ send(int sockfd, const void *buf, size_t len, int flags)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_send(sockfd, buf, len, flags);
+        ret = LIBC(send, sockfd, buf, len, flags);
     else
     {
         exa_read_lock(&sock->lock);
@@ -190,7 +190,7 @@ send(int sockfd, const void *buf, size_t len, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_send(sockfd, buf, len, flags);
+            ret = LIBC(send, sockfd, buf, len, flags);
         }
         else if (sock->connected)
         {
@@ -278,7 +278,7 @@ sendto(int sockfd, const void *buf, size_t len, int flags,
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+        ret = LIBC(sendto, sockfd, buf, len, flags, dest_addr, addrlen);
     else
     {
         if (!sock->bypass && dest_addr != NULL)
@@ -305,7 +305,7 @@ sendto(int sockfd, const void *buf, size_t len, int flags,
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+            ret = LIBC(sendto, sockfd, buf, len, flags, dest_addr, addrlen);
         }
         else
         {
@@ -479,7 +479,7 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_sendmsg(sockfd, msg, flags);
+        ret = LIBC(sendmsg, sockfd, msg, flags);
     else
     {
         if (!sock->bypass && msg->msg_name != NULL)
@@ -505,7 +505,7 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_sendmsg(sockfd, msg, flags);
+            ret = LIBC(sendmsg, sockfd, msg, flags);
         }
         else
         {
@@ -619,7 +619,7 @@ write(int fd, const void *buf, size_t count)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_write(fd, buf, count);
+        ret = LIBC(write, fd, buf, count);
     else
     {
         exa_read_lock(&sock->lock);
@@ -627,7 +627,7 @@ write(int fd, const void *buf, size_t count)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_write(fd, buf, count);
+            ret = LIBC(write, fd, buf, count);
         }
         else if (sock->connected)
         {
@@ -754,7 +754,7 @@ writev(int fd, const struct iovec *iov, int iovcnt)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_writev(fd, iov, iovcnt);
+        ret = LIBC(writev, fd, iov, iovcnt);
     else
     {
         exa_read_lock(&sock->lock);
@@ -762,7 +762,7 @@ writev(int fd, const struct iovec *iov, int iovcnt)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_writev(fd, iov, iovcnt);
+            ret = LIBC(writev, fd, iov, iovcnt);
         }
         else if (sock->connected)
         {

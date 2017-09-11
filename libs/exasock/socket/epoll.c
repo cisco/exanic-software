@@ -103,7 +103,7 @@ epoll_fd_init(int fd)
 
 err_notify_alloc:
 err_socket_get:
-    libc_close(fd);
+    LIBC(close, fd);
     return -1;
 }
 
@@ -117,7 +117,7 @@ epoll_create(int size)
     TRACE_LAST_ARG(INT, size);
     TRACE_FLUSH();
 
-    fd = libc_epoll_create(size);
+    fd = LIBC(epoll_create, size);
     fd = epoll_fd_init(fd);
 
     TRACE_RETURN(INT, fd);
@@ -134,7 +134,7 @@ epoll_create1(int flags)
     TRACE_LAST_ARG(BITS, flags, epoll_flags);
     TRACE_FLUSH();
 
-    fd = libc_epoll_create1(flags);
+    fd = LIBC(epoll_create1, flags);
     fd = epoll_fd_init(fd);
 
     TRACE_RETURN(INT, fd);
@@ -162,7 +162,7 @@ epoll_ctl_add(struct exa_notify * restrict no, int epfd,
         }
 
         /* Add to kernel epoll instance */
-        if (libc_epoll_ctl(epfd, EPOLL_CTL_ADD, fd, event) == -1)
+        if (LIBC(epoll_ctl, epfd, EPOLL_CTL_ADD, fd, event) == -1)
             return -1;
 
         /* Record epoll membership */
@@ -175,7 +175,7 @@ epoll_ctl_add(struct exa_notify * restrict no, int epfd,
     {
         /* Failed to add to exa_notify, so we remove the fd from
          * the kernel epoll instance to keep things consistent */
-        libc_epoll_ctl(epfd, EPOLL_CTL_DEL, fd, event);
+        LIBC(epoll_ctl, epfd, EPOLL_CTL_DEL, fd, event);
         return -1;
     }
 
@@ -196,7 +196,7 @@ epoll_ctl_mod(struct exa_notify * restrict no, int epfd,
     if (!sock->bypass)
     {
         /* Update kernel epoll */
-        if (libc_epoll_ctl(epfd, EPOLL_CTL_MOD, fd, event) == -1)
+        if (LIBC(epoll_ctl, epfd, EPOLL_CTL_MOD, fd, event) == -1)
             return -1;
     }
 
@@ -227,7 +227,7 @@ epoll_ctl_del(struct exa_notify * restrict no, int epfd,
     if (!sock->bypass)
     {
         /* Remove from kernel epoll */
-        libc_epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
+        LIBC(epoll_ctl, epfd, EPOLL_CTL_DEL, fd, NULL);
 
         /* Remove from membership record */
         for (i = 0; i < sock->num_epoll_fd; i++)
@@ -253,7 +253,7 @@ epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     int ret;
 
     if (override_disabled)
-        return libc_epoll_ctl(epfd, op, fd, event);
+        return LIBC(epoll_ctl, epfd, op, fd, event);
 
     TRACE_CALL("epoll_ctl");
     TRACE_ARG(INT, epfd);
@@ -264,7 +264,7 @@ epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
     if (epsock == NULL || sock == NULL)
     {
-        ret = libc_epoll_ctl(epfd, op, fd, event);
+        ret = LIBC(epoll_ctl, epfd, op, fd, event);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -274,7 +274,7 @@ epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     if (epsock->notify == NULL)
     {
         exa_write_unlock(&epsock->lock);
-        ret = libc_epoll_ctl(epfd, op, fd, event);
+        ret = LIBC(epoll_ctl, epfd, op, fd, event);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -511,8 +511,8 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
         /* Check for ready native file descriptors or masked signals */
         if ((have_native || sigmask != NULL) && nevents < maxevents)
         {
-            ret = libc_epoll_pwait(epfd, events + nevents,
-                                   maxevents - nevents, 0, sigmask);
+            ret = LIBC(epoll_pwait, epfd, events + nevents,
+                       maxevents - nevents, 0, sigmask);
             if (ret == -1)
             {
                 /* Return error code only if there are no events to deliver */
@@ -559,7 +559,7 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
          * or if we need to check for masked signals */
         if (have_native || sigmask != NULL)
         {
-            ret = libc_epoll_pwait(epfd, events, maxevents, 0, sigmask);
+            ret = LIBC(epoll_pwait, epfd, events, maxevents, 0, sigmask);
             if (ret != 0)
                 goto epoll_exit;
         }
@@ -670,7 +670,7 @@ epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
 
     ret = epoll_pwait_spin(epfd, events, maxevents, timeout, NULL);
     if (ret == NATIVE_FD_ONLY)
-        ret = libc_epoll_wait(epfd, events, maxevents, timeout);
+        ret = LIBC(epoll_wait, epfd, events, maxevents, timeout);
 
     TRACE_ARG(EPOLL_EVENT_ARRAY, events, ret);
     TRACE_ARG(INT, maxevents);
@@ -693,7 +693,7 @@ epoll_pwait(int epfd, struct epoll_event *events, int maxevents, int timeout,
 
     ret = epoll_pwait_spin(epfd, events, maxevents, timeout, sigmask);
     if (ret == NATIVE_FD_ONLY)
-        ret = libc_epoll_pwait(epfd, events, maxevents, timeout, sigmask);
+        ret = LIBC(epoll_pwait, epfd, events, maxevents, timeout, sigmask);
 
     TRACE_ARG(EPOLL_EVENT_ARRAY, events, ret);
     TRACE_ARG(INT, maxevents);

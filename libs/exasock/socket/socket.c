@@ -58,7 +58,7 @@ socket(int domain, int type, int protocol)
     struct exa_socket * restrict sock;
 
     if (override_disabled)
-        return libc_socket(domain, type, protocol);
+        return LIBC(socket, domain, type, protocol);
 
     TRACE_CALL("socket");
     TRACE_ARG(ENUM, domain, family);
@@ -66,7 +66,7 @@ socket(int domain, int type, int protocol)
     TRACE_LAST_ARG(INT, protocol);
     TRACE_FLUSH();
 
-    fd = libc_socket(domain, type, protocol);
+    fd = LIBC(socket, domain, type, protocol);
     sock = exa_socket_get(fd);
 
     if (sock != NULL)
@@ -77,7 +77,7 @@ socket(int domain, int type, int protocol)
         exa_socket_init(sock, domain, type & 0xF, protocol);
         sock->valid = true;
 
-        ret = libc_fcntl(fd, F_GETFL);
+        ret = LIBC(fcntl, fd, F_GETFL);
         if (ret != -1)
             sock->flags = ret;
 
@@ -126,7 +126,7 @@ close(int fd)
     int ret;
 
     if (override_disabled)
-        return libc_close(fd);
+        return LIBC(close, fd);
 
     TRACE_CALL("close");
     TRACE_LAST_ARG(INT, fd);
@@ -195,7 +195,7 @@ close(int fd)
         exa_write_unlock(&sock->lock);
     }
 
-    ret = libc_close(fd);
+    ret = LIBC(close, fd);
 
     /* If we had a linger timeout on the way, make sure we inform about it */
     if (ret == 0)
@@ -221,7 +221,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     if (sock == NULL)
     {
-        ret = libc_bind(sockfd, addr, addrlen);
+        ret = LIBC(bind, sockfd, addr, addrlen);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -277,7 +277,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         }
     }
     else
-        ret = libc_bind(sockfd, addr, addrlen);
+        ret = LIBC(bind, sockfd, addr, addrlen);
 
     exa_write_unlock(&sock->lock);
     TRACE_RETURN(INT, ret);
@@ -345,7 +345,7 @@ listen(int sockfd, int backlog)
 
     if (sock == NULL || !sock->bypass)
     {
-        ret = libc_listen(sockfd, backlog);
+        ret = LIBC(listen, sockfd, backlog);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -463,7 +463,7 @@ accept4_tcp(struct exa_socket * restrict sock, struct sockaddr *addr,
     if (fd != -1)
     {
         exa_socket_get(fd)->flags = flags;
-        libc_fcntl(fd, F_SETFL, flags);
+        LIBC(fcntl, fd, F_SETFL, flags);
     }
 
     return fd;
@@ -514,7 +514,7 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         {
             exa_read_unlock(&sock->lock);
             native = true;
-            fd = libc_accept(sockfd, addr, addrlen);
+            fd = LIBC(accept, sockfd, addr, addrlen);
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
@@ -531,7 +531,7 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     else
     {
         native = true;
-        fd = libc_accept(sockfd, addr, addrlen);
+        fd = LIBC(accept, sockfd, addr, addrlen);
     }
 
     if (native && fd != -1)
@@ -564,7 +564,7 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
         {
             exa_read_unlock(&sock->lock);
             native = true;
-            fd = libc_accept4(sockfd, addr, addrlen, flags);
+            fd = LIBC(accept4, sockfd, addr, addrlen, flags);
         }
         else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
@@ -581,7 +581,7 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     else
     {
         native = true;
-        fd = libc_accept4(sockfd, addr, addrlen, flags);
+        fd = LIBC(accept4, sockfd, addr, addrlen, flags);
     }
 
     if (native && fd != -1)
@@ -728,7 +728,7 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     if (sock == NULL)
     {
-        ret = libc_connect(sockfd, addr, addrlen);
+        ret = LIBC(connect, sockfd, addr, addrlen);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -751,7 +751,7 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
             /* Use native connect(), then put socket into bypass mode if
              * source address is on an ExaNIC interface */
-            ret = libc_connect(sockfd, addr, addrlen);
+            ret = LIBC(connect, sockfd, addr, addrlen);
             if (ret == -1)
             {
                 exa_write_unlock(&sock->lock);
@@ -761,7 +761,7 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
             sl = sizeof(sa);
             if (!sock->disable_bypass &&
-                libc_getsockname(sockfd, (struct sockaddr *)&sa, &sl) == 0 &&
+                LIBC(getsockname, sockfd, (struct sockaddr *)&sa, &sl) == 0 &&
                 sa.sin_family == AF_INET &&
                 exanic_ip_find(sa.sin_addr.s_addr))
             {
@@ -851,14 +851,14 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         else
         {
             exa_write_unlock(&sock->lock);
-            ret = libc_connect(sockfd, addr, addrlen);
+            ret = LIBC(connect, sockfd, addr, addrlen);
             TRACE_RETURN(INT, ret);
             return ret;
         }
     }
     else
     {
-        ret = libc_connect(sockfd, addr, addrlen);
+        ret = LIBC(connect, sockfd, addr, addrlen);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -878,7 +878,7 @@ shutdown(int sockfd, int how)
 
     if (sock == NULL)
     {
-        ret = libc_shutdown(sockfd, how);
+        ret = LIBC(shutdown, sockfd, how);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -920,7 +920,7 @@ shutdown(int sockfd, int how)
     else
     {
         exa_write_unlock(&sock->lock);
-        ret = libc_shutdown(sockfd, how);
+        ret = LIBC(shutdown, sockfd, how);
         TRACE_RETURN(INT, ret);
         return ret;
     }
@@ -944,17 +944,17 @@ fcntl(int fd, int cmd, ... /* arg */ )
         case F_GETSIG:
         case F_GETLEASE:
             /* arg is void */
-            ret = libc_fcntl(fd, cmd);
+            ret = LIBC(fcntl, fd, cmd);
             break;
         case F_SETLK:
         case F_SETLKW:
         case F_GETLK:
             /* arg is pointer */
-            ret = libc_fcntl(fd, cmd, va_arg(ap, void *));
+            ret = LIBC(fcntl, fd, cmd, va_arg(ap, void *));
             break;
         default:
             /* arg is long */
-            ret = libc_fcntl(fd, cmd, va_arg(ap, long));
+            ret = LIBC(fcntl, fd, cmd, va_arg(ap, long));
             break;
         }
         va_end(ap);
@@ -982,7 +982,7 @@ fcntl(int fd, int cmd, ... /* arg */ )
                 sock->flags = flags;
                 exa_write_unlock(&sock->lock);
             }
-            ret = libc_fcntl(fd, cmd, flags);
+            ret = LIBC(fcntl, fd, cmd, flags);
             break;
         }
 
@@ -994,7 +994,7 @@ fcntl(int fd, int cmd, ... /* arg */ )
         /* arg is void */
         {
             TRACE_LAST_ARG(ENUM, cmd, fcntl);
-            ret = libc_fcntl(fd, cmd);
+            ret = LIBC(fcntl, fd, cmd);
             break;
         }
 
@@ -1006,7 +1006,7 @@ fcntl(int fd, int cmd, ... /* arg */ )
             void *p = va_arg(ap, void *);
             TRACE_ARG(ENUM, cmd, fcntl);
             TRACE_LAST_ARG(PTR, p);
-            ret = libc_fcntl(fd, cmd, p);
+            ret = LIBC(fcntl, fd, cmd, p);
             break;
         }
 
@@ -1016,7 +1016,7 @@ fcntl(int fd, int cmd, ... /* arg */ )
             long l = va_arg(ap, long);
             TRACE_ARG(ENUM, cmd, fcntl);
             TRACE_LAST_ARG(LONG, l);
-            ret = libc_fcntl(fd, cmd, l);
+            ret = LIBC(fcntl, fd, cmd, l);
             break;
         }
     }
@@ -1039,7 +1039,7 @@ ioctl(int fd, unsigned long int request, ...)
     if (override_disabled)
     {
         va_start(ap, request);
-        ret = libc_ioctl(fd, request, va_arg(ap, void *));
+        ret = LIBC(ioctl, fd, request, va_arg(ap, void *));
         va_end(ap);
         return ret;
     }
@@ -1055,16 +1055,16 @@ ioctl(int fd, unsigned long int request, ...)
     sock = exa_socket_get(fd);
     if (sock != NULL && sock->bypass)
     {
-        int tempsock = libc_socket(sock->domain, sock->type, sock->protocol);
+        int tempsock = LIBC(socket, sock->domain, sock->type, sock->protocol);
         va_start(ap, request);
-        ret = libc_ioctl(tempsock, request, va_arg(ap, void *));
+        ret = LIBC(ioctl, tempsock, request, va_arg(ap, void *));
         va_end(ap);
-        libc_close(tempsock);
+        LIBC(close, tempsock);
     }
     else
     {
         va_start(ap, request);
-        ret = libc_ioctl(fd, request, va_arg(ap, void *));
+        ret = LIBC(ioctl, fd, request, va_arg(ap, void *));
         va_end(ap);
     }
 
@@ -1136,7 +1136,7 @@ getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         exa_read_unlock(&sock->lock);
     }
     else
-        ret = libc_getsockname(sockfd, addr, addrlen);
+        ret = LIBC(getsockname, sockfd, addr, addrlen);
 
     TRACE_ARG(SOCKADDR_PTR, addr);
     TRACE_LAST_ARG(INT_PTR, addrlen);
@@ -1186,7 +1186,7 @@ getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         exa_read_unlock(&sock->lock);
     }
     else
-        ret = libc_getpeername(sockfd, addr, addrlen);
+        ret = LIBC(getpeername, sockfd, addr, addrlen);
 
     TRACE_ARG(SOCKADDR_PTR, addr);
     TRACE_LAST_ARG(INT_PTR, addrlen);
@@ -1206,7 +1206,7 @@ getsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     exa_read_lock(&sock->lock);
 
     if (!sock->bypass)
-        ret = libc_getsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
+        ret = LIBC(getsockopt, sockfd, IPPROTO_IP, optname, optval, optlen);
     else
     {
         ret = exa_sys_getsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
@@ -1252,7 +1252,7 @@ getsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
     exa_read_lock(&sock->lock);
 
     if (!sock->bypass)
-        ret = libc_getsockopt(sockfd, IPPROTO_TCP, optname, optval, optlen);
+        ret = LIBC(getsockopt,sockfd, IPPROTO_TCP, optname, optval, optlen);
     else
     {
         ret = exa_sys_getsockopt(sockfd, IPPROTO_TCP, optname, optval, optlen);
@@ -1299,7 +1299,7 @@ getsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
     exa_read_lock(&sock->lock);
 
     if (!sock->bypass)
-        ret = libc_getsockopt(sockfd, SOL_SOCKET, optname, optval, optlen);
+        ret = LIBC(getsockopt, sockfd, SOL_SOCKET, optname, optval, optlen);
     else
     {
         ret = exa_sys_getsockopt(sockfd, SOL_SOCKET, optname, optval, optlen);
@@ -1465,7 +1465,7 @@ getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
     else if ((sock != NULL) && (level == IPPROTO_TCP))
         ret = getsockopt_tcp(sock, sockfd, optname, optval, optlen);
     else
-        ret = libc_getsockopt(sockfd, level, optname, optval, optlen);
+        ret = LIBC(getsockopt, sockfd, level, optname, optval, optlen);
 
     TRACE_ARG(SOCKOPT_PTR, optval, *optlen);
     TRACE_LAST_ARG(INT_PTR, optlen);
@@ -1619,7 +1619,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     if (sock->bypass)
         ret = exa_sys_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
     else
-        ret = libc_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
+        ret = LIBC(setsockopt, sockfd, IPPROTO_IP, optname, optval, optlen);
 
     if (ret == -1)
         goto err_exit;
@@ -1640,7 +1640,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                 ret = exa_socket_enable_bypass(sock);
                 if (ret == -1)
                 {
-                    libc_setsockopt(sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval,
+                    LIBC(setsockopt, sockfd, IPPROTO_IP, IP_DROP_MEMBERSHIP, optval,
                                     optlen);
                     goto err_exit;
                 }
@@ -1749,7 +1749,7 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
     if (sock->bypass)
         ret = exa_sys_setsockopt(sockfd, IPPROTO_TCP, optname, optval, optlen);
     else
-        ret = libc_setsockopt(sockfd, IPPROTO_TCP, optname, optval, optlen);
+        ret = LIBC(setsockopt, sockfd, IPPROTO_TCP, optname, optval, optlen);
 
     if (ret == -1)
         goto err_exit;
@@ -1805,7 +1805,7 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             ret = exa_sys_setsockopt(sockfd, SOL_SOCKET, optname, optval, optlen);
     }
     else
-        ret = libc_setsockopt(sockfd, SOL_SOCKET, optname, optval, optlen);
+        ret = LIBC(setsockopt, sockfd, SOL_SOCKET, optname, optval, optlen);
 
     if (ret == 0)
     {
@@ -1955,7 +1955,7 @@ setsockopt(int sockfd, int level, int optname, const void *optval,
     else if ((sock != NULL) && (level == IPPROTO_TCP))
         ret = setsockopt_tcp(sock, sockfd, optname, optval, optlen);
     else
-        ret = libc_setsockopt(sockfd, level, optname, optval, optlen);
+        ret = LIBC(setsockopt, sockfd, level, optname, optval, optlen);
 
     TRACE_RETURN(INT, ret);
     return ret;

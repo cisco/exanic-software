@@ -311,7 +311,7 @@ recv(int sockfd, void *buf, size_t len, int flags)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_recv(sockfd, buf, len, flags);
+        ret = LIBC(recv, sockfd, buf, len, flags);
     else
     {
         exa_read_lock(&sock->lock);
@@ -319,7 +319,7 @@ recv(int sockfd, void *buf, size_t len, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_recv(sockfd, buf, len, flags);
+            ret = LIBC(recv, sockfd, buf, len, flags);
         }
         else
         {
@@ -351,7 +351,7 @@ __recv_chk(int sockfd, void *buf, size_t len, size_t buflen, int flags)
         __chk_fail();
 
     if (sock == NULL)
-        ret = libc_recv(sockfd, buf, len, flags);
+        ret = LIBC(recv, sockfd, buf, len, flags);
     else
     {
         exa_read_lock(&sock->lock);
@@ -359,7 +359,7 @@ __recv_chk(int sockfd, void *buf, size_t len, size_t buflen, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_recv(sockfd, buf, len, flags);
+            ret = LIBC(recv, sockfd, buf, len, flags);
         }
         else
         {
@@ -390,7 +390,7 @@ recvfrom(int sockfd, void *buf, size_t len, int flags,
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+        ret = LIBC(recvfrom, sockfd, buf, len, flags, src_addr, addrlen);
     else
     {
         exa_read_lock(&sock->lock);
@@ -398,7 +398,7 @@ recvfrom(int sockfd, void *buf, size_t len, int flags,
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+            ret = LIBC(recvfrom, sockfd, buf, len, flags, src_addr, addrlen);
         }
         else
         {
@@ -434,7 +434,7 @@ __recvfrom_chk(int sockfd, void *buf, size_t len, size_t buflen,
         __chk_fail();
 
     if (sock == NULL)
-        ret = libc_recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+        ret = LIBC(recvfrom, sockfd, buf, len, flags, src_addr, addrlen);
     else
     {
         exa_read_lock(&sock->lock);
@@ -442,7 +442,7 @@ __recvfrom_chk(int sockfd, void *buf, size_t len, size_t buflen,
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+            ret = LIBC(recvfrom, sockfd, buf, len, flags, src_addr, addrlen);
         }
         else
         {
@@ -688,7 +688,7 @@ recvmsg(int sockfd, struct msghdr *msg, int flags)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_recvmsg(sockfd, msg, flags);
+        ret = LIBC(recvmsg, sockfd, msg, flags);
     else
     {
         exa_read_lock(&sock->lock);
@@ -696,7 +696,7 @@ recvmsg(int sockfd, struct msghdr *msg, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_recvmsg(sockfd, msg, flags);
+            ret = LIBC(recvmsg, sockfd, msg, flags);
         }
         else
         {
@@ -807,7 +807,7 @@ read(int fd, void *buf, size_t count)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_read(fd, buf, count);
+        ret = LIBC(read, fd, buf, count);
     else
     {
         exa_read_lock(&sock->lock);
@@ -815,7 +815,7 @@ read(int fd, void *buf, size_t count)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_read(fd, buf, count);
+            ret = LIBC(read, fd, buf, count);
         }
         else
         {
@@ -846,7 +846,7 @@ __read_chk(int fd, void *buf, size_t nbytes, size_t buflen)
         __chk_fail();
 
     if (sock == NULL)
-        ret = libc_read(fd, buf, nbytes);
+        ret = LIBC(read, fd, buf, nbytes);
     else
     {
         exa_read_lock(&sock->lock);
@@ -854,7 +854,7 @@ __read_chk(int fd, void *buf, size_t nbytes, size_t buflen)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_read(fd, buf, nbytes);
+            ret = LIBC(read, fd, buf, nbytes);
         }
         else
         {
@@ -956,7 +956,7 @@ readv(int fd, const struct iovec *iov, int iovcnt)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = libc_readv(fd, iov, iovcnt);
+        ret = LIBC(readv, fd, iov, iovcnt);
     else
     {
         exa_read_lock(&sock->lock);
@@ -964,7 +964,7 @@ readv(int fd, const struct iovec *iov, int iovcnt)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = libc_readv(fd, iov, iovcnt);
+            ret = LIBC(readv, fd, iov, iovcnt);
         }
         else
         {

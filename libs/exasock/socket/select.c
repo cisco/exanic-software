@@ -236,7 +236,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
             zero.tv_sec = zero.tv_nsec = 0;
 
-            ret = libc_pselect(nfds, readfds, writefds, exceptfds, &zero, sigmask);
+            ret = LIBC(pselect, nfds, readfds, writefds, exceptfds, &zero, sigmask);
             if (ret != 0)
                 goto select_exit;
         }
@@ -388,7 +388,7 @@ select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                        timeout ? &ts : NULL, NULL);
 
     if (ret == NATIVE_FD_ONLY)
-        ret = libc_select(nfds, readfds, writefds, exceptfds, timeout);
+        ret = LIBC(select, nfds, readfds, writefds, exceptfds, timeout);
 
     TRACE_RETURN_ARG(INT, ret, TRACE_LAST_ARG(SELECT_RESULT,
                      readfds, writefds, exceptfds, nfds));
@@ -415,8 +415,8 @@ pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     ret = pselect_spin(nfds, readfds, writefds, exceptfds, timeout, sigmask);
 
     if (ret == NATIVE_FD_ONLY)
-        ret = libc_pselect(nfds, readfds, writefds, exceptfds, timeout,
-                           sigmask);
+        ret = LIBC(pselect, nfds, readfds, writefds, exceptfds, timeout,
+                   sigmask);
 
     TRACE_RETURN_ARG(INT, ret, TRACE_LAST_ARG(SELECT_RESULT,
                      readfds, writefds, exceptfds, nfds));
@@ -540,7 +540,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 
             zero.tv_sec = zero.tv_nsec = 0;
 
-            ret = libc_ppoll(fds, nfds, &zero, sigmask);
+            ret = LIBC(ppoll, fds, nfds, &zero, sigmask);
             if (ret != 0)
                 goto poll_exit;
         }
@@ -694,7 +694,7 @@ poll(struct pollfd *fds, nfds_t nfds, int timeout)
     ret = ppoll_spin(fds, nfds, timeout >= 0 ? &ts : NULL, NULL);
 
     if (ret == NATIVE_FD_ONLY)
-        ret = libc_poll(fds, nfds, timeout);
+        ret = LIBC(poll, fds, nfds, timeout);
 
     TRACE_RETURN_ARG(INT, ret, TRACE_LAST_ARG(POLL_RESULT, fds, nfds));
 
@@ -727,7 +727,7 @@ ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
     ret = ppoll_spin(fds, nfds, timeout, sigmask);
 
     if (ret == NATIVE_FD_ONLY)
-        ret = libc_ppoll(fds, nfds, timeout, sigmask);
+        ret = LIBC(ppoll, fds, nfds, timeout, sigmask);
 
     TRACE_RETURN_ARG(INT, ret, TRACE_LAST_ARG(POLL_RESULT, fds, nfds));
 
