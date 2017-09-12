@@ -44,8 +44,29 @@ enum conf_option_types {
     CONF_TYPE_UINT32
 };
 
+#define SERIAL_ADDRESS  0x00
+#define SERIAL_LEN      6
+
 #define CLOCKFD 3
 #define FD_TO_CLOCKID(fd) ((~(clockid_t)(fd) << 3) | CLOCKFD)
+
+int exanic_i2c_eeprom_read( exanic_t *exanic, uint8_t regaddr, char *buffer,
+        size_t size )
+{
+    switch( exanic_get_hw_type(exanic))
+    {
+        case EXANIC_HW_X2:
+        case EXANIC_HW_X10:
+        case EXANIC_HW_X10_GM:
+        case EXANIC_HW_X10_HPT:
+        case EXANIC_HW_X40:
+            return exanic_x2_i2c_eeprom_read(exanic, regaddr, buffer, size );
+        case EXANIC_HW_X4:
+            return exanic_x4_i2c_eeprom_read(exanic, regaddr, buffer, size );
+        default:
+            return -1;
+    }
+}
 
 int parse_number(const char *str)
 {
@@ -274,19 +295,36 @@ void show_device_info(const char *device, int port_number, int verbose)
     rev_date = exanic_get_hw_rev_date(exanic);
 
     printf("Device %s:\n", device);
+
     str = exanic_hardware_id_str(hw_type);
     printf("  Hardware type: %s\n", (str == NULL) ? "unknown" : str);
+
+    if (verbose)
+    {
+        uint8_t serial[SERIAL_LEN] = {0};
+        if (exanic_i2c_eeprom_read (exanic, SERIAL_ADDRESS, (char*) serial,
+                                    SERIAL_LEN) == -1)
+        {
+            fprintf (stderr, "%s: %s\n", device, exanic_get_last_error ());
+        }
+        else
+        {
+            printf ("  Serial number: ");
+            int i = 0;
+            for (i = 0; i < SERIAL_LEN; i++)
+                printf ("%02X", serial[i]);
+             printf ("\n");
+        }
+    }
+
 
     if (hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
         hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
         hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
         hw_type == EXANIC_HW_X40  || hw_type == EXANIC_HW_X10_HPT)
     {
-        uint32_t id, temp, vccint, vccaux;
+        uint32_t temp, vccint, vccaux;
         double temp_real=0, vccint_real=0, vccaux_real=0;
-
-        id = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_BOARD_ID));
-        printf("  Board ID: 0x%02x\n", id);
 
         temp = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_TEMPERATURE));
         vccint = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_VCCINT));
