@@ -94,9 +94,9 @@ __exasock_sys_init()
 }
 
 void
-exa_sys_dst_queue(in_addr_t dst_addr, char *hdr, size_t hdr_len,
-                  const struct iovec * restrict iov, size_t iovcnt,
-                  size_t skip_len, size_t data_len)
+exa_sys_dst_queue(in_addr_t dst_addr, in_addr_t src_addr, char *hdr,
+                  size_t hdr_len, const struct iovec * restrict iov,
+                  size_t iovcnt, size_t skip_len, size_t data_len)
 {
     struct exasock_dst_request req;
     char buf[MAX_MSG_SIZE];
@@ -129,6 +129,7 @@ exa_sys_dst_queue(in_addr_t dst_addr, char *hdr, size_t hdr_len,
 
     memset(&req, 0, sizeof(req));
     req.dst_addr = dst_addr;
+    req.src_addr = src_addr;
     req.ip_packet = buf;
     req.ip_packet_len = hdr_len + offs;
 
@@ -142,8 +143,11 @@ exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr)
 {
     struct exasock_dst_request req;
 
+    assert(src_addr != NULL);
+
     memset(&req, 0, sizeof(req));
     req.dst_addr = dst_addr;
+    req.src_addr = *src_addr;
     req.ip_packet = NULL;
     req.ip_packet_len = 0;
 
@@ -154,8 +158,7 @@ exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr)
     if (ioctl(exasock_fd, EXASOCK_IOCTL_DST_QUEUE, &req) != 0)
         goto err_ioctl;
 
-    if (src_addr)
-        *src_addr = req.src_addr;
+    *src_addr = req.src_addr;
 
     exasock_override_on();
     return 0;

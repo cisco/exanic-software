@@ -280,9 +280,13 @@ static void dst_expiry_timer_handler(unsigned long data)
 #endif
     {
 #ifndef __HAS_OLD_NETCORE
-        struct flowi4 fl4 = { .daddr = de->fl4.daddr };
+        struct flowi4 fl4 = { .daddr = de->fl4.daddr, .saddr = de->fl4.saddr };
 #else
-        struct flowi fl = { .nl_u = { .ip4_u = { .daddr = de->rt->rt_dst, }, }, };
+        struct flowi fl = {
+            .nl_u = {
+                .ip4_u = { .daddr = de->rt->rt_dst, .saddr = de->rt->rt_src },
+            },
+        };
 #endif
         unsigned int hash;
 
@@ -454,9 +458,13 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
     struct net_device *ndev, *realdev;
     struct rtable *rt;
 #ifndef __HAS_OLD_NETCORE
-    struct flowi4 fl4 = { .daddr = dst_addr };
+    struct flowi4 fl4 = { .daddr = dst_addr, .saddr = *src_addr };
 #else
-    struct flowi fl = { .nl_u = { .ip4_u = { .daddr = dst_addr, }, }, };
+    struct flowi fl = {
+        .nl_u = {
+            .ip4_u = { .daddr = dst_addr, .saddr = *src_addr },
+        },
+    };
 #endif
     unsigned idx;
     uint32_t saddr;
@@ -581,8 +589,7 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
     if (de->neigh->nud_state & NUD_VALID)
         exasock_dst_neigh_update(de->neigh);
 
-    if (src_addr)
-        *src_addr = saddr;
+    *src_addr = saddr;
 
     return 0;
 

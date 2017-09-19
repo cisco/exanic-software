@@ -687,8 +687,8 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
     else
     {
         /* Queue the packet to be sent when neighbour lookup is done */
-        exa_sys_dst_queue(dst->ip_addr, *hdr_ptr, *hdr_len, iov, iovcnt,
-                          skip_len, data_len);
+        exa_sys_dst_queue(dst->ip_addr, exanic_ctx->ip.address, *hdr_ptr,
+                          *hdr_len, iov, iovcnt, skip_len, data_len);
     }
 }
 
@@ -1550,7 +1550,8 @@ exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
     if (!exa_dst_found(&ctx->dst))
     {
         /* Not found, need to do a neighbour lookup */
-        exa_sys_dst_request(ctx->dst.ip_addr, NULL);
+        in_addr_t src_addr = sock->bind.ip.addr.local;
+        exa_sys_dst_request(ctx->dst.ip_addr, &src_addr);
         return -1;
     }
 

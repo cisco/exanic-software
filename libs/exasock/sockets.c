@@ -187,6 +187,7 @@ exa_socket_udp_update_tx(struct exa_socket * restrict sock,
     }
 
     /* Get new source address */
+    src_addr = ntohl(INADDR_ANY);
     if (sock->bind.ip.addr.local != ntohl(INADDR_ANY) &&
             !IN_MULTICAST(ntohl(sock->bind.ip.addr.local)))
         src_addr = sock->bind.ip.addr.local;
@@ -651,7 +652,7 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
 
     if (endpoint.addr.local == htonl(INADDR_ANY))
     {
-        in_addr_t src_addr;
+        in_addr_t src_addr = endpoint.addr.local;
 
         /* Find a suitable local address for the socket and bind to it */
         if (exa_dst_lookup_src(addr, &src_addr) == -1)

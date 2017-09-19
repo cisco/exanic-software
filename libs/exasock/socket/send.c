@@ -236,7 +236,8 @@ auto_bind(struct exa_socket * restrict sock, int sockfd,
         if ((IN_MULTICAST(ntohl(in_addr->sin_addr.s_addr)) &&
                 sock->ip_multicast_if != htonl(INADDR_ANY) &&
                 exanic_ip_find(sock->ip_multicast_if)) ||
-            exa_dst_lookup_src(in_addr->sin_addr.s_addr, NULL) == 0)
+            exa_dst_via_exanic(in_addr->sin_addr.s_addr,
+                               sock->bind.ip.addr.local))
         {
             /* Put socket into bypass mode.
              * On successful return we hold rx_lock and tx_lock */

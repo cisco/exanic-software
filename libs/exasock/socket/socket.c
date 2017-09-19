@@ -608,7 +608,8 @@ connect_udp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
     assert(sock->bound);
     assert(!sock->connected);
 
-    if (sock->listen.all_if && exa_dst_lookup_src(addr, NULL) == -1)
+    if (sock->listen.all_if &&
+        !exa_dst_via_exanic(addr, sock->bind.ip.addr.local))
     {
         /* Destination not reachable on ExaNIC interface */
         errno = EINVAL;
@@ -667,7 +668,7 @@ connect_tcp(struct exa_socket * restrict sock, int sockfd, in_addr_t addr,
 
     if (!sock->bound)
     {
-        in_addr_t src_addr;
+        in_addr_t src_addr = htonl(INADDR_ANY);
 
         /* Bind socket to get the kernel to assign us a port */
         ret = exa_dst_lookup_src(addr, &src_addr);
@@ -823,7 +824,8 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         {
             /* If the route is via an ExaNIC interface, put the socket into
              * bypass mode */
-            if (exa_dst_lookup_src(in_addr->sin_addr.s_addr, NULL) == 0)
+            if (exa_dst_via_exanic(in_addr->sin_addr.s_addr,
+                                   sock->bind.ip.addr.local))
             {
                 /* On successful return we hold rx_lock and tx_lock */
                 ret = exa_socket_enable_bypass(sock);

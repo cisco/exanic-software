@@ -7,8 +7,8 @@ extern uint8_t *                exa_dst_used_flags;
 
 /* Functions for communicating with the kernel component of Exasock */
 
-void exa_sys_dst_queue(in_addr_t ip_addr, char *hdr, size_t hdr_len,
-                       const struct iovec * restrict iov,
+void exa_sys_dst_queue(in_addr_t ip_addr, in_addr_t src_addr, char *hdr,
+                       size_t hdr_len, const struct iovec * restrict iov,
                        size_t iovcnt, size_t skip_len, size_t data_len);
 int exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr);
 

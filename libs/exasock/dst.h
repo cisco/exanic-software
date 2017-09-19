@@ -124,12 +124,13 @@ exa_dst_lookup_src(in_addr_t dst_addr, in_addr_t *src_addr)
     unsigned int idx;
     uint8_t gen_id;
 
+    assert(src_addr != NULL);
+
     /* Search hash table for entry */
     entry = __exa_dst_lookup(dst_addr, &idx, &gen_id);
     if (entry)
     {
-        if (src_addr != NULL)
-            *src_addr = entry->src_addr;
+        *src_addr = entry->src_addr;
 
         /* Check that entry did not get overwritten while we were reading */
         if (entry->gen_id == gen_id)
@@ -141,6 +142,12 @@ exa_dst_lookup_src(in_addr_t dst_addr, in_addr_t *src_addr)
 
     /* Send a query the kernel module */
     return exa_sys_dst_request(dst_addr, src_addr);
+}
+
+static inline bool
+exa_dst_via_exanic(in_addr_t dst_addr, in_addr_t src_addr)
+{
+    return (exa_dst_lookup_src(dst_addr, &src_addr) == 0);
 }
 
 #endif /* EXASOCK_DST_H */
