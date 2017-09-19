@@ -3,7 +3,8 @@
 
 struct exa_dst
 {
-    in_addr_t ip_addr;
+    in_addr_t dst_addr;
+    in_addr_t src_addr;
     unsigned int idx;
     uint8_t gen_id;
     uint8_t eth_addr[ETH_ALEN];
@@ -14,7 +15,8 @@ struct exa_dst
 static inline void
 exa_dst_init(struct exa_dst * restrict ctx)
 {
-    ctx->ip_addr = htonl(INADDR_ANY);
+    ctx->dst_addr = htonl(INADDR_ANY);
+    ctx->src_addr = htonl(INADDR_ANY);
     ctx->no_lookup = true;
     ctx->idx = ~0;
 }
@@ -25,38 +27,42 @@ exa_dst_cleanup(struct exa_dst * restrict ctx)
 }
 
 static inline void
-exa_dst_set_dest(struct exa_dst * restrict ctx, in_addr_t addr)
+exa_dst_set_addr(struct exa_dst * restrict ctx, in_addr_t dst_addr,
+                 in_addr_t src_addr)
 {
-    ctx->ip_addr = addr;
+    ctx->dst_addr = dst_addr;
+    ctx->src_addr = src_addr;
     ctx->idx = ~0;
 
-    if (IN_MULTICAST(ntohl(addr)))
+    if (IN_MULTICAST(ntohl(dst_addr)))
     {
         ctx->no_lookup = true;
         ctx->eth_addr[0] = 0x01;
         ctx->eth_addr[1] = 0x00;
         ctx->eth_addr[2] = 0x5E;
-        ctx->eth_addr[3] = (ntohl(addr) & 0x7F0000) >> 16;
-        ctx->eth_addr[4] = (ntohl(addr) & 0xFF00) >> 8;
-        ctx->eth_addr[5] = (ntohl(addr) & 0xFF);
+        ctx->eth_addr[3] = (ntohl(dst_addr) & 0x7F0000) >> 16;
+        ctx->eth_addr[4] = (ntohl(dst_addr) & 0xFF00) >> 8;
+        ctx->eth_addr[5] = (ntohl(dst_addr) & 0xFF);
     }
     else
         ctx->no_lookup = false;
 }
 
 static inline volatile struct exa_dst_entry *
-__exa_dst_lookup(in_addr_t ip_addr, unsigned int *idx_ptr, uint8_t *gen_id_ptr)
+__exa_dst_lookup(in_addr_t dst_addr, in_addr_t src_addr, unsigned int *idx_ptr,
+                 uint8_t *gen_id_ptr)
 {
     unsigned int hash, idx;
 
-    hash = idx = exa_dst_hash(ip_addr) & (exa_dst_table_size - 1);
+    hash = idx = exa_dst_hash(dst_addr) & (exa_dst_table_size - 1);
     while (true)
     {
         volatile struct exa_dst_entry *entry = &exa_dst_table[idx];
         uint8_t gen_id = entry->gen_id;
         uint8_t state = entry->state;
 
-        if (state == EXA_DST_ENTRY_VALID && entry->dst_addr == ip_addr)
+        if (state == EXA_DST_ENTRY_VALID && entry->dst_addr == dst_addr &&
+            (src_addr == htonl(INADDR_ANY) || entry->src_addr == src_addr))
         {
             *gen_id_ptr = gen_id;
             *idx_ptr = idx;
@@ -93,7 +99,7 @@ exa_dst_update(struct exa_dst * restrict ctx)
     }
 
     /* Search hash table for entry */
-    entry = __exa_dst_lookup(ctx->ip_addr, &idx, &gen_id);
+    entry = __exa_dst_lookup(ctx->dst_addr, ctx->src_addr, &idx, &gen_id);
     if (entry)
     {
         memcpy(ctx->eth_addr, (void *)entry->eth_addr, ETH_ALEN);
@@ -127,7 +133,7 @@ exa_dst_lookup_src(in_addr_t dst_addr, in_addr_t *src_addr)
     assert(src_addr != NULL);
 
     /* Search hash table for entry */
-    entry = __exa_dst_lookup(dst_addr, &idx, &gen_id);
+    entry = __exa_dst_lookup(dst_addr, *src_addr, &idx, &gen_id);
     if (entry)
     {
         *src_addr = entry->src_addr;

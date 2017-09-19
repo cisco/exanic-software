@@ -687,7 +687,7 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
     else
     {
         /* Queue the packet to be sent when neighbour lookup is done */
-        exa_sys_dst_queue(dst->ip_addr, exanic_ctx->ip.address, *hdr_ptr,
+        exa_sys_dst_queue(dst->dst_addr, exanic_ctx->ip.address, *hdr_ptr,
                           *hdr_len, iov, iovcnt, skip_len, data_len);
     }
 }
@@ -1147,12 +1147,15 @@ exanic_udp_set_dest(struct exa_socket * restrict sock,
     struct exanic_udp * restrict ctx = sock->ctx.udp;
 
     assert(sock->state->tx_lock);
+    assert(sock->bound);
     assert(ctx != NULL);
 
     exa_ip_set_dest(&ctx->ip, addr);
     exa_ip_set_ttl(&ctx->ip, ttl);
+
+    /* Destination setting depends on source being up-to-date */
     exa_udp_set_dest(&ctx->udp, port, exa_ip_addr_csum(&ctx->ip));
-    exa_dst_set_dest(&ctx->dst, addr);
+    exa_dst_set_addr(&ctx->dst, addr, exa_ip_get_src(&ctx->ip));
 
     if (exa_dst_found(&ctx->dst))
         exa_eth_set_dest(&ctx->eth, ctx->dst.eth_addr);
@@ -1341,7 +1344,7 @@ exanic_tcp_connect(struct exa_socket * restrict sock,
 
     exa_eth_set_src(&ctx->eth, ip_ctx->eth_dev_addr, ip_ctx->vlan_id);
 
-    exa_dst_set_dest(&ctx->dst, ep->addr.peer);
+    exa_dst_set_addr(&ctx->dst, ep->addr.peer, ep->addr.local);
     if (exa_dst_found(&ctx->dst))
         exa_eth_set_dest(&ctx->eth, ctx->dst.eth_addr);
 
@@ -1381,7 +1384,7 @@ exanic_tcp_accept(struct exa_socket * restrict sock,
 
     exa_eth_set_src(&ctx->eth, ip_ctx->eth_dev_addr, ip_ctx->vlan_id);
 
-    exa_dst_set_dest(&ctx->dst, ep->addr.peer);
+    exa_dst_set_addr(&ctx->dst, ep->addr.peer, ep->addr.local);
     if (exa_dst_found(&ctx->dst))
         exa_eth_set_dest(&ctx->eth, ctx->dst.eth_addr);
 
@@ -1551,7 +1554,7 @@ exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
     {
         /* Not found, need to do a neighbour lookup */
         in_addr_t src_addr = sock->bind.ip.addr.local;
-        exa_sys_dst_request(ctx->dst.ip_addr, &src_addr);
+        exa_sys_dst_request(ctx->dst.dst_addr, &src_addr);
         return -1;
     }
 

@@ -165,7 +165,7 @@ static void __free_dst_entry(struct exasock_dst_entry *de)
 }
 
 /* Find entry, returns next empty entry if not found, lock must be held */
-static unsigned int __find_dst_entry(uint32_t daddr)
+static unsigned int __find_dst_entry(uint32_t daddr, uint32_t saddr)
 {
     unsigned int hash, idx;
 
@@ -174,9 +174,11 @@ static unsigned int __find_dst_entry(uint32_t daddr)
     {
         if (dst_table[idx] == NULL ||
 #ifndef __HAS_OLD_NETCORE
-            dst_table[idx]->fl4.daddr == daddr)
+            (dst_table[idx]->fl4.daddr == daddr &&
+             dst_table[idx]->fl4.saddr == saddr))
 #else
-            dst_table[idx]->rt->rt_dst == daddr)
+            (dst_table[idx]->rt->rt_dst == daddr &&
+             dst_table[idx]->rt->rt_src == saddr))
 #endif
             return idx;
 
@@ -346,7 +348,7 @@ void exasock_dst_remove_socket(uint32_t local_addr, uint32_t peer_addr,
 
     spin_lock_bh(&dst_lock);
 
-    idx = __find_dst_entry(peer_addr);
+    idx = __find_dst_entry(peer_addr, local_addr);
     if ((idx == ~0) || dst_table[idx] == NULL)
         goto exit;
 
@@ -540,7 +542,7 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
 
     spin_lock_bh(&dst_lock);
 
-    idx = __find_dst_entry(dst_addr);
+    idx = __find_dst_entry(dst_addr, saddr);
 
     if (idx == ~0)
     {

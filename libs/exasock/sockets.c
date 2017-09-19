@@ -220,6 +220,8 @@ exa_socket_udp_update_tx(struct exa_socket * restrict sock,
         }
     }
 
+    /* Source needs to be updated before destination. Destination setting
+     * depends on source being up-to-date. */
     exanic_udp_set_src(sock, ctx, sock->bind.ip.port.local);
     exanic_udp_set_dest(sock, dst_addr, dst_port, ttl);
 
