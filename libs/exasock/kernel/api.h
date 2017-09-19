@@ -38,7 +38,6 @@ struct exasock_dst_request
 {
     uint32_t dst_addr;
     uint32_t src_addr;
-    int if_index;
     void *ip_packet;
     size_t ip_packet_len;
 };

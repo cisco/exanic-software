@@ -1550,7 +1550,7 @@ exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
     if (!exa_dst_found(&ctx->dst))
     {
         /* Not found, need to do a neighbour lookup */
-        exa_sys_dst_request(ctx->dst.ip_addr, NULL, NULL);
+        exa_sys_dst_request(ctx->dst.ip_addr, NULL);
         return -1;
     }
 

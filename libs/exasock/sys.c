@@ -138,7 +138,7 @@ exa_sys_dst_queue(in_addr_t dst_addr, char *hdr, size_t hdr_len,
 }
 
 int
-exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr, int *if_index)
+exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr)
 {
     struct exasock_dst_request req;
 
@@ -156,8 +156,6 @@ exa_sys_dst_request(in_addr_t dst_addr, in_addr_t *src_addr, int *if_index)
 
     if (src_addr)
         *src_addr = req.src_addr;
-    if (if_index)
-        *if_index = req.if_index;
 
     exasock_override_on();
     return 0;

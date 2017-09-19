@@ -446,7 +446,7 @@ void exasock_dst_neigh_update(struct neighbour *neigh)
 /**
  * Look up or create destination entry and insert skb into queue.
  */
-int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr, int *ifindex,
+int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
                        struct sk_buff *skb)
 {
     struct exasock_dst_entry *de;
@@ -583,8 +583,6 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr, int *ifindex,
 
     if (src_addr)
         *src_addr = saddr;
-    if (ifindex)
-        *ifindex = oif;
 
     return 0;
 

@@ -72,7 +72,7 @@ static struct notifier_block exasock_inetaddr_notifier = {
     .notifier_call      = exasock_inetaddr_event
 };
 
-static int exasock_dst_queue(uint32_t addr, uint32_t *src_addr, int *ifindex,
+static int exasock_dst_queue(uint32_t addr, uint32_t *src_addr,
                              const char __user *buf, size_t len)
 {
     struct sk_buff *skb = NULL;
@@ -97,7 +97,7 @@ static int exasock_dst_queue(uint32_t addr, uint32_t *src_addr, int *ifindex,
         }
     }
 
-    return exasock_dst_insert(addr, src_addr, ifindex, skb);
+    return exasock_dst_insert(addr, src_addr, skb);
 
 err_copy_from_user:
     kfree_skb(skb);
@@ -385,8 +385,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
                 return -EFAULT;
 
-            err = exasock_dst_queue(req.dst_addr, &req.src_addr, &req.if_index,
-                                    req.ip_packet, req.ip_packet_len);
+            err = exasock_dst_queue(req.dst_addr, &req.src_addr, req.ip_packet,
+                                    req.ip_packet_len);
             if (err)
                 return err;
 

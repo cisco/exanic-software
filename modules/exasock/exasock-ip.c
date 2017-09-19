@@ -38,5 +38,5 @@ int exasock_ip_send(uint8_t proto, uint32_t dst_addr, uint32_t src_addr,
 
     skb_reset_network_header(skb);
 
-    return exasock_dst_insert(dst_addr, NULL, NULL, skb);
+    return exasock_dst_insert(dst_addr, NULL, skb);
 }

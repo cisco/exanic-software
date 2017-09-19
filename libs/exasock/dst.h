@@ -140,7 +140,7 @@ exa_dst_lookup_src(in_addr_t dst_addr, in_addr_t *src_addr)
     }
 
     /* Send a query the kernel module */
-    return exa_sys_dst_request(dst_addr, src_addr, NULL);
+    return exa_sys_dst_request(dst_addr, src_addr);
 }
 
 #endif /* EXASOCK_DST_H */

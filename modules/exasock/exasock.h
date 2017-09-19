@@ -57,7 +57,7 @@ void exasock_dst_exit(void);
 void exasock_dst_remove_socket(uint32_t local_addr, uint32_t peer_addr,
                                uint16_t local_port, uint16_t peer_port);
 void exasock_dst_neigh_update(struct neighbour *neigh);
-int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr, int *ifindex,
+int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
                        struct sk_buff *skb);
 void exasock_dst_invalidate_src(uint32_t src_addr);
 int exasock_dst_used_flags_mmap(struct vm_area_struct *vma);
