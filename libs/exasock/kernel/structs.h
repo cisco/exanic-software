@@ -21,13 +21,14 @@ struct exa_dst_entry
     uint32_t src_addr;
     uint8_t eth_addr[6];
     uint8_t gen_id;
-    uint8_t state;
+    uint8_t def_rt:1;
+    uint8_t state:7;
 };
 
 #define EXA_DST_ENTRY_EMPTY             0
 #define EXA_DST_ENTRY_INCOMPLETE        1
 #define EXA_DST_ENTRY_VALID             2
-#define EXA_DST_ENTRY_INVALID           0xFF
+#define EXA_DST_ENTRY_INVALID           3
 
 struct exa_udp_state
 {

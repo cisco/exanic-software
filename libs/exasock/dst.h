@@ -62,7 +62,8 @@ __exa_dst_lookup(in_addr_t dst_addr, in_addr_t src_addr, unsigned int *idx_ptr,
         uint8_t state = entry->state;
 
         if (state == EXA_DST_ENTRY_VALID && entry->dst_addr == dst_addr &&
-            (src_addr == htonl(INADDR_ANY) || entry->src_addr == src_addr))
+            ((src_addr == htonl(INADDR_ANY) && entry->def_rt) ||
+             entry->src_addr == src_addr))
         {
             *gen_id_ptr = gen_id;
             *idx_ptr = idx;

@@ -40,6 +40,10 @@
 #define __FILLS_RT_IIF
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+#define __HAS_RT_TABLE_ID
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 1, 0)
   #if LINUX_VERSION_CODE > KERNEL_VERSION(3, 0, 75)
     /* SLES11 3.0.76 kernel */
@@ -61,6 +65,9 @@
 struct exasock_dst_entry
 {
     struct rtable *     rt;
+#ifndef __HAS_RT_TABLE_ID
+    bool                default_rt;
+#endif
     struct neighbour *  neigh;
 #ifndef __HAS_OLD_NETCORE
     struct flowi4       fl4;
@@ -95,17 +102,23 @@ static uint8_t *                dst_used_flags;
 /* User-visible copy of the destination table */
 static struct exa_dst_entry *   dst_user_table;
 
-static void __update_user_dst_entry(unsigned int idx)
+static void __update_user_dst_entry(
+#ifndef __HAS_RT_TABLE_ID
+                                    bool default_rt,
+#endif
+                                    unsigned int idx)
 {
     if (dst_table[idx])
     {
         struct neighbour *neigh = dst_table[idx]->neigh;
+#if defined(__HAS_OLD_NETCORE) || defined(__HAS_RT_TABLE_ID)
+        struct rtable *rt = dst_table[idx]->rt;
+#endif
 #ifndef __HAS_OLD_NETCORE
         struct flowi4 fl4 = dst_table[idx]->fl4;
         uint32_t dst_addr = fl4.daddr;
         uint32_t src_addr = fl4.saddr;
 #else
-        struct rtable *rt = dst_table[idx]->rt;
         uint32_t dst_addr = rt->rt_dst;
         uint32_t src_addr = rt->rt_src;
 #endif
@@ -124,7 +137,13 @@ static void __update_user_dst_entry(unsigned int idx)
         dst_user_table[idx].dst_addr = dst_addr;
         dst_user_table[idx].src_addr = src_addr;
         memcpy(dst_user_table[idx].eth_addr, neigh->ha, ETH_ALEN);
-
+        dst_user_table[idx].def_rt =
+#ifdef __HAS_RT_TABLE_ID
+            (rt->rt_table_id == RT_TABLE_MAIN ||
+             rt->rt_table_id == RT_TABLE_DEFAULT) ? 1 : 0;
+#else
+            default_rt ? 1 : 0;
+#endif
         if (neigh->nud_state & NUD_VALID)
             dst_user_table[idx].state = EXA_DST_ENTRY_VALID;
         else
@@ -230,12 +249,20 @@ static void __remove_dst_entry(unsigned int idx)
         {
             dst_table[empty_idx] = dst_table[idx];
             dst_table[idx] = NULL;
-            __update_user_dst_entry(empty_idx);
+            __update_user_dst_entry(
+#ifndef __HAS_RT_TABLE_ID
+                                    dst_table[empty_idx]->default_rt,
+#endif
+                                    empty_idx);
             empty_idx = idx;
         }
     }
 
-    __update_user_dst_entry(empty_idx);
+    __update_user_dst_entry(
+#ifndef __HAS_RT_TABLE_ID
+                            false,
+#endif
+                            empty_idx);
 }
 
 /* Check first entry in the list, remove if expired and adjust the table */
@@ -311,7 +338,11 @@ static void dst_expiry_timer_handler(unsigned long data)
         hash = hash_ptr(new_neigh, NEIGH_HASH_BITS);
         list_del(&de->neigh_hash);
         list_add_tail(&de->neigh_hash, &dst_neigh_hash[hash]);
-        __update_user_dst_entry(de->idx);
+        __update_user_dst_entry(
+#ifndef __HAS_RT_TABLE_ID
+                                de->default_rt,
+#endif
+                                de->idx);
     }
 
     /* Update last used time of entry */
@@ -397,7 +428,11 @@ void exasock_dst_neigh_update(struct neighbour *neigh)
     {
         if (de->neigh == neigh)
         {
-            __update_user_dst_entry(de->idx);
+            __update_user_dst_entry(
+#ifndef __HAS_RT_TABLE_ID
+                                    de->default_rt,
+#endif
+                                    de->idx);
 
             /* Move the packets on the queue to our temporary list */
             list_splice_tail_init(&de->dst_queue, &temp_head);
@@ -561,6 +596,9 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
         /* New entry */
         unsigned int hash;
         de->rt = rt;
+#ifndef __HAS_RT_TABLE_ID
+        de->default_rt = false;
+#endif
         de->neigh = exasock_dst_neigh_lookup(&rtable_dst(rt), &fl4.daddr);
 #ifndef __HAS_OLD_NETCORE
         de->fl4 = fl4;
@@ -570,11 +608,19 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
         hash = hash_ptr(de->neigh, NEIGH_HASH_BITS);
         list_add_tail(&de->neigh_hash, &dst_neigh_hash[hash]);
         dst_table[idx] = de;
-        __update_user_dst_entry(idx);
+        __update_user_dst_entry(
+#ifndef __HAS_RT_TABLE_ID
+                                de->default_rt,
+#endif
+                                idx);
     }
 
     dst_used_flags[idx] = 0;
     de->used = jiffies;
+#ifndef __HAS_RT_TABLE_ID
+    if (*src_addr == htonl(INADDR_ANY))
+        de->default_rt = true;
+#endif
     list_add_tail(&de->list, &dst_entries);
 
     if (qe)
