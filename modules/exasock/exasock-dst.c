@@ -248,6 +248,7 @@ static void __remove_dst_entry(unsigned int idx)
             ((idx - empty_idx) & (dst_table_size - 1)))
         {
             dst_table[empty_idx] = dst_table[idx];
+            dst_table[empty_idx]->idx = empty_idx;
             dst_table[idx] = NULL;
             __update_user_dst_entry(
 #ifndef __HAS_RT_TABLE_ID
