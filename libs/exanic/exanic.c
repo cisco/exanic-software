@@ -85,7 +85,7 @@ exanic_t * exanic_acquire_handle(const char *device_name)
          * the time on this card, disable timestamping. */
         info_page = NULL;
         if (!(caps & EXANIC_CAP_HW_TIME_HI))
-          tick_hz = 0;
+            tick_hz = 0;
     }
 
     /* Map TX feedback slots and TX buffer if available */

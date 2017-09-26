@@ -36,7 +36,8 @@ exanic_cycles_t exanic_expand_timestamp(exanic_t *exanic, exanic_cycles32_t time
         return 0;
 
     /* Get the approximate current hardware time in ExaNIC clock ticks */
-    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
+    if ((exanic->caps & EXANIC_CAP_HW_TIME_HI) &&
+            (exanic->info_page == NULL || exanic->info_page->hw_time == 0))
         time_tick = exanic_read_hw_time_64(exanic);
     else
         time_tick = exanic->info_page->hw_time;
