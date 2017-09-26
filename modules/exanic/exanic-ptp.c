@@ -43,6 +43,8 @@ typedef struct timespec ptp_timespec_t;
 #define ktime_to_ptp_timespec_t(ktime) ktime_to_timespec(ktime)
 #endif
 
+static uint64_t exanic_ptp_read_hw_time(struct exanic *exanic);
+
 static void exanic_ptp_update_info_page(struct exanic *exanic)
 {
     /* The hw_time field in the info page is at most 1/4 rollover period
@@ -51,10 +53,39 @@ static void exanic_ptp_update_info_page(struct exanic *exanic)
         + 0x40000000;
 }
 
+/* This timer fires periodically for ExaNIC cards with a 64 bit clock
+ * to update the cached upper bits of the time counter */
+static enum hrtimer_restart exanic_ptp_hw_hrtimer_callback(struct hrtimer *timer)
+{
+    struct exanic *exanic =
+        container_of(timer, struct exanic, ptp_clock_hrtimer);
+    uint64_t time_ticks = exanic_ptp_read_hw_time(exanic);
+    uint32_t ticks;
+
+    if ((time_ticks & 0x7FFFFFFF) > 0x80000000 - MAX_ERROR_TICKS)
+    {
+        /* Update the rollover counter early */
+        exanic->tick_rollover_counter = (time_ticks >> 31) + 1;
+        ticks = 0x100000000 - (time_ticks & 0x7FFFFFFF);
+    }
+    else
+    {
+        exanic->tick_rollover_counter = time_ticks >> 31;
+        ticks = 0x80000000 - (time_ticks & 0x7FFFFFFF);
+    }
+    exanic_ptp_update_info_page(exanic);
+
+    hrtimer_forward_now(&exanic->ptp_clock_hrtimer,
+            ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz));
+
+    return HRTIMER_RESTART;
+}
+
 /* This timer should fire each half rollover period of the ExaNIC clock
  * on cards which do not have a 64 bit clock
  * Lock is not needed because we stop the timer during critical sections */
-static enum hrtimer_restart exanic_ptp_hrtimer_callback(struct hrtimer *timer)
+static enum hrtimer_restart exanic_ptp_soft_hrtimer_callback(
+        struct hrtimer *timer)
 {
     struct exanic *exanic =
         container_of(timer, struct exanic, ptp_clock_hrtimer);
@@ -377,8 +408,7 @@ static int exanic_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
     spin_lock_irqsave(&exanic->ptp_clock_lock, flags);
 
     /* Prevent timers from firing while we are changing the counter value */
-    if (!(exanic->caps & EXANIC_CAP_HW_TIME_HI))
-        hrtimer_cancel(&exanic->ptp_clock_hrtimer);
+    hrtimer_cancel(&exanic->ptp_clock_hrtimer);
     if (exanic->phc_pps_enabled)
         hrtimer_cancel(&exanic->phc_pps_hrtimer);
 
@@ -403,18 +433,15 @@ static int exanic_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
     writel(time_ticks & 0xFFFFFFFF,
             exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET));
 
-    if (!(exanic->caps & EXANIC_CAP_HW_TIME_HI))
-    {
-        /* Keep track of upper bits in software */
-        exanic->tick_rollover_counter = time_ticks >> 31;
-        exanic_ptp_update_info_page(exanic);
+    /* Keep track of upper bits in software */
+    exanic->tick_rollover_counter = time_ticks >> 31;
+    exanic_ptp_update_info_page(exanic);
 
-        /* Set timer to fire when bottom 31 bits rollover */
-        ticks = 0x80000000 - (time_ticks & 0x7FFFFFFF);
-        hrtimer_start(&exanic->ptp_clock_hrtimer,
-                ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz),
-                HRTIMER_MODE_REL);
-    }
+    /* Set timer to fire when bottom 31 bits rollover */
+    ticks = 0x80000000 - (time_ticks & 0x7FFFFFFF);
+    hrtimer_start(&exanic->ptp_clock_hrtimer,
+            ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz),
+            HRTIMER_MODE_REL);
 
     /* Update periodic output settings */
     if (exanic->per_out_mode != PER_OUT_NONE)
@@ -459,8 +486,7 @@ static int exanic_phc_settime(struct ptp_clock_info *ptp,
     spin_lock_irqsave(&exanic->ptp_clock_lock, flags);
 
     /* Prevent timers from firing while we are changing the counter value */
-    if (!(exanic->caps & EXANIC_CAP_HW_TIME_HI))
-        hrtimer_cancel(&exanic->ptp_clock_hrtimer);
+    hrtimer_cancel(&exanic->ptp_clock_hrtimer);
     if (exanic->phc_pps_enabled)
         hrtimer_cancel(&exanic->phc_pps_hrtimer);
 
@@ -476,18 +502,15 @@ static int exanic_phc_settime(struct ptp_clock_info *ptp,
     writel(time_ticks & 0xFFFFFFFF,
             exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET));
 
-    if (!(exanic->caps & EXANIC_CAP_HW_TIME_HI))
-    {
-        /* Keep track of upper bits in software */
-        exanic->tick_rollover_counter = time_ticks >> 31;
-        exanic_ptp_update_info_page(exanic);
+    /* Keep track of upper bits in software */
+    exanic->tick_rollover_counter = time_ticks >> 31;
+    exanic_ptp_update_info_page(exanic);
 
-        /* Set timer to fire when bottom 31 bits rollover */
-        ticks = 0x80000000 - (time_ticks & 0x7FFFFFFF);
-        hrtimer_start(&exanic->ptp_clock_hrtimer,
-                ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz),
-                HRTIMER_MODE_REL);
-    }
+    /* Set timer to fire when bottom 31 bits rollover */
+    ticks = 0x80000000 - (time_ticks & 0x7FFFFFFF);
+    hrtimer_start(&exanic->ptp_clock_hrtimer,
+            ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz),
+            HRTIMER_MODE_REL);
 
     /* Update periodic output settings */
     if (exanic->per_out_mode != PER_OUT_NONE)
@@ -615,6 +638,8 @@ static const struct ptp_clock_info exanic_ptp_clock_info = {
 void exanic_ptp_init(struct exanic *exanic)
 {
     struct device *dev = &exanic->pci_dev->dev;
+    uint64_t time_ticks;
+    uint32_t ticks;
 
     exanic->tick_hz =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_HZ));
@@ -643,7 +668,10 @@ void exanic_ptp_init(struct exanic *exanic)
         exanic->ptp_clock_info.n_per_out = 0;
 
     hrtimer_init(&exanic->ptp_clock_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-    exanic->ptp_clock_hrtimer.function = &exanic_ptp_hrtimer_callback;
+    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
+        exanic->ptp_clock_hrtimer.function = &exanic_ptp_hw_hrtimer_callback;
+    else
+        exanic->ptp_clock_hrtimer.function = &exanic_ptp_soft_hrtimer_callback;
 
     hrtimer_init(&exanic->phc_pps_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
     exanic->phc_pps_hrtimer.function = &exanic_ptp_pps_hrtimer_callback;
@@ -680,21 +708,21 @@ void exanic_ptp_init(struct exanic *exanic)
         writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
     }
 
-    if (!(exanic->caps & EXANIC_CAP_HW_TIME_HI))
-    {
-        uint32_t hw_time_reg = readl(exanic->regs_virt +
+    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
+        time_ticks = exanic_ptp_read_hw_time(exanic);
+    else
+        time_ticks = readl(exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME));
-        uint32_t ticks;
 
-        exanic->tick_rollover_counter = 0;
-        exanic_ptp_update_info_page(exanic);
+    /* Keep track of upper bits in software */
+    exanic->tick_rollover_counter = time_ticks >> 31;
+    exanic_ptp_update_info_page(exanic);
 
-        /* Set timer to fire when bottom 31 bits rollover */
-        ticks = 0x80000000 - (hw_time_reg & 0x7FFFFFFF);
-        hrtimer_start(&exanic->ptp_clock_hrtimer,
-                ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz),
-                HRTIMER_MODE_REL);
-    }
+    /* Set timer to fire when bottom 31 bits rollover */
+    ticks = 0x80000000 - (time_ticks & 0x7FFFFFFF);
+    hrtimer_start(&exanic->ptp_clock_hrtimer,
+            ns_to_ktime(1000000000ULL * ticks / exanic->tick_hz),
+            HRTIMER_MODE_REL);
 
     /* PPS events are disabled on init */
     exanic->last_phc_pps = 0;
