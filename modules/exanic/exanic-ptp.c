@@ -656,6 +656,14 @@ void exanic_ptp_init(struct exanic *exanic)
     dev_info(dev, "PTP hardware clock registered (ptp%i)",
             ptp_clock_index(exanic->ptp_clock));
 
+    if (exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
+            exanic->hw_id == EXANIC_HW_X10_GM)
+    {
+        /* Disable periodic output */
+        writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
+        writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
+    }
+
     if (exanic_ptp_adj_allowed(exanic))
     {
         /* Reset the hardware clock */
@@ -665,24 +673,16 @@ void exanic_ptp_init(struct exanic *exanic)
                     REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET_HI));
         writel(0, exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET));
         writel(0, exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_ADJ));
+        time_ticks = 0;
+        exanic->tick_rollover_counter = 0;
     }
-
-    if (exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_X10_GM)
-    {
-        /* Disable periodic output */
-        writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
-        writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
-    }
-
-    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
-        time_ticks = exanic_ptp_read_hw_time(exanic);
     else
-        time_ticks = readl(exanic->regs_virt +
-                REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME));
+    {
+        /* Get time from hardware clock */
+        time_ticks = exanic_ptp_read_hw_time(exanic);
+        exanic->tick_rollover_counter = time_ticks >> 31;
+    }
 
-    /* Keep track of upper bits in software */
-    exanic->tick_rollover_counter = time_ticks >> 31;
     exanic_ptp_update_info_page(exanic);
 
     /* Set timer to fire when the upper bits change */
