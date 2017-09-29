@@ -397,11 +397,11 @@ static int exanic_phc_adjfreq(struct ptp_clock_info *ptp, s32 delta)
     return 0;
 }
 
-static int exanic_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
+/* Common code for exanic_phc_adjtime and exanic_phc_settime */
+static int exanic_phc_adjtime_common(struct ptp_clock_info *ptp,
+                                     const ptp_timespec_t *ts, s64 delta)
 {
     struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
-    int64_t delta_ticks = (delta / 1000000000 * exanic->tick_hz) +
-        ((delta % 1000000000) * exanic->tick_hz / 1000000000);
     uint64_t time_ticks;
     unsigned long flags;
 
@@ -416,14 +416,27 @@ static int exanic_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
     if (exanic->phc_pps_enabled)
         hrtimer_cancel(&exanic->phc_pps_hrtimer);
 
-    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
-        time_ticks = exanic_ptp_read_hw_time(exanic);
-    else
-        time_ticks = exanic_ptp_soft_extend_hw_time(exanic,
-                readl(exanic->regs_virt +
-                    REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME)));
+    if (ts == NULL)
+    {
+        /* Adjust time by offset */
+        int64_t delta_ticks = (delta / 1000000000 * exanic->tick_hz) +
+            ((delta % 1000000000) * exanic->tick_hz / 1000000000);
 
-    time_ticks += delta_ticks;
+        if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
+            time_ticks = exanic_ptp_read_hw_time(exanic);
+        else
+            time_ticks = exanic_ptp_soft_extend_hw_time(exanic,
+                    readl(exanic->regs_virt +
+                        REG_EXANIC_OFFSET(REG_EXANIC_HW_TIME)));
+
+        time_ticks += delta_ticks;
+    }
+    else
+    {
+        /* Set absolute time */
+        time_ticks = (ts->tv_sec * exanic->tick_hz) +
+            ((uint64_t)ts->tv_nsec * exanic->tick_hz / 1000000000);
+    }
 
     if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
     {
@@ -461,6 +474,11 @@ static int exanic_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
     spin_unlock_irqrestore(&exanic->ptp_clock_lock, flags);
 
     return 0;
+}
+
+static int exanic_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
+{
+    return exanic_phc_adjtime_common(ptp, NULL, delta);
 }
 
 static int exanic_phc_gettime(struct ptp_clock_info *ptp,
@@ -476,58 +494,7 @@ static int exanic_phc_gettime(struct ptp_clock_info *ptp,
 static int exanic_phc_settime(struct ptp_clock_info *ptp,
                               const ptp_timespec_t *ts)
 {
-    struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
-    uint64_t time_ticks = (ts->tv_sec * exanic->tick_hz) +
-        ((uint64_t)ts->tv_nsec * exanic->tick_hz / 1000000000);
-    unsigned long flags;
-
-    if (!exanic_ptp_adj_allowed(exanic))
-        return -EOPNOTSUPP;
-
-    /* Lock to prevent someone else setting the clock at the same time */
-    spin_lock_irqsave(&exanic->ptp_clock_lock, flags);
-
-    /* Prevent timers from firing while we are changing the counter value */
-    hrtimer_cancel(&exanic->ptp_clock_hrtimer);
-    if (exanic->phc_pps_enabled)
-        hrtimer_cancel(&exanic->phc_pps_hrtimer);
-
-    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
-    {
-        /* Write upper bits of the counter. The time is not updated until
-         * the lower bits are written */
-        writel(time_ticks >> 32,
-                exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET_HI));
-    }
-
-    /* Write lower 32 bits of the counter */
-    writel(time_ticks & 0xFFFFFFFF,
-            exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_SET));
-
-    /* Keep track of upper bits in software */
-    exanic->tick_rollover_counter = time_ticks >> 31;
-    exanic_ptp_update_info_page(exanic);
-
-    /* Set timer to fire when the upper bits change */
-    hrtimer_start(&exanic->ptp_clock_hrtimer,
-            next_rollover_update_time(exanic, time_ticks),
-            HRTIMER_MODE_REL);
-
-    /* Update periodic output settings */
-    if (exanic->per_out_mode != PER_OUT_NONE)
-        exanic_ptp_per_out_update(exanic);
-
-    if (exanic->phc_pps_enabled)
-    {
-        /* Set PPS timer to fire at the next second boundary */
-        exanic->last_phc_pps = 0;
-        hrtimer_start(&exanic->phc_pps_hrtimer, next_pps_time(exanic),
-                      HRTIMER_MODE_ABS);
-    }
-
-    spin_unlock_irqrestore(&exanic->ptp_clock_lock, flags);
-
-    return 0;
+    return exanic_phc_adjtime_common(ptp, ts, 0);
 }
 
 static int exanic_phc_enable(struct ptp_clock_info *ptp,
