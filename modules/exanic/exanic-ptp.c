@@ -46,6 +46,16 @@ typedef struct timespec ptp_timespec_t;
 #define ktime_to_ptp_timespec_t(ktime) ktime_to_timespec(ktime)
 #endif
 
+#define EXANIC_SUPPORTS_PER_OUT(exanic) \
+    ((exanic)->hw_id == EXANIC_HW_X10 || \
+     (exanic)->hw_id == EXANIC_HW_X40 || \
+     (exanic)->hw_id == EXANIC_HW_X10_GM || \
+     (exanic)->hw_id == EXANIC_HW_X10_HPT)
+
+#define EXANIC_SUPPORTS_PER_OUT_10M(exanic) \
+    ((exanic)->hw_id == EXANIC_HW_X10_GM || \
+     (exanic)->hw_id == EXANIC_HW_X10_HPT)
+
 static uint64_t exanic_ptp_read_hw_time(struct exanic *exanic);
 static uint64_t exanic_ptp_soft_extend_hw_time(struct exanic *exanic,
         uint32_t hw_time);
@@ -547,8 +557,7 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
 
             /* 100ns period is only supported on X10-GM/X10-HPT */
             if (per_out_mode == PER_OUT_10M &&
-                    exanic->hw_id != EXANIC_HW_X10_GM &&
-                    exanic->hw_id != EXANIC_HW_X10_HPT)
+                    !EXANIC_SUPPORTS_PER_OUT_10M(exanic))
                 return -EINVAL;
         }
 
@@ -627,9 +636,7 @@ void exanic_ptp_init(struct exanic *exanic)
     else
         exanic->ptp_clock_info.max_adj = 100000000;
     /* Periodic output is only available on X10/X40/X10-GM/X10-HPT */
-    if (exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_X10_GM ||
-            exanic->hw_id == EXANIC_HW_X10_HPT)
+    if (EXANIC_SUPPORTS_PER_OUT(exanic))
         exanic->ptp_clock_info.n_per_out = 1;
     else
         exanic->ptp_clock_info.n_per_out = 0;
@@ -656,8 +663,7 @@ void exanic_ptp_init(struct exanic *exanic)
     dev_info(dev, "PTP hardware clock registered (ptp%i)",
             ptp_clock_index(exanic->ptp_clock));
 
-    if (exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_X10_GM)
+    if (EXANIC_SUPPORTS_PER_OUT(exanic))
     {
         /* Disable periodic output */
         writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
