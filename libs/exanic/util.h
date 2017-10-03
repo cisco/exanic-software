@@ -50,7 +50,7 @@ exanic_function_id_t exanic_get_function_id(exanic_t *exanic);
  * \param[in]   exanic
  *      A valid ExaNIC handle
  *
- * \return A capability bitfield of a ExaNIC (see \ref exanic_caps_t).
+ * \return The capability flags of the ExaNIC (see \ref exanic_caps_t).
  */
 uint32_t exanic_get_caps(exanic_t *exanic);
 

@@ -77,7 +77,7 @@ int exanic_port_mirror_supported(exanic_t *exanic, int port_number)
 
     /*
      * Check if firmware has mirroring support for a given port.
-     * Always available on 4-port cards regardless of capability bit.
+     * Always available on legacy 4-port cards regardless of capability bit.
      */
     return (((hw_type == EXANIC_HW_X4 ||
               hw_type == EXANIC_HW_Z10 ||

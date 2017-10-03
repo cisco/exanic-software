@@ -60,17 +60,17 @@ static u8 next_mac_addr[ETH_ALEN] = {
     0x64, 0x3F, 0x5F, 0x00, 0x00, 0x00
 };
 
-#define EXANIC_4PORT_CARD(exanic)   ((exanic)->hw_id == EXANIC_HW_Z1     || \
+#define EXANIC_4_PORT(exanic)       ((exanic)->hw_id == EXANIC_HW_Z1     || \
                                      (exanic)->hw_id == EXANIC_HW_Z10    || \
                                      (exanic)->hw_id == EXANIC_HW_X4)
 
-#define EXANIC_2PORT_CARD(exanic)   ((exanic)->hw_id == EXANIC_HW_X2     || \
+#define EXANIC_2_PORT(exanic)       ((exanic)->hw_id == EXANIC_HW_X2     || \
                                      (exanic)->hw_id == EXANIC_HW_X10    || \
                                      (exanic)->hw_id == EXANIC_HW_X10_GM || \
                                      (exanic)->hw_id == EXANIC_HW_X40    || \
                                      (exanic)->hw_id == EXANIC_HW_X10_HPT)
 
-/* Mirroring support always available on 4-port cards regardless of
+/* Mirroring support always available on legacy 4-port cards regardless of
  * capability bit */
 #define EXANIC_MIRRORING_SUPPORT(exanic) \
                                     ((exanic)->caps & EXANIC_CAP_MIRRORING || \
@@ -440,7 +440,7 @@ static bool exanic_port_needs_power(struct exanic *exanic, unsigned port_num)
     uint32_t cfg = readl(exanic->regs_virt +
                      REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
 
-    if (EXANIC_2PORT_CARD(exanic))
+    if (EXANIC_2_PORT(exanic))
     {
         /* 2 port card */
         if (cfg & port_feature_bits_2port[port_num])
@@ -715,7 +715,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
         case EXANIC_MIRROR_RX:
             if (!EXANIC_MIRRORING_SUPPORT(exanic))
                 return -EINVAL;
-            if (EXANIC_4PORT_CARD(exanic))
+            if (EXANIC_4_PORT(exanic))
             {
                 switch (port_num)
                 {
@@ -725,7 +725,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
                     default: return -EINVAL;
                 }
             }
-            else if (EXANIC_2PORT_CARD(exanic))
+            else if (EXANIC_2_PORT(exanic))
             {
                 switch (port_num)
                 {
@@ -738,7 +738,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
         case EXANIC_MIRROR_TX:
             if (!EXANIC_MIRRORING_SUPPORT(exanic))
                 return -EINVAL;
-            if (EXANIC_4PORT_CARD(exanic))
+            if (EXANIC_4_PORT(exanic))
             {
                 switch (port_num)
                 {
@@ -748,7 +748,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
                     default: return -EINVAL;
                 }
             }
-            else if (EXANIC_2PORT_CARD(exanic))
+            else if (EXANIC_2_PORT(exanic))
             {
                 switch (port_num)
                 {
