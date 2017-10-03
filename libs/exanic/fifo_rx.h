@@ -219,6 +219,83 @@ static inline ssize_t exanic_receive_chunk_inplace(exanic_rx_t *rx,
     }
 }
 
+
+/**
+ * \brief Provide a pointer to the next chunk in the RX buffer, returning
+ * metadata about the chunk
+ *
+ * \param[in]   rx
+ *      A valid RX handle.
+ * \param[out]  rx_buf_ptr
+ *      Pointer which will be populated with the address of the next chunk
+ *      in the ExaNIC RX buffer.
+ * \param[out]  chunkid
+ *      Set to a number which identifies the chunk.  This can be passed to
+ *      \ref exanic_receive_chunk_valid() after processing to check if the chunk
+ *      has been overwritten.
+ * \param[out]  more_chunks
+ *      Set to non-zero if there are more chunks in the current frame,
+ *      or zero if it is the last chunk.  Left unchanged if no new chunk found.
+ * \param[out]  info
+ *      Returns a copy of the chunk metadata from the hardware.
+ *
+ * This function will return chunk data even if the frame has errors.  The
+ * caller should check info.frame_status for errors (see \ref rx_frame_status).
+ *
+ * \return Size of the chunk, or 0 if no data available,
+ *         or -EXANIC_RX_FRAME_SWOVFL if chunks were missed by software.
+ *
+ */
+static inline ssize_t exanic_receive_chunk_inplace_ex(exanic_rx_t *rx,
+                                                   char **rx_buf_ptr,
+                                                   uint32_t *chunk_id,
+                                                   int *more_chunks,
+                                                   struct rx_chunk_info *info)
+{
+    union {
+        struct rx_chunk_info info;
+        uint64_t data;
+    } u;
+
+    ssize_t length = 0;
+
+    u.data = rx->buffer[rx->next_chunk].u.data;
+
+    if (u.info.generation == rx->generation)
+    {
+        /* Data is available */
+        *rx_buf_ptr = (char *)rx->buffer[rx->next_chunk].payload;
+
+        if (chunk_id != NULL)
+            *chunk_id = rx->generation * EXANIC_RX_NUM_CHUNKS + rx->next_chunk;
+
+        /* Advance next_chunk to next chunk */
+        rx->next_chunk++;
+        if (rx->next_chunk == EXANIC_RX_NUM_CHUNKS)
+        {
+            rx->next_chunk = 0;
+            rx->generation++;
+        }
+
+        *more_chunks = (u.info.length == 0);
+        length = *more_chunks ? EXANIC_RX_CHUNK_PAYLOAD_SIZE : u.info.length;
+        *info = u.info;
+        return length;
+
+    }
+    else if (u.info.generation == (uint8_t)(rx->generation - 1))
+    {
+        /* No new data */
+        return 0;
+    }
+    else
+    {
+        /* Got lapped? */
+        __exanic_rx_catchup(rx);
+        return -EXANIC_RX_FRAME_SWOVFL;
+    }
+}
+
 /**
  * \brief Check if a previously read chunk has been overwritten
  *
