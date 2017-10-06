@@ -860,7 +860,7 @@ exanic_poll(void)
     uint8_t *tcpopt;
     size_t t_len, data_len, skip_len, tcpopt_len;
     size_t buf1_len, buf2_len;
-    uint32_t data_seq, ack_seq;
+    uint32_t data_seq, ack_seq, prev_proc_seq;
     uint8_t tcp_flags;
     uint16_t tcp_win;
     struct exanic_ip *ctx;
@@ -983,14 +983,15 @@ exanic_poll(void)
                 /* Get a pointer to receive buffer */
                 if (data_len == 0 ||
                     exa_tcp_rx_buffer_alloc(sock, data_seq, data_len,
-                                            &skip_len, &buf1, &buf1_len,
-                                            &buf2, &buf2_len) == -1)
+                                            &prev_proc_seq, &buf1, &buf1_len,
+                                            &buf2, &buf2_len, &skip_len) == -1)
                 {
                     /* Sequence number is out of range or segment length is 0.
                      * Skip over entire payload and continue packet processing */
                     skip_len = data_len;
                     buf1 = buf2 = NULL;
                     buf1_len = buf2_len = 0;
+                    prev_proc_seq = 0;
                 }
 
                 /* Finish receiving chunks into receive buffer */
@@ -1011,9 +1012,11 @@ exanic_poll(void)
                 /* Packet is confirmed valid, we can update TCP state
                  * and finalise received data in receive buffer */
                 exa_tcp_rx_buffer_commit(sock, data_seq + skip_len,
-                                         buf1_len + buf2_len);
+                                         buf1_len + buf2_len, prev_proc_seq);
                 exa_tcp_update_state(&sock->ctx.tcp->tcp, tcp_flags,
-                                     data_seq, ack_seq, tcp_win, data_len);
+                                     data_seq, ack_seq, tcp_win);
+                exa_tcp_update_conn_state(&sock->ctx.tcp->tcp, tcp_flags,
+                                          data_seq, data_len);
 
                 /* Update socket ready state */
                 exa_notify_tcp_update(sock);
@@ -1028,7 +1031,7 @@ exanic_poll(void)
             abort_tcp_rx_buffer_write:
                 /* Invalidate received data */
                 exa_tcp_rx_buffer_abort(sock, data_seq + skip_len,
-                                        buf1_len + buf2_len);
+                                        buf1_len + buf2_len, prev_proc_seq);
             abort_tcp_rx:
                 exa_notify_tcp_update(sock);
                 exa_unlock(&sock->state->rx_lock);

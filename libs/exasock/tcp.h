@@ -174,7 +174,7 @@ exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
     state->rmss = tcp_state->peer_mss;
     state->wscale = tcp_state->peer_wscale;
 
-    state->read_seq = state->recv_seq = tcp_state->peer_seq;
+    state->read_seq = state->recv_seq = state->proc_seq = tcp_state->peer_seq;
 
     /* Initialize stats */
     state->stats.init_send_seq = state->send_seq;
@@ -186,8 +186,9 @@ exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
 static inline void
 exa_tcp_shutdown_write(struct exa_tcp_conn * restrict ctx)
 {
-    struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
+    volatile struct exa_tcp_state *state = &ctx->state->p.tcp;
 
+update_state:
     switch (state->state)
     {
     case EXA_TCP_SYN_SENT:
@@ -197,10 +198,16 @@ exa_tcp_shutdown_write(struct exa_tcp_conn * restrict ctx)
         state->state = EXA_TCP_FIN_WAIT_1;
         break;
     case EXA_TCP_ESTABLISHED:
-        state->state = EXA_TCP_FIN_WAIT_1;
+        if (!__sync_bool_compare_and_swap(&state->state,
+                                          EXA_TCP_ESTABLISHED,
+                                          EXA_TCP_FIN_WAIT_1))
+            goto update_state;
         break;
     case EXA_TCP_CLOSE_WAIT:
-        state->state = EXA_TCP_LAST_ACK;
+        if (!__sync_bool_compare_and_swap(&state->state,
+                                          EXA_TCP_CLOSE_WAIT,
+                                          EXA_TCP_LAST_ACK))
+            goto update_state;
         break;
     default:
         /* Do nothing, write is already closed */
@@ -570,7 +577,7 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
             if (!(flags & TH_ACK) || ack_seq != state->send_seq)
                 return -1;
             /* Reset sequence numbers so that the RST is accepted */
-            state->read_seq = state->recv_seq = data_seq;
+            state->read_seq = state->recv_seq = state->proc_seq = data_seq;
         }
     }
     else if (flags & TH_SYN)
@@ -578,7 +585,7 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         if (state->state == EXA_TCP_SYN_SENT)
         {
             /* Reset sequence numbers */
-            state->read_seq = state->recv_seq = data_seq;
+            state->read_seq = state->recv_seq = state->proc_seq = data_seq;
             state->stats.init_recv_seq = state->recv_seq;
 
             /* Parse and apply TCP options */
@@ -604,8 +611,7 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
 
 static inline void
 exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
-                     uint32_t data_seq, uint32_t ack_seq, uint16_t win,
-                     size_t len)
+                     uint32_t data_seq, uint32_t ack_seq, uint16_t win)
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
 
@@ -627,6 +633,9 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
                                                    win_end);
     }
 
+    /* FIXME: When we do graceful shutdown instead of closing with RST,
+     *        the condition for processing RST should be updated.
+     *        A reset is valid if its sequence number is in the window. */
     if ((flags & TH_RST) && seq_compare(data_seq, state->recv_seq) <= 0)
     {
         /* Connection reset, move to CLOSED state */
@@ -644,7 +653,15 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
 
     if (data_seq != state->recv_seq)
         state->ack_pending = true;
+}
 
+static inline void
+exa_tcp_update_conn_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
+                          uint32_t data_seq, size_t len)
+{
+    volatile struct exa_tcp_state *state = &ctx->state->p.tcp;
+
+update_state:
     switch (state->state)
     {
     case EXA_TCP_SYN_SENT:
@@ -678,7 +695,10 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
             seq_compare(data_seq + len, state->recv_seq) <= 0)
         {
             /* Remote peer has closed the connection */
-            state->state = EXA_TCP_CLOSE_WAIT;
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_ESTABLISHED,
+                                              EXA_TCP_CLOSE_WAIT))
+                goto update_state;
             state->ack_pending = true;
         }
         break;
@@ -688,14 +708,20 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
             seq_compare(data_seq + len, state->recv_seq) <= 0)
         {
             /* Simultaneous close */
-            state->state = EXA_TCP_CLOSING;
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_FIN_WAIT_1,
+                                              EXA_TCP_CLOSING))
+                goto update_state;
             state->ack_pending = true;
         }
         else if ((flags & TH_ACK) &&
                  seq_compare(state->send_seq, state->send_ack) < 0)
         {
             /* Received ACK for our FIN, but remote peer is not closed */
-            state->state = EXA_TCP_FIN_WAIT_2;
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_FIN_WAIT_1,
+                                              EXA_TCP_FIN_WAIT_2))
+                goto update_state;
         }
         break;
 
@@ -704,7 +730,10 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
             seq_compare(data_seq + len, state->recv_seq) <= 0)
         {
             /* Remote peer has closed the connection */
-            state->state = EXA_TCP_TIME_WAIT;
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_FIN_WAIT_2,
+                                              EXA_TCP_TIME_WAIT))
+                goto update_state;
             state->ack_pending = true;
         }
         break;
@@ -713,7 +742,10 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         if ((flags & TH_ACK) &&
             seq_compare(state->send_seq, state->send_ack) < 0)
         {
-            state->state = EXA_TCP_TIME_WAIT;
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_CLOSING,
+                                              EXA_TCP_TIME_WAIT))
+                goto update_state;
         }
         break;
 
@@ -721,7 +753,10 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         if ((flags & TH_ACK) &&
             seq_compare(state->send_seq, state->send_ack) < 0)
         {
-            state->state = EXA_TCP_CLOSED;
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_LAST_ACK,
+                                              EXA_TCP_CLOSED))
+                goto update_state;
         }
         break;
     }

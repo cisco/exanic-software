@@ -393,7 +393,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
     } while (0)
 
 /* Socket read lock must be held on entry */
-#define do_socket_wait_tx_nonblock(sock, ready_func, ret, ...)          \
+#define do_socket_wait_tcp_nonblock(sock, ready_func, ret, ...)         \
     do                                                                  \
     {                                                                   \
         int gen_id = sock->gen_id;                                      \
@@ -425,10 +425,10 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
     } while (0)
 
 /* Socket read lock must be held on entry */
-#define do_socket_wait_tx_block     do_socket_poll_block
+#define do_socket_wait_tcp_block     do_socket_poll_block
 
 /* Socket read lock must be held on entry */
-#define do_socket_wait_tx_timeout   do_socket_poll_timeout
+#define do_socket_wait_tcp_timeout   do_socket_poll_timeout
 
 /* Used for sockets not handled by exanic_poll()
  * Socket read lock must be held on entry */
@@ -459,19 +459,19 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
             do_socket_wait_block(sock, fd, ready_func, ret, __VA_ARGS__);   \
     } while (0)
 
-/* Used for sockets handled by exanic_poll() waiting for ACKs. Updates in this
- * case are expected either from exanic_poll() or kernel.
+/* Used for TCP sockets handled by exanic_poll() with updates expected either
+ * from exanic_poll() or kernel.
  * Socket read lock must be held on entry */
-#define do_socket_wait_tx(sock, nonblock, timeo, ready_func, ret, ...)      \
+#define do_socket_wait_tcp(sock, nonblock, timeo, ready_func, ret, ...)     \
     do                                                                      \
     {                                                                       \
         if (nonblock)                                                       \
-            do_socket_wait_tx_nonblock(sock, ready_func, ret, __VA_ARGS__); \
+            do_socket_wait_tcp_nonblock(sock, ready_func, ret, __VA_ARGS__);\
         else if (timeo.enabled)                                             \
-            do_socket_wait_tx_timeout(sock, timeo.val, ready_func, ret,     \
+            do_socket_wait_tcp_timeout(sock, timeo.val, ready_func, ret,    \
                                       __VA_ARGS__);                         \
         else                                                                \
-            do_socket_wait_tx_block(sock, ready_func, ret, __VA_ARGS__);    \
+            do_socket_wait_tcp_block(sock, ready_func, ret, __VA_ARGS__);   \
     } while (0)
 
 #endif /* EXASOCK_SOCKET_COMMON_H */

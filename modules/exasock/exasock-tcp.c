@@ -66,6 +66,23 @@ struct exasock_tcp_counters
     } s;
 };
 
+/* Element of the list of received segments */
+struct exasock_tcp_seg_el
+{
+    char *data;
+    unsigned len;
+    struct list_head node;
+    struct sk_buff *skb;
+};
+
+/* List of contiguous received segments */
+struct exasock_tcp_rx_seg
+{
+    uint32_t begin;
+    uint32_t end;
+    struct list_head seg_list;
+};
+
 struct exasock_tcp
 {
     struct exasock_hdr              hdr;
@@ -80,6 +97,9 @@ struct exasock_tcp
     struct exa_socket_state *       user_page;
 
     struct socket *                 sock;
+
+    /* Local storage for received segments */
+    struct exasock_tcp_rx_seg       rx_seg[EXA_TCP_MAX_RX_SEGMENTS];
 
     /* Value of send_seq and send_ack at last timer tick */
     uint32_t                        last_send_seq;
@@ -165,6 +185,9 @@ static struct delayed_work      tcp_req_work;
 #define SEQNUM_TO_BYTES(start, now, rounds) \
                                (((uint64_t)(rounds) << 32) | ((now) - (start)))
 
+#define TCP_STATE_CMPXCHG(ts, old, new) \
+                                       (cmpxchg(&(ts)->state, old, new) == old)
+
 static void exasock_tcp_conn_worker(struct work_struct *work);
 static void exasock_tcp_retransmit(struct exasock_tcp *tcp, uint32_t seq,
                                    bool fast_retrans);
@@ -243,6 +266,44 @@ static inline void exasock_tcp_stats_fill_info(
     get_task_comm(info->prog_name, current);
     info->fd = fd;
     info->uid = exasock_current_uid();
+}
+
+static inline bool before_eq(uint32_t seq1, uint32_t seq2)
+{
+    return (int32_t)(seq1 - seq2) <= 0;
+}
+
+static inline bool after_eq(uint32_t seq1, uint32_t seq2)
+{
+    return (int32_t)(seq1 - seq2) >= 0;
+}
+
+static inline void exasock_tcp_seg_list_cleanup(struct list_head *seg_list)
+{
+    struct exasock_tcp_seg_el *elem, *_elem;
+
+    list_for_each_entry_safe(elem, _elem, seg_list, node)
+    {
+        list_del(&elem->node);
+        dev_kfree_skb_any(elem->skb);
+        kfree(elem);
+    }
+}
+
+static inline struct exasock_tcp_seg_el *exasock_tcp_seg_el_alloc(char *data,
+                                                            unsigned len,
+                                                            struct sk_buff *skb)
+{
+    struct exasock_tcp_seg_el *elem;
+
+    elem = kmalloc(sizeof(*elem), GFP_KERNEL);
+    if (elem)
+    {
+        elem->data = data;
+        elem->len = len;
+        elem->skb = skb;
+    }
+    return elem;
 }
 
 static uint8_t exasock_tcp_stats_get_state(struct exasock_stats_sock *stats)
@@ -432,6 +493,7 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
     int err;
     unsigned hash;
     struct file *f;
+    int i;
 
     /* Get local address from native socket */
     slen = sizeof(local);
@@ -466,6 +528,9 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
     tcp->sock = sock;
     tcp->retransmit_countdown = -1;
     tcp->dead_node = false;
+
+    for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++)
+        INIT_LIST_HEAD(&tcp->rx_seg[i].seg_list);
 
     exasock_tcp_stats_init(tcp, fd);
 
@@ -593,6 +658,8 @@ void exasock_tcp_dead(struct kref *ref)
 
 void exasock_tcp_free(struct exasock_tcp *tcp)
 {
+    int i;
+
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
@@ -624,6 +691,8 @@ void exasock_tcp_free(struct exasock_tcp *tcp)
     cancel_delayed_work_sync(&tcp->work);
 
     /* No readers left, it is now safe to free everything */
+    for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++)
+        exasock_tcp_seg_list_cleanup(&tcp->rx_seg[i].seg_list);
     sockfd_put(tcp->sock);
     vfree(tcp->user_page);
     vfree(tcp->rx_buffer);
@@ -801,14 +870,510 @@ static bool exasock_tcp_intercept(struct sk_buff *skb)
     return true;
 }
 
-static int exasock_tcp_conn_process(struct exasock_tcp *tcp,
-                                    struct iphdr *iph, struct tcphdr *th,
+static void exasock_tcp_update_state(volatile struct exa_tcp_state *tcp_st,
+                                     uint32_t seq, unsigned len, bool th_ack,
+                                     bool th_fin)
+{
+    if (seq != tcp_st->recv_seq)
+        tcp_st->ack_pending = true;
+
+update_state:
+    switch (tcp_st->state)
+    {
+    case EXA_TCP_ESTABLISHED:
+        if (th_fin && before_eq(seq + len, tcp_st->recv_seq))
+        {
+            /* Remote peer has closed the connection */
+            if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_ESTABLISHED, EXA_TCP_CLOSE_WAIT))
+                goto update_state;
+            tcp_st->ack_pending = true;
+        }
+        break;
+
+    case EXA_TCP_FIN_WAIT_1:
+        if (th_fin && before_eq(seq + len, tcp_st->recv_seq))
+        {
+            /* Simultaneous close */
+            if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_1, EXA_TCP_CLOSING))
+                goto update_state;
+            tcp_st->ack_pending = true;
+        }
+        else if (th_ack && before(tcp_st->send_seq, tcp_st->send_ack))
+        {
+            /* Received ACK for our FIN, but remote peer is not closed */
+            if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_1, EXA_TCP_FIN_WAIT_2))
+                goto update_state;
+        }
+        break;
+
+    case EXA_TCP_FIN_WAIT_2:
+        if (th_fin && before_eq(seq + len, tcp_st->recv_seq))
+        {
+            /* Remote peer has closed the connection */
+            if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_2, EXA_TCP_TIME_WAIT))
+                goto update_state;
+            tcp_st->ack_pending = true;
+        }
+        break;
+
+    case EXA_TCP_CLOSING:
+        if (th_ack && before(tcp_st->send_seq, tcp_st->send_ack))
+            if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_CLOSING, EXA_TCP_TIME_WAIT))
+                goto update_state;
+        break;
+
+    case EXA_TCP_LAST_ACK:
+        if (th_ack && before(tcp_st->send_seq, tcp_st->send_ack))
+            if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_LAST_ACK, EXA_TCP_CLOSED))
+                goto update_state;
+        break;
+    }
+}
+
+static void exasock_tcp_rx_buffer_write(struct exa_tcp_state *tcp_st,
+                                        struct exasock_tcp_rx_seg *rx_seg,
+                                        char *buf1, unsigned buf1_len,
+                                        char *buf2, unsigned buf2_len)
+{
+    struct exasock_tcp_seg_el *elem, *_elem;
+    unsigned copy_len = buf1_len + buf2_len;
+    unsigned len;
+    int i;
+
+    list_for_each_entry_safe(elem, _elem, &rx_seg[0].seg_list, node)
+    {
+        while (elem->len)
+        {
+            len = (buf1_len > elem->len) ? elem->len : buf1_len;
+            memcpy(buf1, elem->data, len);
+            elem->data += len;
+            elem->len -= len;
+            buf1 += len;
+            buf1_len -= len;
+            if (buf1_len == 0 && buf2_len)
+            {
+                buf1 = buf2;
+                buf1_len = buf2_len;
+                buf2_len = 0;
+            }
+        }
+        list_del(&elem->node);
+        dev_kfree_skb_any(elem->skb);
+        kfree(elem);
+    }
+
+    /* The data segment has been locked for processing in kernel, so recv_seq
+     * can be safely updated */
+    tcp_st->recv_seq += copy_len;
+
+    /* Move remaining segments to the beginning of the list */
+    for (i = 1; i < EXA_TCP_MAX_RX_SEGMENTS &&
+         rx_seg[i].end - rx_seg[i].begin != 0; i++)
+    {
+        list_splice_tail_init(&rx_seg[i].seg_list, &rx_seg[i - 1].seg_list);
+        rx_seg[i - 1].begin = rx_seg[i].begin;
+        rx_seg[i - 1].end = rx_seg[i].end;
+    }
+    rx_seg[i - 1].begin = rx_seg[i - 1].end = 0;
+}
+
+static void exasock_tcp_rx_seg_cleanup(struct exasock_tcp_rx_seg *rx_seg,
+                                       uint32_t recv_seq)
+{
+    int i, j;
+
+    /* Identify segments to be freed */
+    for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
+         rx_seg[i].end - rx_seg[i].begin != 0 &&
+         before_eq(rx_seg[i].end, recv_seq); i++)
+        ;
+
+    /* Partially free the first remaining segment if needed */
+    if (i < EXA_TCP_MAX_RX_SEGMENTS &&
+        rx_seg[i].end - rx_seg[i].begin != 0 &&
+        before(rx_seg[i].begin, recv_seq))
+    {
+        struct exasock_tcp_seg_el *elem, *_elem;
+        uint32_t elem_end = rx_seg[i].begin;
+
+        list_for_each_entry_safe(elem, _elem, &rx_seg[i].seg_list, node)
+        {
+            elem_end += elem->len;
+            if (before_eq(elem_end, recv_seq))
+            {
+                list_del(&elem->node);
+                dev_kfree_skb_any(elem->skb);
+                kfree(elem);
+            }
+            else
+            {
+                elem->data += elem->len - (elem_end - recv_seq);
+                elem->len = elem_end - recv_seq;
+                break;
+            }
+        }
+        rx_seg[i].begin = recv_seq;
+    }
+
+    if (i > 0)
+    {
+        /* Release segments we do not need to keep anymore */
+        for (j = 0; j < i; j++)
+            exasock_tcp_seg_list_cleanup(&rx_seg[j].seg_list);
+
+        /* Move remaining segments to the beginning of the list */
+        for (j = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
+             rx_seg[i].end - rx_seg[i].begin != 0; j++, i++)
+        {
+            list_splice_tail_init(&rx_seg[i].seg_list, &rx_seg[j].seg_list);
+            rx_seg[j].begin = rx_seg[i].begin;
+            rx_seg[j].end = rx_seg[i].end;
+        }
+        for (; j < EXA_TCP_MAX_RX_SEGMENTS &&
+             rx_seg[j].end - rx_seg[j].begin != 0; j++)
+        {
+            rx_seg[j].begin = rx_seg[j].end = 0;
+        }
+    }
+}
+
+static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
+                                    uint32_t recv_seq, char *data, unsigned len,
+                                    uint32_t seq, struct sk_buff *skb)
+{
+    struct exasock_tcp_seg_el *elem;
+    unsigned skip_len;
+    int i, j, k;
+
+    if (len == 0)
+        goto drop_seg;
+
+    if (after(recv_seq, seq))
+    {
+        /* Packet overlaps with already acked region */
+        skip_len = recv_seq - seq;
+    }
+    else
+    {
+        /* Packet does not overlap with acked region */
+        skip_len = 0;
+    }
+    data += skip_len;
+    len -= skip_len;
+    seq += skip_len;
+
+    /* Find place to insert into out of order segment list */
+    for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
+         rx_seg[i].end - rx_seg[i].begin != 0 &&
+         before(rx_seg[i].end, seq); i++)
+        ;
+
+    if (i >= EXA_TCP_MAX_RX_SEGMENTS)
+    {
+        /* Too many out of order segments, we will drop this one */
+        goto drop_seg;
+    }
+    else if (rx_seg[i].end - rx_seg[i].begin == 0)
+    {
+        /* Insert as new segment at end of list */
+        elem = exasock_tcp_seg_el_alloc(data, len, skb);
+        if (elem == NULL)
+            return -1;
+        list_add_tail(&elem->node, &rx_seg[i].seg_list);
+        rx_seg[i].begin = seq;
+        rx_seg[i].end = seq + len;
+    }
+    else if (before(seq + len, rx_seg[i].begin))
+    {
+        /* Insert as separate segment
+         * If there are too many segments, last segment is discarded */
+        elem = exasock_tcp_seg_el_alloc(data, len, skb);
+        if (elem == NULL)
+            return -1;
+        j = EXA_TCP_MAX_RX_SEGMENTS - 1;
+        exasock_tcp_seg_list_cleanup(&rx_seg[j].seg_list);
+        for (; j > i; j--)
+        {
+             list_splice_tail_init(&rx_seg[j - 1].seg_list, &rx_seg[j].seg_list);
+             rx_seg[j].begin = rx_seg[j - 1].begin;
+             rx_seg[j].end = rx_seg[j - 1].end;
+        }
+        list_add_tail(&elem->node, &rx_seg[i].seg_list);
+        rx_seg[i].begin = seq;
+        rx_seg[i].end = seq + len;
+    }
+    else
+    {
+        /* Expand current segment */
+        if (before(seq, rx_seg[i].begin) && before(rx_seg[i].end, seq + len))
+        {
+            elem = exasock_tcp_seg_el_alloc(data, len, skb);
+            if (elem == NULL)
+                return -1;
+            rx_seg[i].begin = seq;
+            rx_seg[i].end = seq + len;
+            exasock_tcp_seg_list_cleanup(&rx_seg[i].seg_list);
+            list_add_tail(&elem->node, &rx_seg[i].seg_list);
+        }
+        else if (before(seq, rx_seg[i].begin))
+        {
+            elem = exasock_tcp_seg_el_alloc(data, rx_seg[i].begin - seq, skb);
+            if (elem == NULL)
+                return -1;
+            rx_seg[i].begin = seq;
+            list_add(&elem->node, &rx_seg[i].seg_list);
+        }
+        else if (before(rx_seg[i].end, seq + len))
+        {
+            elem = exasock_tcp_seg_el_alloc(data + (rx_seg[i].end - seq),
+                                                   len - (rx_seg[i].end - seq),
+                                                   skb);
+            if (elem == NULL)
+                return -1;
+            rx_seg[i].end = seq + len;
+            list_add_tail(&elem->node, &rx_seg[i].seg_list);
+        }
+        else
+        {
+            /* We already have this segment */
+            goto drop_seg;
+        }
+
+        /* Merge segments into current segment */
+        for (j = i + 1; j < EXA_TCP_MAX_RX_SEGMENTS &&
+             rx_seg[j].end - rx_seg[j].begin != 0 &&
+             before_eq(rx_seg[j].begin, rx_seg[i].end); j++)
+            ;
+        if (before(rx_seg[i].end, rx_seg[j - 1].end))
+        {
+            uint32_t elem_end = rx_seg[j - 1].begin;
+            struct list_head temp_list;
+
+            list_for_each_entry(elem, &rx_seg[j - 1].seg_list, node)
+            {
+                elem_end += elem->len;
+                if (after(elem_end, rx_seg[i].end))
+                    break;
+            }
+            elem->data += elem->len - (elem_end - rx_seg[i].end);
+            elem->len = elem_end - rx_seg[i].end;
+            list_cut_position(&temp_list, &rx_seg[j - 1].seg_list,
+                              elem->node.prev);
+            exasock_tcp_seg_list_cleanup(&temp_list);
+            list_splice_tail_init(&rx_seg[j - 1].seg_list, &rx_seg[i].seg_list);
+            rx_seg[i].end = rx_seg[j - 1].end;
+        }
+
+        if (j > i + 1)
+        {
+            /* Move remaining segments */
+            for (k = i + 1; k < j; k++)
+                exasock_tcp_seg_list_cleanup(&rx_seg[k].seg_list);
+            for (k = i + 1; j < EXA_TCP_MAX_RX_SEGMENTS &&
+                 rx_seg[j].end - rx_seg[j].begin != 0; j++, k++)
+            {
+                list_splice_tail_init(&rx_seg[j].seg_list, &rx_seg[k].seg_list);
+                rx_seg[k].begin = rx_seg[j].begin;
+                rx_seg[k].end = rx_seg[j].end;
+            }
+            for (; k < EXA_TCP_MAX_RX_SEGMENTS &&
+                 rx_seg[k].end - rx_seg[k].begin != 0; k++)
+                rx_seg[k].begin = rx_seg[k].end = 0;
+        }
+    }
+
+    return 0;
+
+drop_seg:
+    dev_kfree_skb_any(skb);
+    return 0;
+}
+
+/* Calculate total length of data which is ready to be copied to the socket's
+ * receive buffer */
+static unsigned exasock_tcp_data_length(struct exasock_tcp_rx_seg *rx_seg,
+                                      uint32_t seq, uint32_t end_seq,
+                                      uint32_t recv_seq)
+{
+    unsigned len;
+    int i;
+
+    if (rx_seg[0].begin == recv_seq && rx_seg[0].end - rx_seg[0].begin != 0)
+    {
+        /* We already have the next expected data stored locally */
+        if (before(rx_seg[0].end, seq))
+        {
+            /* New segment is not going to be copied to the receive buffer yet */
+            return rx_seg[0].end - rx_seg[0].begin;
+        }
+    }
+    else if (after(seq, recv_seq))
+    {
+        /* We don't have the next expected data yet */
+        return 0;
+    }
+
+    /* New segment is a part of data ready to be copied to the receive buffer */
+    len = end_seq - recv_seq;
+
+    /* Include additional data from remaining segments stored locally now good
+     * to be copied to the receive buffer */
+    for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
+         rx_seg[i].end - rx_seg[i].begin != 0 &&
+         before_eq(rx_seg[i].end, end_seq); i++)
+        ;
+    if (i < EXA_TCP_MAX_RX_SEGMENTS &&
+        rx_seg[i].end - rx_seg[i].begin != 0 &&
+        before_eq(rx_seg[i].begin, end_seq))
+    {
+        len += rx_seg[i].end - end_seq;
+    }
+
+    return len;
+}
+
+static int exasock_tcp_process_data(struct sk_buff *skb,
+                                    struct exa_socket_state *state,
+                                    void *rx_buffer,
+                                    struct exasock_tcp_rx_seg *rx_seg,
+                                    char *data, unsigned seg_len, struct tcphdr *th)
+{
+    struct exa_tcp_state *tcp_st = &state->p.tcp;
+    volatile uint32_t *tcp_st_recv_seq = &tcp_st->recv_seq;
+    uint32_t recv_seq = *tcp_st_recv_seq;
+    uint32_t read_seq = tcp_st->read_seq;
+    uint32_t proc_seq = tcp_st->proc_seq;
+    uint32_t seg_seq = ntohl(th->seq);
+    uint32_t seg_end_seq = seg_seq + seg_len;
+    uint32_t copy_end_seq;
+    uint32_t wrap_seq;
+    uint32_t rx_buffer_mask;
+    unsigned buf1_len, buf2_len;
+    char *buf1, *buf2;
+    unsigned copy_len;
+    bool th_ack;
+    bool th_fin;
+    int err;
+
+    if (tcp_st->state == EXA_TCP_CLOSED ||
+        tcp_st->state == EXA_TCP_SYN_SENT ||
+        tcp_st->state == EXA_TCP_SYN_RCVD)
+        goto skip_proc;
+
+    /* FIXME: When we do graceful shutdown instead of closing with RST,
+     *        the condition for processing RST should be updated.
+     *        A reset is valid if its sequence number is in the window. */
+    if (th->rst && before_eq(seg_seq, recv_seq))
+    {
+        /* Connection reset, move to CLOSED state */
+        state->error = ECONNRESET;
+        tcp_st->state = EXA_TCP_CLOSED;
+
+        /* TODO: Flush send and receive buffers */
+
+        goto skip_proc;
+    }
+
+    /* Check for space in the socket's ring buffer */
+    if (seg_end_seq - read_seq > state->rx_buffer_size)
+        goto skip_proc;
+
+proc_check:
+    /* Release all data already copied to the ring buffer by the library */
+    exasock_tcp_rx_seg_cleanup(rx_seg, recv_seq);
+
+    /* Check if packet gives us any new data */
+    if (after(recv_seq, seg_end_seq) ||
+        (recv_seq == seg_end_seq && seg_len > 0))
+        goto skip_proc;
+
+    /* If the library has currently locked the segment for processing,
+     * we assume the library is ahead. Kernel will defer its processing
+     * just to re-check later if there was a progress in received data,
+     * or just an out-of-order segment has been processed.
+     * If there is any data beyond what the library is processing now,
+     * we assume kernel is ahead of the user space side and will continue
+     * processing all the data not locked by the library */
+    if (seg_len > 0 && after_eq(proc_seq, seg_end_seq))
+        return -1;
+
+    if (recv_seq == proc_seq &&
+        (copy_len = exasock_tcp_data_length(rx_seg, seg_seq,
+                                            seg_end_seq, recv_seq)) > 0)
+    {
+        /* The library is not receiving any new packets for the socket at
+         * the moment, so we are locking all the new data available now
+         * for processing in kernel */
+        copy_end_seq = recv_seq + copy_len;
+        proc_seq = cmpxchg(&tcp_st->proc_seq, proc_seq, copy_end_seq);
+        if (proc_seq == recv_seq)
+        {
+            /* Locking succeeded */
+            rx_buffer_mask = state->rx_buffer_size - 1;
+            wrap_seq = copy_end_seq & ~rx_buffer_mask;
+
+            if (after(wrap_seq, recv_seq))
+            {
+                /* Region is wrapped */
+                buf1 = rx_buffer + (recv_seq & rx_buffer_mask);
+                buf1_len = wrap_seq - recv_seq;
+                buf2 = rx_buffer;
+                buf2_len = copy_end_seq - wrap_seq;
+            }
+            else
+            {
+                /* Region is not wrapped */
+                buf1 = rx_buffer + (recv_seq & rx_buffer_mask);
+                buf1_len = copy_end_seq - recv_seq;
+                buf2 = NULL;
+                buf2_len = 0;
+            }
+        }
+        else
+        {
+            /* Locking failed - need to re-check with updated proc_seq and
+             * recv_seq */
+            recv_seq = *tcp_st_recv_seq;
+            goto proc_check;
+        }
+    }
+    else
+    {
+        copy_len = 0;
+    }
+
+    th_ack = th->ack ? true : false;
+    th_fin = th->fin ? true : false;
+
+    err = exasock_tcp_rx_seg_write(rx_seg, recv_seq, data, seg_len,
+                                   seg_seq, skb);
+    if (err)
+    {
+        /* FIXME: if (copy_len > 0) unlock the data for processing */
+        goto skip_proc;
+    }
+    /* Socket buffer has got consumed by exasock_tcp_rx_seg_write()
+     * so neither skb nor th should be referred beyond this point. */
+
+    if (copy_len)
+        exasock_tcp_rx_buffer_write(tcp_st, rx_seg, buf1, buf1_len, buf2, buf2_len);
+
+    exasock_tcp_update_state(tcp_st, seg_seq, seg_len, th_ack, th_fin);
+
+    return 0;
+
+skip_proc:
+    dev_kfree_skb_any(skb);
+    return 0;
+}
+
+static int exasock_tcp_conn_process(struct sk_buff *skb,
+                                    struct exasock_tcp *tcp, struct tcphdr *th,
                                     char *data, unsigned datalen)
 {
     struct exa_socket_state *state = tcp->user_page;
     uint32_t ack_seq = ntohl(th->ack_seq);
-
-    /* TODO: Packet receive processing goes here */
+    int err;
 
     if (th->ack)
     {
@@ -891,6 +1456,11 @@ static int exasock_tcp_conn_process(struct exasock_tcp *tcp,
         tcp->last_recv_ack_seq = ack_seq;
     }
 
+    err = exasock_tcp_process_data(skb, state, tcp->rx_buffer, tcp->rx_seg,
+                                   data, datalen, th);
+    if (err)
+        return -1; /* Segment locked, retry later */
+
     /* Send ACK if needed */
     if (state->p.tcp.ack_pending)
         exasock_tcp_send_ack(tcp);
@@ -947,7 +1517,7 @@ static struct exasock_tcp_req *exasock_tcp_req_lookup(uint32_t local_addr,
     return NULL;
 }
 
-static int exasock_tcp_req_process(struct exasock_tcp *tcp,
+static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
                                    struct iphdr *iph, struct tcphdr *th,
                                    uint8_t *tcpopt, unsigned tcpoptlen)
 {
@@ -971,13 +1541,12 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
             list_del(&req->list);
         }
         spin_unlock(&tcp_req_lock);
-        return 0;
     }
     else if (th->syn)
     {
         /* SYN packet */
         if (th->ack)
-            return 0;
+            goto finish_proc;
 
         /* New connection request received - increment counter */
         tcp->counters.s.listen.reqs_rcvd++;
@@ -985,7 +1554,7 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
         /* Create new connection */
         req = kzalloc(sizeof(*req), GFP_KERNEL);
         if (req == NULL)
-            return 0;
+            goto finish_proc;
 
         req->timestamp = jiffies;
 
@@ -1031,7 +1600,6 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
         hlist_add_head(&req->hash_node, &tcp_req_buckets[hash]);
         list_add(&req->list, &tcp_req_list);
         spin_unlock(&tcp_req_lock);
-        return 0;
     }
     else if (th->ack)
     {
@@ -1042,7 +1610,7 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
         if (req == NULL)
         {
             spin_unlock(&tcp_req_lock);
-            return 0;
+            goto finish_proc;
         }
 
         if (req->state != EXA_TCP_SYN_RCVD ||
@@ -1051,7 +1619,7 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
         {
             /* Sequence numbers don't match */
             spin_unlock(&tcp_req_lock);
-            return 0;
+            goto finish_proc;
         }
 
         /* Insert into accepted queue */
@@ -1071,7 +1639,7 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
         {
             /* No space in buffer */
             spin_unlock(&tcp_req_lock);
-            return 0;
+            goto finish_proc;
         }
 
         conn = (struct exa_tcp_new_connection *)(tcp->rx_buffer + offs);
@@ -1105,10 +1673,11 @@ static int exasock_tcp_req_process(struct exasock_tcp *tcp,
         tcp->counters.s.listen.reqs_estab++;
 
         spin_unlock(&tcp_req_lock);
-        return 0;
     }
-    else
-        return 0;
+
+finish_proc:
+    dev_kfree_skb_any(skb);
+    return 0;
 }
 
 static bool exasock_tcp_process_packet(struct sk_buff *skb)
@@ -1117,24 +1686,45 @@ static bool exasock_tcp_process_packet(struct sk_buff *skb)
     struct iphdr *iph;
     struct tcphdr *th;
     char *payload = skb->data;
+    unsigned len = skb->len;
     char *data;
     uint8_t *tcpopt;
     unsigned tcplen, tcpoptlen, datalen;
     int ret;
 
     if (skb->protocol == htons(ETH_P_8021Q))
+    {
+        if (unlikely(len < sizeof(struct vlan_hdr)))
+            goto drop_packet;
         payload += sizeof(struct vlan_hdr);
+        len -= sizeof(struct vlan_hdr);
+    }
 
     iph = (struct iphdr *)payload;
+
+    /* Length sanity checks */
+    if (unlikely(len < sizeof(struct iphdr) ||
+                 len < (iph->ihl * 4 + sizeof(struct tcphdr)) ||
+                 len < ntohs(iph->tot_len)))
+        goto drop_packet;
+
+    /* IPv4 only */
+    if (unlikely (iph->version != 4))
+        goto drop_packet;
+
+    /* Drop IP fragments */
+    if (iph->frag_off & htons(IP_MF | IP_OFFSET))
+        goto drop_packet;
+
     th = (struct tcphdr *)(payload + iph->ihl * 4);
     tcplen = ntohs(iph->tot_len) - (iph->ihl * 4);
 
     /* Discard packet if checksums are invalid */
     if (ip_fast_csum(iph, iph->ihl))
-        return true;
+        goto drop_packet;
     if (csum_tcpudp_magic(iph->saddr, iph->daddr, tcplen, IPPROTO_TCP,
                           csum_partial(th, tcplen, 0)))
-        return true;
+        goto drop_packet;
 
     /* Look up socket */
     rcu_read_lock();
@@ -1142,7 +1732,7 @@ static bool exasock_tcp_process_packet(struct sk_buff *skb)
     if (tcp == NULL)
     {
         rcu_read_unlock();
-        return true;
+        goto drop_packet;
     }
     kref_get(&tcp->refcount);
     rcu_read_unlock();
@@ -1156,12 +1746,16 @@ static bool exasock_tcp_process_packet(struct sk_buff *skb)
 
     /* Process packet */
     if (tcp->user_page->p.tcp.state == EXA_TCP_LISTEN)
-        ret = exasock_tcp_req_process(tcp, iph, th, tcpopt, tcpoptlen);
+        ret = exasock_tcp_req_process(skb, tcp, iph, th, tcpopt, tcpoptlen);
     else
-        ret = exasock_tcp_conn_process(tcp, iph, th, data, datalen);
+        ret = exasock_tcp_conn_process(skb, tcp, th, data, datalen);
 
     kref_put(&tcp->refcount, exasock_tcp_dead);
     return ret == 0;
+
+drop_packet:
+    dev_kfree_skb_any(skb);
+    return true;
 }
 
 static void exasock_tcp_rx_worker(struct work_struct *work)
@@ -1174,9 +1768,7 @@ static void exasock_tcp_rx_worker(struct work_struct *work)
     while ((skb = skb_dequeue_tail(&tcp_packets)) != NULL)
     {
         /* Re-queue packet if exasock_tcp_process_packet() returns false */
-        if (exasock_tcp_process_packet(skb))
-            dev_kfree_skb_any(skb);
-        else
+        if (!exasock_tcp_process_packet(skb))
             skb_queue_head(&tmp_queue, skb);
     }
 

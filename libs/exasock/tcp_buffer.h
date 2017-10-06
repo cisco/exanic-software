@@ -7,17 +7,33 @@ seq_compare(uint32_t a, uint32_t b)
     return (int32_t)(a - b);
 }
 
+static inline bool
+proc_seq_update(uint32_t *proc_seq, uint32_t *old, uint32_t new)
+{
+    uint32_t prev;
+
+    do
+    {
+        prev = __sync_val_compare_and_swap(proc_seq, *old, new);
+        if (prev == *old)
+            return true;
+        *old = prev;
+    } while (seq_compare(new, *old) > 0);
+
+    return false;
+}
+
 static inline int
 exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint32_t seg_seq,
-                        size_t seg_len, size_t * restrict skip_len,
+                        size_t seg_len, uint32_t * restrict proc_seq,
                         char ** restrict buf1, size_t * restrict buf1_len,
-                        char ** restrict buf2, size_t * restrict buf2_len)
+                        char ** restrict buf2, size_t * restrict buf2_len,
+                        size_t * restrict skip_len)
 {
     struct exa_socket_state * restrict state = sock->state;
     struct exa_tcp_state * restrict tcp = &state->p.tcp;
     uint32_t rx_buffer_mask = state->rx_buffer_size - 1;
     uint32_t read_seq = tcp->read_seq;
-    uint32_t recv_seq = tcp->recv_seq;
     uint32_t seg_end_seq = seg_seq + seg_len;
     uint32_t wrap_seq = seg_end_seq & ~rx_buffer_mask;
     uint32_t alloc_seq;
@@ -26,19 +42,25 @@ exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint32_t seg_seq,
     if (seg_end_seq - read_seq > state->rx_buffer_size)
         return -1;
 
+    *proc_seq = tcp->proc_seq;
+
     /* Check if packet gives us any new data */
-    if (seq_compare(seg_end_seq, recv_seq) <= 0)
+    if (seq_compare(seg_end_seq, *proc_seq) <= 0)
         return -1;
 
-    if (seq_compare(seg_seq, recv_seq) < 0)
+    /* Lock the new data for processing */
+    if (!proc_seq_update(&tcp->proc_seq, proc_seq, seg_end_seq))
+        return -1;
+
+    if (seq_compare(seg_seq, *proc_seq) < 0)
     {
-        /* Packet overlaps with already acked region */
-        *skip_len = recv_seq - seg_seq;
-        alloc_seq = recv_seq;
+        /* Packet overlaps with already processed data region */
+        *skip_len = *proc_seq - seg_seq;
+        alloc_seq = *proc_seq;
     }
     else
     {
-        /* Packet does not overlap with acked region */
+        /* Packet does not overlap with already processed data region */
         *skip_len = 0;
         alloc_seq = seg_seq;
     }
@@ -66,28 +88,53 @@ exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint32_t seg_seq,
 /* This function is safe to call with a bogus sequence number if len == 0 */
 static inline void
 exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
-                         uint32_t seq, size_t len)
+                         uint32_t seq, size_t len, uint32_t prev_proc_seq)
 {
     struct exa_socket_state * restrict state = sock->state;
     struct exa_tcp_state * restrict tcp = &state->p.tcp;
     uint32_t recv_seq = tcp->recv_seq;
+    uint32_t proc_seq;
     unsigned int i, j, k;
+
+    if (len == 0)
+        return;
+
+    /* Remove out of order segments already processed by kernel */
+    if (tcp->recv_seg[0].end - tcp->recv_seg[0].begin != 0 &&
+        seq_compare(tcp->recv_seg[0].end, recv_seq) <= 0)
+    {
+        for (i = 1; i < EXA_TCP_MAX_RX_SEGMENTS &&
+             tcp->recv_seg[i].end - tcp->recv_seg[i].begin != 0 &&
+             seq_compare(tcp->recv_seg[i].end, recv_seq) <= 0; i++)
+            ;
+        for (j = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++, j++)
+            tcp->recv_seg[j] = tcp->recv_seg[i];
+        for (; j < EXA_TCP_MAX_RX_SEGMENTS; j++)
+            tcp->recv_seg[j].begin = tcp->recv_seg[j].end = 0;
+        if (tcp->recv_seg[0].end - tcp->recv_seg[0].begin != 0 &&
+            seq_compare(tcp->recv_seg[0].begin, recv_seq) < 0)
+            tcp->recv_seg[0].begin = recv_seq;
+    }
 
     if (recv_seq == seq)
     {
         /* Extend acked region */
-        recv_seq = seq + len;
 
+        proc_seq = tcp->proc_seq;
         if (tcp->recv_seg[0].end - tcp->recv_seg[0].begin != 0 &&
-            seq_compare(tcp->recv_seg[0].begin, recv_seq) <= 0)
+            seq_compare(tcp->recv_seg[0].begin, proc_seq) <= 0)
         {
             /* Merge in segments from out of order segment list */
             for (i = 1; i < EXA_TCP_MAX_RX_SEGMENTS &&
                  tcp->recv_seg[i].end - tcp->recv_seg[i].begin > 0 &&
-                 seq_compare(tcp->recv_seg[i].begin, recv_seq) <= 0; i++)
+                 seq_compare(tcp->recv_seg[i].begin, proc_seq) <= 0; i++)
                 ;
-            if (seq_compare(recv_seq, tcp->recv_seg[i - 1].end) < 0)
-                recv_seq = tcp->recv_seg[i - 1].end;
+            if (seq_compare(proc_seq, tcp->recv_seg[i - 1].end) < 0)
+            {
+                /* We have locked segment for processing and gained control over
+                 * proc_seq pointer, so we can update it safely now. */
+                tcp->proc_seq = tcp->recv_seg[i - 1].end;
+            }
 
             /* Move remaining segments */
             for (j = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++, j++)
@@ -98,11 +145,14 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
 
         /* Assert that the next segment cannot be merged in */
         assert(tcp->recv_seg[0].end - tcp->recv_seg[0].begin == 0 ||
-                seq_compare(tcp->recv_seg[0].begin, recv_seq) > 0);
+                seq_compare(tcp->recv_seg[0].begin, tcp->proc_seq) > 0);
 
-        tcp->recv_seq = recv_seq;
+        /* We are certain that kernel is not in the middle of processing of any
+         * new data right now (recv_seq == seq). We can safely update recv_seq.
+         */
+        tcp->recv_seq = tcp->proc_seq;
     }
-    else if (len > 0)
+    else
     {
         /* Find place to insert into out of order segment list */
         for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
@@ -156,12 +206,35 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
             for (; k < EXA_TCP_MAX_RX_SEGMENTS; k++)
                 tcp->recv_seg[k].begin = tcp->recv_seg[k].end = 0;
         }
+
+        if (tcp->recv_seg[0].begin == recv_seq &&
+            tcp->recv_seg[0].end - tcp->recv_seg[0].begin != 0 &&
+            recv_seq == prev_proc_seq)
+        {
+            /* Kernel has progressed in the meantime and the first out of order
+             * segment is now ready for reading. We can update recv_seq safely,
+             * since we have checked that kernel is not in the middle of
+             * processing of any new data right now (recv_seq == prev_proc_seq).
+             */
+            tcp->recv_seq = tcp->proc_seq = tcp->recv_seg[0].end;
+
+            /* Move remaining segments */
+            for (i = 1; i < EXA_TCP_MAX_RX_SEGMENTS; i++)
+                tcp->recv_seg[i - 1] = tcp->recv_seg[i];
+            tcp->recv_seg[i - 1].begin = tcp->recv_seg[i - 1].end = 0;
+        }
+        else
+        {
+            /* The segment has just been inserted into out of order segment list.
+             * Reset segment processing pointer back from where we took it. */
+            tcp->proc_seq = prev_proc_seq;
+        }
     }
 }
 
 static inline void
 exa_tcp_rx_buffer_abort(struct exa_socket * restrict sock,
-                        uint32_t seq, size_t len)
+                        uint32_t seq, size_t len, uint32_t prev_proc_seq)
 {
     struct exa_socket_state * restrict state = sock->state;
     struct exa_tcp_state * restrict tcp = &state->p.tcp;
@@ -187,6 +260,10 @@ exa_tcp_rx_buffer_abort(struct exa_socket * restrict sock,
                 tcp->recv_seg[j].begin = tcp->recv_seg[j].end = 0;
         }
     }
+
+    /* Reset segment processing pointer back from where we took it */
+    if (len > 0)
+        tcp->proc_seq = prev_proc_seq;
 }
 
 static inline int

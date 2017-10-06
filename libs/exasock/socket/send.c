@@ -135,8 +135,8 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         exa_notify_tcp_write_fake_unready(sock);
 
         /* Wait until socket is ready for writing */
-        do_socket_wait_tx(sock, nonblock, sock->so_sndtimeo,
-                       __sendto_bypass_tcp_ready, ret, 0);
+        do_socket_wait_tcp(sock, nonblock, sock->so_sndtimeo,
+                           __sendto_bypass_tcp_ready, ret, 0);
 
         /* NOTE: Socket may have disappeared while waiting! */
         if (ret == -1)
@@ -437,8 +437,8 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         exa_notify_tcp_write_fake_unready(sock);
 
         /* Wait until socket is ready for writing */
-        do_socket_wait_tx(sock, nonblock, sock->so_sndtimeo,
-                       __sendmsg_bypass_tcp_ready, ret, 0);
+        do_socket_wait_tcp(sock, nonblock, sock->so_sndtimeo,
+                           __sendmsg_bypass_tcp_ready, ret, 0);
 
         /* NOTE: Socket may have disappeared while waiting! */
         if (ret == -1)
@@ -580,8 +580,8 @@ write_bypass_tcp(struct exa_socket * restrict sock, int fd, const void *buf,
         exa_notify_tcp_write_fake_unready(sock);
 
         /* Wait until socket is ready for writing */
-        do_socket_wait_tx(sock, nonblock, sock->so_sndtimeo,
-                       __write_bypass_tcp_ready, ret, 0);
+        do_socket_wait_tcp(sock, nonblock, sock->so_sndtimeo,
+                           __write_bypass_tcp_ready, ret, 0);
 
         /* NOTE: Socket may have disappeared while waiting! */
         if (ret == -1)
@@ -715,8 +715,8 @@ writev_bypass_tcp(struct exa_socket * restrict sock, int fd,
         exa_notify_tcp_write_fake_unready(sock);
 
         /* Wait until socket is ready for writing */
-        do_socket_wait_tx(sock, nonblock, sock->so_sndtimeo,
-                       __writev_bypass_tcp_ready, ret, 0);
+        do_socket_wait_tcp(sock, nonblock, sock->so_sndtimeo,
+                           __writev_bypass_tcp_ready, ret, 0);
 
         /* NOTE: Socket may have disappeared while waiting! */
         if (ret == -1)

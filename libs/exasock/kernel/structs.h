@@ -74,14 +74,10 @@ struct exa_tcp_state
     /* Next send sequence number.
      * Data must be written to the tx_buffer before send_seq is incremented. */
     uint32_t send_seq;
-
-    uint8_t __reserved0[4];
-
     /* Next received sequence number to be delivered to user */
     uint32_t read_seq;
-    /* Next receive sequence number expected on the network.
-     * Data must be written to the rx_buffer before recv_seq is incremented. */
-    uint32_t recv_seq;
+
+    uint8_t __reserved0[8];
 
     /* Out of order received segments */
     struct {
@@ -93,9 +89,9 @@ struct exa_tcp_state
     /* either user read-write and kernel read-mostly, or
      * user read-mostly and kernel read-write.
      * Note: In most of scenarios the first case applies. The second
-     *       case applies when kernel is ahead of the library with acknowledged
-     *       sequence numbers tracking (might happen when application does not
-     *       poll receive buffer for a while).
+     *       case applies when kernel is ahead of the library with processing of
+     *       received packets (might happen when application does not poll
+     *       receive buffer for a while).
      */
 
     /* Next unacknowledged sent sequence number */
@@ -103,8 +99,17 @@ struct exa_tcp_state
     /* First send sequence number beyond receiver window
      * (send_ack + Receiver Window Size) */
     uint32_t rwnd_end;
+    /* Next receive sequence number expected on the network.
+     * Data must be written to the socket's rx_buffer before recv_seq is
+     * incremented. */
+    uint32_t recv_seq;
+    /* Next receive sequence number to be processed in ExaNIC buffer.
+     * User or kernel stack increments proc_seq to lock a data segment for
+     * processing. Data segment must be locked before it can be written to
+     * the socket's rx_buffer. */
+    uint32_t proc_seq;
 
-    uint8_t __reserved1[56];
+    uint8_t __reserved1[48];
 
     /* 128 */
     /* user read-mostly, kernel read-mostly */

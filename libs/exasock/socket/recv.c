@@ -155,7 +155,7 @@ __recv_block_tcp_ready(struct exa_socket * restrict sock, int *ret,
  * On success, returns 0 with socket rx_lock and socket lock held
  * Otherwise returns -1 with only socket lock held */
 static int
-recv_block_tcp(struct exa_socket * restrict sock, int fd, int flags,
+recv_block_tcp(struct exa_socket * restrict sock, int flags,
                char ** restrict buf1, size_t * restrict len1,
                char ** restrict buf2, size_t * restrict len2)
 {
@@ -165,8 +165,8 @@ recv_block_tcp(struct exa_socket * restrict sock, int fd, int flags,
     assert(sock->bound);
     assert(exa_read_locked(&sock->lock));
 
-    do_socket_wait(sock, fd, nonblock, sock->so_rcvtimeo,
-                   __recv_block_tcp_ready, ret, buf1, len1, buf2, len2);
+    do_socket_wait_tcp(sock, nonblock, sock->so_rcvtimeo,
+                       __recv_block_tcp_ready, ret, buf1, len1, buf2, len2);
 
     return ret;
 }
@@ -227,7 +227,7 @@ recvfrom_udp(struct exa_socket * restrict sock, int sockfd,
 }
 
 static ssize_t
-recvfrom_tcp(struct exa_socket * restrict sock, int sockfd,
+recvfrom_tcp(struct exa_socket * restrict sock,
              void *buf, size_t len, int flags,
              struct sockaddr *src_addr, socklen_t *addrlen)
 {
@@ -243,7 +243,7 @@ recvfrom_tcp(struct exa_socket * restrict sock, int sockfd,
     }
 
     /* Block until packet is available, or error */
-    if (recv_block_tcp(sock, sockfd, flags, &rx_buf1, &rx_len1, &rx_buf2,
+    if (recv_block_tcp(sock, flags, &rx_buf1, &rx_len1, &rx_buf2,
                        &rx_len2) == -1)
         return -1;
 
@@ -291,7 +291,7 @@ recvfrom_bypass(struct exa_socket * restrict sock, int sockfd,
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
         return recvfrom_udp(sock, sockfd, buf, len, flags, src_addr, addrlen);
     else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
-        return recvfrom_tcp(sock, sockfd, buf, len, flags, src_addr, addrlen);
+        return recvfrom_tcp(sock, buf, len, flags, src_addr, addrlen);
     else
     {
         errno = EINVAL;
@@ -606,8 +606,7 @@ recvmsg_udp(struct exa_socket * restrict sock, int sockfd,
 }
 
 static ssize_t
-recvmsg_tcp(struct exa_socket * restrict sock, int sockfd,
-            struct msghdr *msg, int flags)
+recvmsg_tcp(struct exa_socket * restrict sock, struct msghdr *msg, int flags)
 {
     char *rx_buf1, *rx_buf2;
     size_t rx_len1, rx_len2, recv_len;
@@ -621,7 +620,7 @@ recvmsg_tcp(struct exa_socket * restrict sock, int sockfd,
     }
 
     /* Block until packet is available, or error */
-    if (recv_block_tcp(sock, sockfd, flags, &rx_buf1, &rx_len1, &rx_buf2,
+    if (recv_block_tcp(sock, flags, &rx_buf1, &rx_len1, &rx_buf2,
                        &rx_len2) == -1)
         return -1;
 
@@ -668,7 +667,7 @@ recvmsg_bypass(struct exa_socket * restrict sock, int sockfd,
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
         return recvmsg_udp(sock, sockfd, msg, flags);
     else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
-        return recvmsg_tcp(sock, sockfd, msg, flags);
+        return recvmsg_tcp(sock, msg, flags);
     else
     {
         errno = EINVAL;
@@ -738,7 +737,7 @@ read_udp(struct exa_socket * restrict sock, int fd, void *buf, size_t count)
 }
 
 static ssize_t
-read_tcp(struct exa_socket * restrict sock, int fd, void *buf, size_t count)
+read_tcp(struct exa_socket * restrict sock, void *buf, size_t count)
 {
     char *rx_buf1, *rx_buf2;
     size_t rx_len1, rx_len2, data_len;
@@ -755,7 +754,7 @@ read_tcp(struct exa_socket * restrict sock, int fd, void *buf, size_t count)
         return 0;
 
     /* Block until data is available, or error */
-    if (recv_block_tcp(sock, fd, 0, &rx_buf1, &rx_len1, &rx_buf2,
+    if (recv_block_tcp(sock, 0, &rx_buf1, &rx_len1, &rx_buf2,
                        &rx_len2) == -1)
         return -1;
 
@@ -787,7 +786,7 @@ read_bypass(struct exa_socket * restrict sock, int fd, void *buf, size_t count)
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
         return read_udp(sock, fd, buf, count);
     else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
-        return read_tcp(sock, fd, buf, count);
+        return read_tcp(sock, buf, count);
     else
     {
         errno = EINVAL;
@@ -896,7 +895,7 @@ readv_udp(struct exa_socket * restrict sock, int fd, const struct iovec *iov,
 }
 
 static ssize_t
-readv_tcp(struct exa_socket * restrict sock, int fd, const struct iovec *iov,
+readv_tcp(struct exa_socket * restrict sock, const struct iovec *iov,
           size_t iovcnt)
 {
     char *rx_buf1, *rx_buf2;
@@ -911,7 +910,7 @@ readv_tcp(struct exa_socket * restrict sock, int fd, const struct iovec *iov,
     }
 
     /* Block until data is available, or error */
-    if (recv_block_tcp(sock, fd, 0, &rx_buf1, &rx_len1, &rx_buf2,
+    if (recv_block_tcp(sock, 0, &rx_buf1, &rx_len1, &rx_buf2,
                        &rx_len2) == -1)
         return -1;
 
@@ -936,7 +935,7 @@ readv_bypass(struct exa_socket * restrict sock, int fd, const struct iovec *iov,
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
         return readv_udp(sock, fd, iov, iovcnt);
     else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
-        return readv_tcp(sock, fd, iov, iovcnt);
+        return readv_tcp(sock, iov, iovcnt);
     else
     {
         errno = EINVAL;
