@@ -760,6 +760,7 @@ char **slurp_prom(char *filename)
   unsigned int line_len;
   unsigned int buff_used = 0;
   unsigned int buff_alloced = MAX_FW_LINES;
+  int header_seen = 0;
   char *value;
   char tmp[50];
 
@@ -783,6 +784,16 @@ char **slurp_prom(char *filename)
 
   while( fscanf(fp, "%49s", tmp) == 1 ){
     line_len = strlen(tmp);
+    if(tmp[0] == ';')
+    {
+      /* Allow the first line starting with ';' as it's the header and used elsewhere
+       * but ignore all others
+       */
+      if(!header_seen)
+        header_seen = 1;
+      else
+        continue;
+    }
     value = (char *)calloc((line_len+1), sizeof(char));
     if(value == NULL){
       printf("ERROR: Memory allocation failed\n");
