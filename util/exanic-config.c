@@ -704,6 +704,17 @@ void show_all_devices(int verbose)
     while (exanic_num < INT_MAX);
 }
 
+void reset_port_counters(const char *device, int port_number)
+{
+    exanic_t *exanic;
+    exanic = acquire_handle(device);
+    exanic_register_write(exanic,
+                          REG_PORT_STAT_INDEX(port_number, REG_PORT_STAT_RESET),
+                          1);
+    printf("%s:%d: port counters reset\n", device, port_number);
+    release_handle(exanic);
+}
+
 void show_sfp_status(const char *device, int port_number)
 {
     int port_status;
@@ -873,7 +884,7 @@ void set_promiscuous_mode(const char *device, int port_number, int mode)
         exit(1);
     }
 
-    printf("%s:%d port %s promiscuous mode.\n", device, port_number,
+    printf("%s:%d: promiscuous mode %s\n", device, port_number,
             mode ? "enabled" : "disabled");
 }
 
@@ -2088,6 +2099,12 @@ int main(int argc, char *argv[])
         show_sfp_status(device, port_number);
         return 0;
     }
+    else if (argc == 4 && strcmp(argv[2], "counters") == 0
+            && strcmp(argv[3], "reset") == 0 && port_number != -1)
+    {
+        reset_port_counters(device, port_number);
+        return 0;
+    }
     else if (argc >= 3 && strcmp(argv[2], "ptp") == 0 && port_number == -1)
     {
         return ptp_command(argv[0], device, argc - 3, &argv[3]);
@@ -2255,6 +2272,7 @@ usage_error:
     fprintf(stderr, "   %s <device> [-v]\n", argv[0]);
     fprintf(stderr, "   %s <device> sfp status\n", argv[0]);
     fprintf(stderr, "   %s <device> { up | down }\n", argv[0]);
+    fprintf(stderr, "   %s <device> counters reset\n", argv[0]);
     fprintf(stderr, "   %s <device> bridging { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> mirror-rx { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> mirror-tx { on | off }\n", argv[0]);
