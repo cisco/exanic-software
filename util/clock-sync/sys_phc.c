@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <syslog.h>
+#include <limits.h>
 #include <sys/time.h>
 #include <sys/timex.h>
 #include <sys/ioctl.h>
@@ -103,6 +104,13 @@ static int get_sys_adj(double *adj)
 static int set_sys_adj(double adj)
 {
     struct timex tx;
+
+    if (!(LONG_MIN / 65536000000.0 < adj && adj < LONG_MAX / 65536000000.0))
+    {
+        /* adj is out of range or is NaN */
+        errno = ERANGE;
+        return -1;
+    }
 
     memset(&tx, 0, sizeof(tx));
     tx.modes = ADJ_FREQUENCY;

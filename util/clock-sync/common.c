@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/timex.h>
@@ -250,6 +251,13 @@ int get_clock_adj(int clkfd, double *adj)
 int set_clock_adj(int clkfd, double adj)
 {
     struct timex tx;
+
+    if (!(LONG_MIN / 65536000000.0 < adj && adj < LONG_MAX / 65536000000.0))
+    {
+        /* adj is out of range or is NaN */
+        errno = ERANGE;
+        return -1;
+    }
 
     memset(&tx, 0, sizeof(tx));
     tx.modes = ADJ_FREQUENCY;
