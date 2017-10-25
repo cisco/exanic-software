@@ -981,12 +981,13 @@ exanic_poll(void)
                     goto abort_tcp_rx;
 
                 /* Get a pointer to receive buffer */
-                if (exa_tcp_rx_buffer_alloc(sock, tcp_flags, data_seq, data_len,
+                if (data_len == 0 ||
+                    exa_tcp_rx_buffer_alloc(sock, tcp_flags, data_seq, data_len,
                                             &skip_len, &buf1, &buf1_len,
                                             &buf2, &buf2_len) == -1)
                 {
-                    /* Sequence number is out of range
-                     * Skip over entire packet and continue packet processing */
+                    /* Sequence number is out of range or segment length is 0.
+                     * Skip over entire payload and continue packet processing */
                     skip_len = data_len;
                     buf1 = buf2 = NULL;
                     buf1_len = buf2_len = 0;

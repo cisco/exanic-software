@@ -28,7 +28,7 @@ exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint8_t flags,
         return -1;
 
     /* Check if packet gives us any new data */
-    if (seq_compare(seg_end_seq, recv_seq) < 0)
+    if (seq_compare(seg_end_seq, recv_seq) <= 0)
         return -1;
 
     if (seq_compare(seg_seq, recv_seq) < 0)
