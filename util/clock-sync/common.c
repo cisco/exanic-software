@@ -259,6 +259,14 @@ int set_clock_adj(int clkfd, double adj)
         return -1;
     }
 
+    /* Workaround for Linux bug in clock_adjtime - frequency is converted
+     * into a signed 32 bit ppb value but it is not checked for overflow */
+    if (!(-2.147483648 < adj && adj < 2.147483647))
+    {
+        errno = ERANGE;
+        return -1;
+    }
+
     memset(&tx, 0, sizeof(tx));
     tx.modes = ADJ_FREQUENCY;
     tx.freq = adj * 65536000000.0;
