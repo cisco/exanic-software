@@ -232,7 +232,8 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
     interval_ns = sys_time_ns - state->time_ns;
 
     /* Get underlying clock drift */
-    calc_drift(&state->drift, &drift);
+    if (!calc_drift(&state->drift, &drift))
+        drift = 0;
 
     /* Calculate expected change in hardware clock error since last
      * measurement, based on the current adjustment and estimated drift */
@@ -254,7 +255,8 @@ enum sync_status poll_phc_sys_sync(struct phc_sys_sync_state *state)
     record_error(&state->error, correction_ns, error_ns);
 
     /* Get clock error to correct */
-    calc_error(&state->error, &med_error_ns);
+    if (!calc_error(&state->error, &med_error_ns))
+        med_error_ns = 0;
 
     /* Set adjustment to compensate for drift and to correct error */
     adj = - drift - med_error_ns /
@@ -316,7 +318,8 @@ void shutdown_phc_sys_sync(struct phc_sys_sync_state *state)
             state->name);
 
     /* Set adjustment to compensate for drift only */
-    calc_drift(&state->drift, &drift);
+    if (!calc_drift(&state->drift, &drift))
+        drift = 0;
     set_clock_adj(state->clkfd, -drift);
 
     free(state);
