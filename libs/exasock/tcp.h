@@ -618,7 +618,8 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
     if (flags & TH_ACK)
     {
         uint32_t send_ack = state->send_ack;
-        uint32_t win_end = ack_seq + (win << state->wscale);
+        uint32_t win_end = ack_seq +
+                           (win << ((flags & TH_SYN) ? 0 : state->wscale));
         uint32_t rwnd_end = state->rwnd_end;
 
         /* Check if got ACK for more of our sent data */

@@ -827,8 +827,8 @@ static int exasock_tcp_conn_process(struct exasock_tcp *tcp,
             uint32_t cwnd = state->p.tcp.cwnd;
             uint32_t ssthresh = state->p.tcp.ssthresh;
             uint32_t send_ack = state->p.tcp.send_ack;
-            uint32_t win_end = ack_seq +
-                               (ntohs(th->window) << state->p.tcp.wscale);
+            uint8_t wscale = th->syn ? 0 : state->p.tcp.wscale;
+            uint32_t win_end = ack_seq + (ntohs(th->window) << wscale);
             uint32_t rwnd_end = state->p.tcp.rwnd_end;
 
             if (cwnd <= ssthresh)
