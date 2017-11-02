@@ -672,6 +672,9 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
 
     exanic_tcp_connect(sock, &endpoint);
 
+    /* The kernel writes to the rx buffer, so we need to poll for updates */
+    sock->need_rx_ready_poll = true;
+
     sock->bind.ip = endpoint;
     if (exa_socket_holds_interfaces(sock))
         exa_tcp_insert(fd);
@@ -701,7 +704,7 @@ exa_socket_tcp_listen(struct exa_socket * restrict sock, int backlog)
     exanic_tcp_listen(sock, backlog);
 
     /* The kernel writes to the rx buffer, so we need to poll for updates */
-    sock->need_ready_poll = true;
+    sock->need_rx_ready_poll = true;
 
     /* If member of exa_notify, a listening socket needs to be also added
      * to exasock kernel epoll instance
@@ -757,6 +760,9 @@ exa_socket_tcp_accept(struct exa_endpoint * restrict endpoint,
         goto err_sys_update;
 
     exanic_tcp_accept(sock, endpoint, tcp_state);
+
+    /* The kernel writes to the rx buffer, so we need to poll for updates */
+    sock->need_rx_ready_poll = true;
 
     sock->bind.ip = *endpoint;
     if (exa_socket_holds_interfaces(sock))

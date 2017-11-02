@@ -370,17 +370,14 @@ epoll_pwait_spin_check_fd(int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
 
-    if (sock == NULL || !sock->need_ready_poll)
+    if (sock == NULL || !sock->need_rx_ready_poll)
         return;
 
     exa_read_lock(&sock->lock);
 
-    if (sock->need_ready_poll)
-    {
-        exa_lock(&sock->state->rx_lock);
-        exa_notify_update(sock);
-        exa_unlock(&sock->state->rx_lock);
-    }
+    exa_lock(&sock->state->rx_lock);
+    exa_notify_tcp_read_update(sock);
+    exa_unlock(&sock->state->rx_lock);
 
     exa_read_unlock(&sock->lock);
 }

@@ -186,10 +186,10 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
         exa_read_lock(&sock->lock);
 
-        if (sock->need_ready_poll)
+        if (sock->need_rx_ready_poll)
         {
             exa_lock(&sock->state->rx_lock);
-            exa_notify_update(sock);
+            exa_notify_tcp_read_update(sock);
             exa_unlock(&sock->state->rx_lock);
         }
 
@@ -319,10 +319,10 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                     continue;
                 }
 
-                if (sock->need_ready_poll)
+                if (sock->need_rx_ready_poll)
                 {
                     exa_lock(&sock->state->rx_lock);
-                    exa_notify_update(sock);
+                    exa_notify_tcp_read_update(sock);
                     exa_unlock(&sock->state->rx_lock);
                 }
 
@@ -494,10 +494,10 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
             continue;
         }
 
-        if (sock->need_ready_poll)
+        if (sock->need_rx_ready_poll)
         {
             exa_lock(&sock->state->rx_lock);
-            exa_notify_update(sock);
+            exa_notify_tcp_read_update(sock);
             exa_unlock(&sock->state->rx_lock);
         }
 
@@ -630,10 +630,10 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
                     continue;
                 }
 
-                if (sock->need_ready_poll)
+                if (sock->need_rx_ready_poll)
                 {
                     exa_lock(&sock->state->rx_lock);
-                    exa_notify_update(sock);
+                    exa_notify_tcp_read_update(sock);
                     exa_unlock(&sock->state->rx_lock);
                 }
 

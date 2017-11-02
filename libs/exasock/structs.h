@@ -128,8 +128,9 @@ struct exa_socket
     bool tx_ready;
     bool eof_ready;
 
-    /* Socket is of a type that needs to be polled for readiness */
-    bool need_ready_poll;
+    /* Socket is of a type that needs to be polled for read readiness
+     * (TCP only) */
+    bool need_rx_ready_poll;
 
     /* Socket options */
     in_addr_t ip_multicast_if;
