@@ -1,3 +1,8 @@
+The software is licensed under the terms of the GPL as reproduced below,
+except for files under the libs/ and examples/ directories, which are
+licensed under the LGPL and MIT licenses respectively (the full text
+of the licenses can be found within those directories).
+
 
 		    GNU GENERAL PUBLIC LICENSE
 		       Version 2, June 1991
