@@ -982,7 +982,7 @@ exanic_poll(void)
 
                 /* Get a pointer to receive buffer */
                 if (data_len == 0 ||
-                    exa_tcp_rx_buffer_alloc(sock, tcp_flags, data_seq, data_len,
+                    exa_tcp_rx_buffer_alloc(sock, data_seq, data_len,
                                             &skip_len, &buf1, &buf1_len,
                                             &buf2, &buf2_len) == -1)
                 {

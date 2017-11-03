@@ -8,9 +8,8 @@ seq_compare(uint32_t a, uint32_t b)
 }
 
 static inline int
-exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint8_t flags,
-                        uint32_t seg_seq, size_t seg_len,
-                        size_t * restrict skip_len,
+exa_tcp_rx_buffer_alloc(struct exa_socket * restrict sock, uint32_t seg_seq,
+                        size_t seg_len, size_t * restrict skip_len,
                         char ** restrict buf1, size_t * restrict buf1_len,
                         char ** restrict buf2, size_t * restrict buf2_len)
 {
