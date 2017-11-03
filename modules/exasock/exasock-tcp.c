@@ -290,22 +290,6 @@ static inline void exasock_tcp_seg_list_cleanup(struct list_head *seg_list)
     }
 }
 
-static inline struct exasock_tcp_seg_el *exasock_tcp_seg_el_alloc(char *data,
-                                                            unsigned len,
-                                                            struct sk_buff *skb)
-{
-    struct exasock_tcp_seg_el *elem;
-
-    elem = kmalloc(sizeof(*elem), GFP_KERNEL);
-    if (elem)
-    {
-        elem->data = data;
-        elem->len = len;
-        elem->skb = skb;
-    }
-    return elem;
-}
-
 static uint8_t exasock_tcp_stats_get_state(struct exasock_stats_sock *stats)
 {
     struct exasock_tcp *tcp = stats_to_tcp(stats);
@@ -1037,16 +1021,15 @@ static void exasock_tcp_rx_seg_cleanup(struct exasock_tcp_rx_seg *rx_seg,
     }
 }
 
-static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
-                                    uint32_t recv_seq, char *data, unsigned len,
-                                    uint32_t seq, struct sk_buff *skb)
+static void exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
+                                     uint32_t recv_seq, char *data, unsigned len,
+                                     uint32_t seq, struct exasock_tcp_seg_el *elem)
 {
-    struct exasock_tcp_seg_el *elem;
     unsigned skip_len;
     int i, j, k;
 
     if (len == 0)
-        goto drop_seg;
+        goto drop_elem;
 
     if (after(recv_seq, seq))
     {
@@ -1071,14 +1054,13 @@ static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
     if (i >= EXA_TCP_MAX_RX_SEGMENTS)
     {
         /* Too many out of order segments, we will drop this one */
-        goto drop_seg;
+        goto drop_elem;
     }
     else if (rx_seg[i].end - rx_seg[i].begin == 0)
     {
         /* Insert as new segment at end of list */
-        elem = exasock_tcp_seg_el_alloc(data, len, skb);
-        if (elem == NULL)
-            return -1;
+        elem->data = data;
+        elem->len = len;
         list_add_tail(&elem->node, &rx_seg[i].seg_list);
         rx_seg[i].begin = seq;
         rx_seg[i].end = seq + len;
@@ -1087,9 +1069,8 @@ static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
     {
         /* Insert as separate segment
          * If there are too many segments, last segment is discarded */
-        elem = exasock_tcp_seg_el_alloc(data, len, skb);
-        if (elem == NULL)
-            return -1;
+        elem->data = data;
+        elem->len = len;
         j = EXA_TCP_MAX_RX_SEGMENTS - 1;
         exasock_tcp_seg_list_cleanup(&rx_seg[j].seg_list);
         for (; j > i; j--)
@@ -1107,9 +1088,8 @@ static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
         /* Expand current segment */
         if (before(seq, rx_seg[i].begin) && before(rx_seg[i].end, seq + len))
         {
-            elem = exasock_tcp_seg_el_alloc(data, len, skb);
-            if (elem == NULL)
-                return -1;
+            elem->data = data;
+            elem->len = len;
             rx_seg[i].begin = seq;
             rx_seg[i].end = seq + len;
             exasock_tcp_seg_list_cleanup(&rx_seg[i].seg_list);
@@ -1117,26 +1097,22 @@ static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
         }
         else if (before(seq, rx_seg[i].begin))
         {
-            elem = exasock_tcp_seg_el_alloc(data, rx_seg[i].begin - seq, skb);
-            if (elem == NULL)
-                return -1;
+            elem->data = data;
+            elem->len = rx_seg[i].begin - seq;
             rx_seg[i].begin = seq;
             list_add(&elem->node, &rx_seg[i].seg_list);
         }
         else if (before(rx_seg[i].end, seq + len))
         {
-            elem = exasock_tcp_seg_el_alloc(data + (rx_seg[i].end - seq),
-                                                   len - (rx_seg[i].end - seq),
-                                                   skb);
-            if (elem == NULL)
-                return -1;
+            elem->data = data + (rx_seg[i].end - seq);
+            elem->len = len - (rx_seg[i].end - seq);
             rx_seg[i].end = seq + len;
             list_add_tail(&elem->node, &rx_seg[i].seg_list);
         }
         else
         {
             /* We already have this segment */
-            goto drop_seg;
+            goto drop_elem;
         }
 
         /* Merge segments into current segment */
@@ -1182,11 +1158,11 @@ static int exasock_tcp_rx_seg_write(struct exasock_tcp_rx_seg *rx_seg,
         }
     }
 
-    return 0;
+    return;
 
-drop_seg:
-    dev_kfree_skb_any(skb);
-    return 0;
+drop_elem:
+    dev_kfree_skb_any(elem->skb);
+    kfree(elem);
 }
 
 /* Calculate total length of data which is ready to be copied to the socket's
@@ -1248,12 +1224,12 @@ static int exasock_tcp_process_data(struct sk_buff *skb,
     uint32_t copy_end_seq;
     uint32_t wrap_seq;
     uint32_t rx_buffer_mask;
+    struct exasock_tcp_seg_el *elem;
     unsigned buf1_len, buf2_len;
     char *buf1, *buf2;
     unsigned copy_len;
     bool th_ack;
     bool th_fin;
-    int err;
 
     if (tcp_st->state == EXA_TCP_CLOSED ||
         tcp_st->state == EXA_TCP_SYN_SENT ||
@@ -1296,6 +1272,11 @@ proc_check:
      * processing all the data not locked by the library */
     if (seg_len > 0 && after_eq(proc_seq, seg_end_seq))
         return -1;
+
+    elem = kmalloc(sizeof(*elem), GFP_KERNEL);
+    if (elem == NULL)
+        goto skip_proc;
+    elem->skb = skb;
 
     if (recv_seq == proc_seq &&
         (copy_len = exasock_tcp_data_length(rx_seg, seg_seq,
@@ -1345,15 +1326,9 @@ proc_check:
     th_ack = th->ack ? true : false;
     th_fin = th->fin ? true : false;
 
-    err = exasock_tcp_rx_seg_write(rx_seg, recv_seq, data, seg_len,
-                                   seg_seq, skb);
-    if (err)
-    {
-        /* FIXME: if (copy_len > 0) unlock the data for processing */
-        goto skip_proc;
-    }
-    /* Socket buffer has got consumed by exasock_tcp_rx_seg_write()
+    /* Socket buffer gets consumed by exasock_tcp_rx_seg_write()
      * so neither skb nor th should be referred beyond this point. */
+    exasock_tcp_rx_seg_write(rx_seg, recv_seq, data, seg_len, seg_seq, elem);
 
     if (copy_len)
         exasock_tcp_rx_buffer_write(tcp_st, rx_seg, buf1, buf1_len, buf2, buf2_len);
