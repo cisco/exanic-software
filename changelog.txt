@@ -1,3 +1,17 @@
+2.0.1 [2017-11-03]
+* Support for firmware update without reboot (card must be running
+  firmware 20171019 or later)
+* Support for mirroring/bridging on X10 (with corresponding firmware)
+* libexanic: speed up exanic_expand_timestamp() on X10-GM/HPT
+* exasock: fix segmentation fault with certain dynamic libraries
+* exasock: fix TCP window calculation at connection open (SYN-ACK)
+* exanic-clock-sync: support reading configuration from file
+* exanic-clock-sync: algorithm improvements to improve stability
+* exanic-clock-sync: calculate and display Allan deviation
+* exanic-clock-sync: avoid possible integer overflow in Linux clock_adjtime
+* exanic-clock-sync: allow selection of PPS edge (rising/falling)
+* exanic-fwupdate: allow additional comment lines in .fw files
+
 2.0.0 [2017-08-04]
 * Support for ExaNIC X40 with 40G firmware
 * libexanic: new timestamping functions for both ns and ps resolution;
