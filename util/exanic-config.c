@@ -610,7 +610,6 @@ void show_all_devices(int verbose)
 {
     DIR *d;
     struct dirent *dir;
-    char device_file[32];
     char exanic_file[32];
     int exanic_num;
     int prev_num = -1;
@@ -624,13 +623,13 @@ void show_all_devices(int verbose)
         {
             while ((dir = readdir(d)) != NULL)
             {
-                snprintf(device_file, sizeof(device_file), dir->d_name);
-                if ((strncmp(device_file, "exanic", 6) == 0) &&
-                    ((num = parse_number(device_file + 6)) != -1) &&
+                if ((strncmp(dir->d_name, "exanic", 6) == 0) &&
+                    ((num = parse_number(dir->d_name + 6)) != -1) &&
                     (num > prev_num) && (num < exanic_num))
                 {
                     exanic_num = num;
-                    memcpy(exanic_file, device_file, sizeof(exanic_file));
+                    strncpy(exanic_file, dir->d_name, sizeof(exanic_file)-1);
+                    exanic_file[sizeof(exanic_file)-1] = 0;
                 }
             }
             closedir(d);

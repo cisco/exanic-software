@@ -376,10 +376,11 @@ int firmware_reload(exanic_t *exanic)
   snprintf(device_path, 256, "/sys/class/net/%s/device/net", ifname);
 
   /* Remove the symlinks so that the path contains no references to the net interface (which may change) */
-  realpath(device_path, resolved_path);
+  if (realpath(device_path, resolved_path) == NULL)
+    return -1;
 
   snprintf(remove_path, 256, "/sys/class/net/%s/device/remove", ifname);
-    
+
   exanic_register_write(exanic, REG_HW_INDEX(REG_HW_RELOAD_RESET_FPGA), 0x1);
   exanic_release_handle(exanic);
   if (write_1_to_file(remove_path) == -1)
