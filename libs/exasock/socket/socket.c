@@ -100,7 +100,7 @@ __linger_tcp_ready(struct exa_socket * restrict sock, int *ret, int dummy)
 }
 
 static int
-linger_tcp(struct exa_socket * restrict sock, int fd)
+linger_tcp(struct exa_socket * restrict sock)
 {
     struct exa_timeo timeout;
     bool nonblock;
@@ -111,7 +111,7 @@ linger_tcp(struct exa_socket * restrict sock, int fd)
     timeout.val.tv_sec = sock->so_linger.l_linger;
     timeout.val.tv_usec = 0;
     nonblock = (!timeout.enabled) || (sock->flags & O_NONBLOCK);
-    do_socket_wait(sock, fd, nonblock, timeout, __linger_tcp_ready, ret, 0);
+    do_socket_wait_tcp(sock, nonblock, timeout, __linger_tcp_ready, ret, 0);
     if (errno == EAGAIN)
         errno = EWOULDBLOCK;
     return ret;
@@ -147,7 +147,7 @@ close(int fd)
                     /* SO_LINGER is set */
                     /* Convert to read lock before blocking operation */
                     exa_rwlock_downgrade(&sock->lock);
-                    linger_ret = linger_tcp(sock, fd);
+                    linger_ret = linger_tcp(sock);
                     if ((linger_ret == -1) && (errno != EWOULDBLOCK))
                     {
                         exa_read_unlock(&sock->lock);
