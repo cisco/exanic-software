@@ -562,12 +562,6 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
 
-    if (state->state == EXA_TCP_LISTEN)
-    {
-        /* Packets for listening sockets are processed elsewhere */
-        return -1;
-    }
-
     if (flags & TH_RST)
     {
         if (state->state == EXA_TCP_SYN_SENT)
