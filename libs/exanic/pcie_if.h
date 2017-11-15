@@ -1317,6 +1317,7 @@ enum
     EXANIC_GPIO_DRV_SDA0    = 0,
     EXANIC_GPIO_DRV_SCL0    = 7,
     EXANIC_GPIO_SDA0        = 8,
+    EXANIC_GPIO_SCL0        = 15,
     EXANIC_GPIO_MOD0NSEL    = 16,
 };
 

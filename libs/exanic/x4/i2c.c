@@ -3,6 +3,13 @@
 #include "../pcie_if.h"
 #include <stdio.h>
 
+struct exanic_i2c_dev
+{
+    struct exanic *exanic;
+    int bus_number;
+    int supports_getscl;
+};
+
 struct phy_i2c
 {
     int bus;
@@ -35,167 +42,192 @@ static void delay(void)
     usleep(20);
 }
 
-static void setsda(exanic_t *exanic, int bus_number, int val)
+static int getsda(struct exanic_i2c_dev *dev)
+{
+    return (dev->exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+        & (1 << (EXANIC_GPIO_SDA0 + dev->bus_number))) ? 1 : 0;
+}
+
+static void setsda(struct exanic_i2c_dev *dev, int val)
 {
     if (val)
-        exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
-            &= ~(1 << (EXANIC_GPIO_DRV_SDA0 + bus_number));
+        dev->exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+            &= ~(1 << (EXANIC_GPIO_DRV_SDA0 + dev->bus_number));
     else
-        exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
-            |= (1 << (EXANIC_GPIO_DRV_SDA0 + bus_number));
+        dev->exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+            |= (1 << (EXANIC_GPIO_DRV_SDA0 + dev->bus_number));
     delay();
 }
 
-static void setscl(exanic_t *exanic, int val)
+static int getscl(struct exanic_i2c_dev *dev)
+{
+    return (dev->exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+        & (1 << (EXANIC_GPIO_SCL0))) ? 1 : 0;
+}
+
+static void __setscl(struct exanic_i2c_dev *dev, int val)
 {
     if (val)
-        exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+        dev->exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
             &= ~(1 << (EXANIC_GPIO_DRV_SCL0));
     else
-        exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+        dev->exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
             |= (1 << (EXANIC_GPIO_DRV_SCL0));
     delay();
 }
 
-static int getsda(exanic_t* exanic, int bus_number)
+static void setscl(struct exanic_i2c_dev *dev, int val)
 {
-    return (exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
-        & (1 << (EXANIC_GPIO_SDA0 + bus_number))) ? 1 : 0;
+    int count;
+
+    __setscl(dev, val);
+    /* devices may clock stretch by holding SCL low; wait for it to go high */
+    if (val && dev->supports_getscl)
+    {
+        for (count = 0; getscl(dev) == 0 && count < 100; count++)
+           delay();
+    }
 }
 
 /* Returns 0 if reset times out */
-static int i2c_reset(exanic_t *exanic, int bus_number)
+static int i2c_init(struct exanic_i2c_dev *dev, exanic_t *exanic, int bus_number)
 {
-    int count = 0;
-    setscl(exanic, 1);
-    setsda(exanic, bus_number, 1);
-    while (getsda(exanic, bus_number) == 0 && count < 100)
+    int count;
+
+    dev->exanic = exanic;
+    dev->bus_number = bus_number;
+    __setscl(dev, 1);
+    dev->supports_getscl = (getscl(dev) == 0) ? 0 : 1;
+
+    setsda(dev, 1);
+    for (count = 0; getsda(dev) == 0 && count < 100; count++)
     {
-        setscl(exanic, 0);
-        setscl(exanic, 1);
-        count++;
+        setscl(dev, 0);
+        setscl(dev, 1);
     }
+
     return (count < 100);
 }
 
-static void i2c_start(exanic_t *exanic, int bus_number)
+static void i2c_start(struct exanic_i2c_dev *dev)
 {
     /* sda, scl are high */
-    setsda(exanic, bus_number, 0);
-    setscl(exanic, 0);
+    setsda(dev, 0);
+    setscl(dev, 0);
 }
 
-static void i2c_repstart(exanic_t *exanic, int bus_number)
+static void i2c_repstart(struct exanic_i2c_dev *dev)
 {
     /* scl is low */
-    setsda(exanic, bus_number, 1);
-    setscl(exanic, 1);
-    setsda(exanic, bus_number, 0);
-    setscl(exanic, 0);
+    setsda(dev, 1);
+    setscl(dev, 1);
+    setsda(dev, 0);
+    setscl(dev, 0);
 }
 
-static void i2c_stop(exanic_t *exanic, int bus_number)
+static void i2c_stop(struct exanic_i2c_dev *dev)
 {
     /* scl is low */
-    setsda(exanic, bus_number, 0);
-    setscl(exanic, 1);
-    setsda(exanic, bus_number, 1);
+    setsda(dev, 0);
+    setscl(dev, 1);
+    setsda(dev, 1);
 }
 
 /* Returns non-zero if ack received, or 0 if the device did not ack */
-static int i2c_outb(exanic_t *exanic, int bus_number, char data)
+static int i2c_outb(struct exanic_i2c_dev *dev, unsigned char data)
 {
     int i, nak;
 
     /* scl is low */
     for (i = 7; i >= 0; i--)
     {
-        setsda(exanic, bus_number, data & (1 << i));
-        setscl(exanic, 1);
-        setscl(exanic, 0);
+        setsda(dev, data & (1 << i));
+        setscl(dev, 1);
+        setscl(dev, 0);
     }
-    setsda(exanic, bus_number, 1);
-    setscl(exanic, 1);
+    setsda(dev, 1);
+    setscl(dev, 1);
 
-    nak = getsda(exanic, bus_number);
-    setscl(exanic, 0);
+    nak = getsda(dev);
+    setscl(dev, 0);
     /* scl is low */
 
     return !nak;
 }
 
-static char i2c_inb(exanic_t *exanic, int bus_number)
+static unsigned char i2c_inb(struct exanic_i2c_dev *dev)
 {
     int i;
     char data = 0;
 
     /* scl is low */
-    setsda(exanic, bus_number, 1);
+    setsda(dev, 1);
     for (i = 7; i >= 0; i--)
     {
-        setscl(exanic, 1);
-        if (getsda(exanic, bus_number))
+        setscl(dev, 1);
+        if (getsda(dev))
             data |= (1 << i);
-        setscl(exanic, 0);
+        setscl(dev, 0);
     }
     /* scl is low */
 
     return data;
 }
 
-static void i2c_ack(exanic_t *exanic, int bus_number)
+static void i2c_ack(struct exanic_i2c_dev *dev)
 {
     /* scl is low */
-    setsda(exanic, bus_number, 0);
-    setscl(exanic, 1);
-    setscl(exanic, 0);
-    setsda(exanic, bus_number, 1);
+    setsda(dev, 0);
+    setscl(dev, 1);
+    setscl(dev, 0);
+    setsda(dev, 1);
     /* scl is low */
 }
 
-static void i2c_nack(exanic_t *exanic, int bus_number)
+static void i2c_nack(struct exanic_i2c_dev *dev)
 {
     /* scl is low, sda is high */
-    setscl(exanic, 1);
-    setscl(exanic, 0);
+    setscl(dev, 1);
+    setscl(dev, 0);
     /* scl is low */
 }
 
 static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
                     uint8_t regaddr, char *buffer, size_t size)
 {
+    struct exanic_i2c_dev dev;
     size_t i;
 
     if (size == 0)
         return 0;
 
-    if (!i2c_reset(exanic, bus_number))
+    if (!i2c_init(&dev, exanic, bus_number))
     {
         exanic_err_printf("I2C reset error");
         return -1;
     }
-    i2c_start(exanic, bus_number);
-    if (!i2c_outb(exanic, bus_number, devaddr) ||
-            !i2c_outb(exanic, bus_number, regaddr))
+    i2c_start(&dev);
+    if (!i2c_outb(&dev, devaddr) ||
+            !i2c_outb(&dev, regaddr))
     {
         exanic_err_printf("no ack from device on I2C read");
         return -1;
     }
-    i2c_repstart(exanic, bus_number);
-    if (!i2c_outb(exanic, bus_number, devaddr | 1))
+    i2c_repstart(&dev);
+    if (!i2c_outb(&dev, devaddr | 1))
     {
         exanic_err_printf("no ack from device on I2C read");
         return -1;
     }
     for (i = 0; i < size-1; i++)
     {
-        buffer[i] = i2c_inb(exanic, bus_number);
-        i2c_ack(exanic, bus_number);
+        buffer[i] = i2c_inb(&dev);
+        i2c_ack(&dev);
     }
-    buffer[i] = i2c_inb(exanic, bus_number);
+    buffer[i] = i2c_inb(&dev);
     /* NACK after last byte per I2C protocol */
-    i2c_nack(exanic, bus_number);
-    i2c_stop(exanic, bus_number);
+    i2c_nack(&dev);
+    i2c_stop(&dev);
 
     return 0;
 }
@@ -203,29 +235,30 @@ static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
 static int i2c_write(exanic_t *exanic, int bus_number, uint8_t devaddr,
                      uint8_t regaddr, const char *buffer, size_t size)
 {
+    struct exanic_i2c_dev dev;
     size_t i;
 
-    if (!i2c_reset(exanic, bus_number))
+    if (!i2c_init(&dev, exanic, bus_number))
     {
         exanic_err_printf("I2C reset error");
         return -1;
     }
-    i2c_start(exanic, bus_number);
-    if (!i2c_outb(exanic, bus_number, devaddr) ||
-            !i2c_outb(exanic, bus_number, regaddr))
+    i2c_start(&dev);
+    if (!i2c_outb(&dev, devaddr) ||
+            !i2c_outb(&dev, regaddr))
     {
         exanic_err_printf("no ack from device on I2C write");
         return -1;
     }
     for (i = 0; i < size; i++)
     {
-        if (!i2c_outb(exanic, bus_number, buffer[i]))
+        if (!i2c_outb(&dev, buffer[i]))
         {
             exanic_err_printf("no ack from device on I2C write");
             return -1;
         }
     }
-    i2c_stop(exanic, bus_number);
+    i2c_stop(&dev);
 
     return 0;
 }
@@ -233,6 +266,7 @@ static int i2c_write(exanic_t *exanic, int bus_number, uint8_t devaddr,
 static int i2c_eeprom_write(exanic_t *exanic, int bus_number, uint8_t devaddr,
                             uint8_t regaddr, const char *buffer, size_t size)
 {
+    struct exanic_i2c_dev dev;
     int ret, i;
 
     ret = i2c_write(exanic, bus_number, devaddr, regaddr, buffer, size);
@@ -244,11 +278,12 @@ static int i2c_eeprom_write(exanic_t *exanic, int bus_number, uint8_t devaddr,
     for (i = 0; i < 100; i++)
     {
         usleep(1000);
-        i2c_reset(exanic, bus_number);
-        i2c_start(exanic, bus_number);
-        if (i2c_outb(exanic, bus_number, devaddr))
+        if (!i2c_init(&dev, exanic, bus_number))
+            break;
+        i2c_start(&dev);
+        if (i2c_outb(&dev, devaddr))
         {
-            i2c_stop(exanic, bus_number);
+            i2c_stop(&dev);
             return 0;
         }
     }
