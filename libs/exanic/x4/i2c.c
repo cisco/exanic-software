@@ -153,6 +153,14 @@ static void i2c_ack(exanic_t *exanic, int bus_number)
     /* scl is low */
 }
 
+static void i2c_nack(exanic_t *exanic, int bus_number)
+{
+    /* scl is low, sda is high */
+    setscl(exanic, 1);
+    setscl(exanic, 0);
+    /* scl is low */
+}
+
 static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
                     uint8_t regaddr, char *buffer, size_t size)
 {
@@ -185,7 +193,8 @@ static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
         i2c_ack(exanic, bus_number);
     }
     buffer[i] = i2c_inb(exanic, bus_number);
-    /* no ack after last byte per I2C protocol */
+    /* NACK after last byte per I2C protocol */
+    i2c_nack(exanic, bus_number);
     i2c_stop(exanic, bus_number);
 
     return 0;
