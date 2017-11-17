@@ -28,6 +28,11 @@ static int disable_exasock;
 module_param(disable_exasock, int, 0);
 MODULE_PARM_DESC(disable_exasock, "Disable loading of exasock module");
 
+static unsigned int txbuf_size_min = 4;
+module_param(txbuf_size_min, uint, 0);
+MODULE_PARM_DESC(txbuf_size_min,
+    "Minimum size of kernel TX buffer in kB (default: 4)");
+
 /* Some earlier versions of Linux do not have the netdev_* logging
  * functions or macros defined */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 34) && !defined(netdev_printk)
@@ -82,6 +87,9 @@ MODULE_PARM_DESC(disable_exasock, "Disable loading of exasock module");
 
 /* Maximum number of chunks to be processed in exanic_netdev_poll() */
 #define POLL_MAX_CHUNKS                 1024
+
+/* Minimum size of TX buffer in bytes */
+#define MIN_TX_BUF_SIZE                 (txbuf_size_min * 1024)
 
 struct exanic_netdev_tx
 {
@@ -272,6 +280,24 @@ static uint32_t exanic_receive_chunk_timestamp(struct exanic_netdev_rx *rx,
     uint32_t chunk = chunk_id % EXANIC_RX_NUM_CHUNKS;
 
     return rx->buffer[chunk].u.info.timestamp;
+}
+
+static size_t exanic_tx_buf_size(struct exanic_netdev_priv *priv,
+                                 size_t max_frame_size)
+{
+    struct exanic *exanic = priv->ctx->exanic;
+    struct exanic_port *port = &exanic->port[priv->port];
+    size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
+    size_t max_chunk_size = ALIGN(max_frame_size + padding
+                                  + sizeof(struct tx_chunk), 8);
+    size_t tx_buf_size = (max_chunk_size + FEEDBACK_INTERVAL) * 2;
+
+    if (tx_buf_size < MIN_TX_BUF_SIZE)
+        tx_buf_size = MIN_TX_BUF_SIZE;
+    if (tx_buf_size > port->tx_region_usable_size)
+        tx_buf_size = port->tx_region_usable_size;
+
+    return PAGE_ALIGN(tx_buf_size);
 }
 
 static int exanic_update_tx_feedback(struct exanic_netdev_tx *tx)
@@ -497,10 +523,7 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     size_t max_frame_size = ndev->mtu + MAX_ETH_OVERHEAD_BYTES;
-    size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
-    size_t max_chunk_size = ALIGN(max_frame_size + padding
-                                  + sizeof(struct tx_chunk), 8);
-    size_t tx_buf_size = PAGE_ALIGN((max_chunk_size + FEEDBACK_INTERVAL) * 2);
+    size_t tx_buf_size = exanic_tx_buf_size(priv, max_frame_size);
     size_t tx_buf_offset;
     unsigned feedback_slot;
     int queue_len;
