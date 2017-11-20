@@ -120,7 +120,7 @@ struct exasock_tcp
 
     /* Window space availability monitoring */
     struct delayed_work             win_work;
-    bool                            win_work_on;
+    unsigned                        win_work_on;
 
     struct hlist_node               hash_node;
     bool                            dead_node;
@@ -181,6 +181,9 @@ static struct delayed_work      tcp_req_work;
 
 /* Number of timer firings until retransmit */
 #define RETRANSMIT_TIMEOUT      4
+
+/* Number of timer firings until window update monitoring expires */
+#define WIN_WORK_TIMEOUT        2
 
 /* Number of jiffies until an incomplete TCP request expires */
 #define TCP_REQUEST_JIFFIES     HZ
@@ -1464,12 +1467,12 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     if (state->p.tcp.ack_pending)
         exasock_tcp_send_ack(tcp);
 
-    if (exasock_tcp_calc_window(tcp) == 0 && !tcp->win_work_on)
+    if (exasock_tcp_calc_window(tcp) == 0 && tcp->win_work_on == 0)
     {
         /* The last sent window size was 0. Start monitoring to make sure
          * the peer gets updated as soon as the window space gets available
          * again. */
-        tcp->win_work_on = true;
+        tcp->win_work_on = WIN_WORK_TIMEOUT;
         queue_delayed_work(tcp_workqueue, &tcp->win_work, 1);
     }
 
@@ -1864,6 +1867,14 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     tcp->last_send_ack = send_ack;
     tcp->last_send_seq = send_seq;
 
+    /* Check if window update monitoring has expired */
+    if (tcp->win_work_on > 0)
+    {
+        tcp->win_work_on--;
+        if (tcp->win_work_on == 0)
+            cancel_delayed_work_sync(&tcp->win_work);
+    }
+
     if ((tcp_state != EXA_TCP_CLOSED) && (tcp_state != EXA_TCP_LISTEN) &&
         (tcp_state != EXA_TCP_SYN_SENT) && (tcp_state != EXA_TCP_SYN_RCVD))
     {
@@ -1896,7 +1907,7 @@ static void exasock_tcp_conn_win_worker(struct work_struct *work)
 
     /* Continue monitoring only if there is still no space in the window */
     if (exasock_tcp_calc_window(tcp) > 0)
-        tcp->win_work_on = false;
+        tcp->win_work_on = 0;
     else
         queue_delayed_work(tcp_workqueue, &tcp->win_work, 1);
 
