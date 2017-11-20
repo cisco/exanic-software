@@ -118,6 +118,10 @@ struct exasock_tcp
 
     struct delayed_work             work;
 
+    /* Window space availability monitoring */
+    struct delayed_work             win_work;
+    bool                            win_work_on;
+
     struct hlist_node               hash_node;
     bool                            dead_node;
 
@@ -189,6 +193,7 @@ static struct delayed_work      tcp_req_work;
                                        (cmpxchg(&(ts)->state, old, new) == old)
 
 static void exasock_tcp_conn_worker(struct work_struct *work);
+static void exasock_tcp_conn_win_worker(struct work_struct *work);
 static void exasock_tcp_retransmit(struct exasock_tcp *tcp, uint32_t seq,
                                    bool fast_retrans);
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp);
@@ -525,6 +530,8 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
     INIT_DELAYED_WORK(&tcp->work, exasock_tcp_conn_worker);
     queue_delayed_work(tcp_workqueue, &tcp->work, TCP_TIMER_JIFFIES);
 
+    INIT_DELAYED_WORK(&tcp->win_work, exasock_tcp_conn_win_worker);
+
     hash = exasock_tcp_hash(tcp->local_addr, tcp->peer_addr,
                             tcp->local_port, tcp->peer_port);
 
@@ -673,6 +680,7 @@ void exasock_tcp_free(struct exasock_tcp *tcp)
     down(&tcp->dead_sema);
 
     cancel_delayed_work_sync(&tcp->work);
+    cancel_delayed_work_sync(&tcp->win_work);
 
     /* No readers left, it is now safe to free everything */
     for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++)
@@ -817,6 +825,22 @@ static struct exasock_tcp *exasock_tcp_lookup(uint32_t local_addr,
     }
 
     return NULL;
+}
+
+static uint16_t exasock_tcp_calc_window(struct exasock_tcp *tcp)
+{
+    struct exa_socket_state *state = tcp->user_page;
+    uint32_t rx_space;
+
+    /* Calculate window size from remaining space in buffer */
+    rx_space = state->rx_buffer_size -
+               (state->p.tcp.recv_seq - state->p.tcp.read_seq);
+
+    /* Window scaling is enabled if remote host gave a non-zero window scale */
+    if (state->p.tcp.wscale != 0)
+        rx_space >>= EXA_TCP_WSCALE;
+
+    return rx_space < 0xFFFF ? rx_space : 0xFFFF;
 }
 
 static bool exasock_tcp_intercept(struct sk_buff *skb)
@@ -1440,6 +1464,15 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     if (state->p.tcp.ack_pending)
         exasock_tcp_send_ack(tcp);
 
+    if (exasock_tcp_calc_window(tcp) == 0 && !tcp->win_work_on)
+    {
+        /* The last sent window size was 0. Start monitoring to make sure
+         * the peer gets updated as soon as the window space gets available
+         * again. */
+        tcp->win_work_on = true;
+        queue_delayed_work(tcp_workqueue, &tcp->win_work, 1);
+    }
+
     return 0;
 }
 
@@ -1841,20 +1874,33 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     kref_put(&tcp->refcount, exasock_tcp_dead);
 }
 
-static uint16_t exasock_tcp_calc_window(struct exasock_tcp *tcp)
+static void exasock_tcp_conn_win_worker(struct work_struct *work)
 {
+    struct exasock_tcp *tcp = container_of(work, struct exasock_tcp,
+                                           win_work.work);
     struct exa_socket_state *state = tcp->user_page;
-    uint32_t rx_space;
 
-    /* Calculate window size from remaining space in buffer */
-    rx_space = state->rx_buffer_size -
-               (state->p.tcp.recv_seq - state->p.tcp.read_seq);
+    rcu_read_lock();
+    if (tcp->dead_node)
+    {
+        /* This exasock_tcp struct is being deleted */
+        rcu_read_unlock();
+        return;
+    }
+    kref_get(&tcp->refcount);
+    rcu_read_unlock();
 
-    /* Window scaling is enabled if remote host gave a non-zero window scale */
-    if (state->p.tcp.wscale != 0)
-        rx_space >>= EXA_TCP_WSCALE;
+    /* If there was window space update, ack_pending has been set */
+    if (state->p.tcp.ack_pending)
+        exasock_tcp_send_ack(tcp);
 
-    return rx_space < 0xFFFF ? rx_space : 0xFFFF;
+    /* Continue monitoring only if there is still no space in the window */
+    if (exasock_tcp_calc_window(tcp) > 0)
+        tcp->win_work_on = false;
+    else
+        queue_delayed_work(tcp_workqueue, &tcp->win_work, 1);
+
+    kref_put(&tcp->refcount, exasock_tcp_dead);
 }
 
 static int exasock_tcp_tx_buffer_get(struct exasock_tcp *tcp, char *data,
