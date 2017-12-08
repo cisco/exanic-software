@@ -672,18 +672,11 @@ poll_exit:
     return ret;
 }
 
-__attribute__((visibility("default")))
-int
-poll(struct pollfd *fds, nfds_t nfds, int timeout)
+static inline int
+poll_common(struct pollfd *fds, nfds_t nfds, int timeout)
 {
     struct timespec ts;
     int ret;
-
-    TRACE_CALL("poll");
-    TRACE_ARG(POLLFD_ARRAY, fds, nfds);
-    TRACE_ARG(LONG, nfds);
-    TRACE_LAST_ARG(INT, timeout);
-    TRACE_FLUSH();
 
     if (timeout >= 0)
     {
@@ -695,6 +688,42 @@ poll(struct pollfd *fds, nfds_t nfds, int timeout)
 
     if (ret == NATIVE_FD_ONLY)
         ret = LIBC(poll, fds, nfds, timeout);
+
+    return ret;
+}
+
+__attribute__((visibility("default")))
+int
+poll(struct pollfd *fds, nfds_t nfds, int timeout)
+{
+    int ret;
+
+    TRACE_CALL("poll");
+    TRACE_ARG(POLLFD_ARRAY, fds, nfds);
+    TRACE_ARG(LONG, nfds);
+    TRACE_LAST_ARG(INT, timeout);
+    TRACE_FLUSH();
+
+    ret = poll_common(fds, nfds, timeout);
+
+    TRACE_RETURN_ARG(INT, ret, TRACE_LAST_ARG(POLL_RESULT, fds, nfds));
+
+    return ret;
+}
+
+__attribute__((visibility("default")))
+int
+__poll(struct pollfd *fds, nfds_t nfds, int timeout)
+{
+    int ret;
+
+    TRACE_CALL("__poll");
+    TRACE_ARG(POLLFD_ARRAY, fds, nfds);
+    TRACE_ARG(LONG, nfds);
+    TRACE_LAST_ARG(INT, timeout);
+    TRACE_FLUSH();
+
+    ret = poll_common(fds, nfds, timeout);
 
     TRACE_RETURN_ARG(INT, ret, TRACE_LAST_ARG(POLL_RESULT, fds, nfds));
 
