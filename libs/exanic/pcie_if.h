@@ -393,6 +393,15 @@ enum
      * Bit 1 [RW] - 10MHz generator (X10-GM only)
      */
     REG_HW_PER_OUT_CONFIG               = 25,
+
+    /**
+     * Range of registers for FDK JTAG access over PCIe
+     */
+    REG_HW_JTAG_LENGTH                  = 33,
+    REG_HW_JTAG_TMS_VECTOR              = 34,
+    REG_HW_JTAG_TDI_VECTOR              = 35,
+    REG_HW_JTAG_TDO_VECTOR              = 36,
+    REG_HW_JTAG_CTRL                    = 37,
 };
 #define REG_HW_OFFSET(reg) (REG_HW_BASE + (reg) * sizeof(uint32_t))
 #define REG_HW_INDEX(reg) (REG_HW_OFFSET(reg) / sizeof(uint32_t))
@@ -1055,6 +1064,7 @@ typedef enum
     EXANIC_CAP_RX_MSI           = 0x00000001, /**< MSI interrupt on RX */
     EXANIC_CAP_STEER_TWO        = 0x00000002, /**< Two-tuple flow steering */
     EXANIC_CAP_HOT_RELOAD       = 0x00000004, /**< Hot reload supported */
+    EXANIC_CAP_JTAG_ACCESS      = 0x00000008, /**< JTAG over PCIe, for ExaNIC FDK */
 
     EXANIC_CAP_HW_TIME_HI       = 0x00000100, /**< 64 bit time counter */
     EXANIC_CAP_CLK_ADJ_EXT      = 0x00000200, /**< Extended clock correction */
