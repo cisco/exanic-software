@@ -1,1356 +1,257 @@
+/*
+ * exanic-fwupdate: Used to update firmware on ExaNIC cards.
+ *
+ * Copyright (C) 2017 Exablaze Pty Ltd
+ */
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <stdarg.h>
-#include <dirent.h>
-
+#include <getopt.h>
+#include <sys/time.h>
 #include <exanic/exanic.h>
-#include <exanic/pcie_if.h>
-#include <exanic/register.h>
-#include <exanic/config.h>
 #include <exanic/util.h>
-
-#define CR_DEFAULT                  (0x9803) // everything except bit 15 is don't care
-#define FLASH_VENDOR_ID             (0x89)
-#define FLASH_DEVICE_ID             (0x8818)
-
-/* Flash config. register bit positions */
-#define READ_MODE_BIT_POS           15 // micron
-
-/* Config. register bit masks */
-#define ASYC_READ_MODE_MASK         (1UL << READ_MODE_BIT_POS ) // micron
-
-/* FPGA register addresses, bit positions, masks, etc */
-
-#define EXANIC_FLASH_ADDR_REG_ADDR  (0x4F)
-#define EXANIC_FLASH_DIN_BUS_ADDR   (0x52)
-#define EXANIC_FLASH_DOUT_BUS_ADDR  (0x50)
-#define EXANIC_FLASH_CTRL_REG_ADDR  (0x51)
-
-/* FPGA control register bit definitions */
-#define FLASH_TO_FPGA               0UL
-#define FPGA_TO_FLASH               1UL
-
-#define RESET_BIT_POS               5
-#define DATA_DIR_BIT_POS            4
-#define LATCH_EN_BIT_POS            3
-#define OUTPUT_ENABLE_BIT_POS       2
-#define CHIP_EN_BIT_POS             1
-#define WRITE_ENABLE_BIT_POS        0
-
-#define LATCH_EN_BIT_MASK           (1UL << LATCH_EN_BIT_POS)
-#define CHIP_EN_BIT_MASK            (1UL << CHIP_EN_BIT_POS)
-#define OUTPUT_ENABLE_BIT_MASK      (1UL << OUTPUT_ENABLE_BIT_POS)
-#define WRITE_ENABLE_BIT_MASK       (1UL << WRITE_ENABLE_BIT_POS)
-#define DATA_DIR_BIT_MASK           (1UL << DATA_DIR_BIT_POS)
-#define RESET_BIT_MASK              (1UL << RESET_BIT_POS)
-
-#define nL                          LATCH_EN_BIT_MASK
-#define nG                          OUTPUT_ENABLE_BIT_MASK
-#define nE                          CHIP_EN_BIT_MASK
-#define nW                          WRITE_ENABLE_BIT_MASK
-#define RST                         RESET_BIT_MASK
-
-#define FLASH_ADDR_BUS_MASK         ((1UL << 27) - 1)
-#define FLASH_DATA_BUS_MASK         ((1UL << 16) - 1)
-#define EXANIC_FLASH_STAT_REG_MASK  ((1UL << 8) - 1)
-#define EXANIC_FLASH_CTRL_REG_MASK  ((1UL << 6) - 1)
-
-/* Xilinx platform flash command codes */
-#define SET_CR_SETUP            (0x60UL) // micron
-#define SET_CR_CONFIRM          (0x03UL) // micron
-
-#define BLOCK_UNLOCK_SETUP      (0x60UL) // micron
-#define BLOCK_UNLOCK_CONFRM     (0xD0UL) // micron
-
-#define LOCK_BLOCK_SETUP        (0x60UL)
-#define LOCK_BLOCK_CONFIRM      (0x01UL)
-
-#define UNLOCK_BLOCK_SETUP      (0x60UL)
-#define UNLOCK_BLOCK_CONFIRM    (0xD0UL)
-
-#define CLEAR_STATUS_REG        (0x50UL) // micron
-#define READ_STATUS_REG         (0x70UL) // micron
-#define READ_ARRAY              (0xFFUL) // micron
-
-#define READ_ELEC_SIG           (0x90UL)
-#define READ_ID                 READ_ELEC_SIG // micron
-
-#define BLOCK_ERASE_SETUP       (0x20UL) // micron
-#define BLOCK_ERASE_CONFRM      (0xD0UL) // micron
-
-#define PROGRAM_SETUP           (0x41UL)
-#define BUFFER_PROGRAM          (0xE8UL)
-#define BLANK_CHECK_CONFIRM     (0xD0UL)
-
-#define BUFFER_PROGRAM_CONFRM   (0xD0UL)
-#define BLANK_CHECK_SETUP       (0xBCUL) // micron
-
-/* Platform flash status register bits */
-#define PEC_STATUS_BIT_POS              7   /* Program/Erase controller status */
-#define ERASE_SUSPEND_STATUS_BIT_POS    6
-#define ERASE_CHECK_STATUS_BIT_POS      5
-#define PROGRAM_STATUS_BIT_POS          4
-#define VPP_STATUS_BIT_POS              3
-#define PROGRAM_SUSPEND_STATUS_BIT_POS  2
-#define BLOCK_PROTECT_STATUS_BIT_POS    1
-#define BANK_WRITE_STATUS_BIT_POS       0
-
-/* Platform flash Electronic signature register offsets */
-#define ESR_MANUFACTURER_CODE_OFFSET    0
-#define ESR_DEVICE_CODE_OFFSET          1
-#define ESR_BLOCK_PROTECT_OFFSET        2
-#define BLOCK_LOCK_STATUS_OFFSET        ESR_BLOCK_PROTECT_OFFSET
-
-#define PEC_STATUS_MASK                 (1UL << PEC_STATUS_BIT_POS)
-#define ERASE_SUSPEND_STATUS_MASK       (1UL << ERASE_SUSPEND_STATUS_BIT_POS)
-#define ERASE_CHECK_STATUS_MASK         (1UL << ERASE_CHECK_STATUS_BIT_POS)
-#define PROGRAM_STATUS_MASK             (1UL << PROGRAM_STATUS_BIT_POS)
-#define VPP_STATUS_MASK                 (1UL << VPP_STATUS_BIT_POS)
-#define PROGRAM_SUSPEND_STATUS_MASK     (1UL << PROGRAM_SUSPEND_STATUS_BIT_POS)
-#define BLOCK_PROTECT_STATUS_MASK       (1UL << BLOCK_PROTECT_STATUS_BIT_POS)
-#define BANK_WRITE_STATUS_MASK          (1UL << BANK_WRITE_STATUS_BIT_POS)
-
-/* MCS record type identifiers */
-#define MCS_PROM_DATA_RECORD            (0x00)
-#define MCS_PROM_EOF_RECORD             (0x01)
-#define MCS_PROM_EXT_LIN_ADDR_RECORD    (0x04)
+#include "fwupdate/flash_access.h"
+#include "fwupdate/file_access.h"
+#include "fwupdate/hot_reload.h"
 
 /*
- * P30 details - 23 address bits
- *
- * 128 blocks per device
- * Each block contains 64 Kwords, i.e. 64 * 1024 * 2 bytes (0x20000)
+ * Functions for progress reporting of each stage
  */
-#define BLOCK_ADDR_WIDTH                    7
-#define BLOCK_ADDR_OFFSET                   15
-#define WORDS_PER_BUFFERED_WRITE            256
-#define BLOCK_ADDRESS_MASK                  ((~0) << BLOCK_ADDR_OFFSET)
 
-#define SR_ERR_BITS_OFFSET                  4
-#define SR_BLOCK_LOCK_ERR_BIT_OFFSET        1
+struct timeval tv_start, tv_end;
 
-#define SR_BLANK_CHECK_ERR_BITS             SR_PROG_ERROR_BITS
-#define SR_ERASE_ERROR_BITS                 SR_PROG_ERROR_BITS
-#define SR_PROG_ERROR_BITS(SR)              ((SR >> SR_ERR_BITS_OFFSET) & 0x2)
-#define SR_BLOCK_LOCK_ERR_BIT(SR)           ((SR >> SR_BLOCK_LOCK_ERR_BIT_OFFSET) & 0x1)
-
-/* Selector for the upper half of the flash, which varies based on the flash
- * device used. */
-#define EXANIC_X4_UPPER_LOC_OFFSET          (1U << 23)
-#define EXANIC_X10_UPPER_LOC_OFFSET         (1U << 24)
-
-struct mcs_record_s {
-  int cmd;
-  int byte_count;
-  int record_type;
-  unsigned int address;
-  int checksum;
-  unsigned int payload[16];
-};
-
-typedef struct mcs_record_s mcs_record_t;
-
-unsigned long read_exanic_flash_ctrl_reg(exanic_t *regs);
-void write_exanic_flash_ctrl_reg(unsigned long value, exanic_t *regs);
-unsigned long get_data_dir(void);
-void set_data_dir(unsigned long dir, exanic_t *regs);
-unsigned long single_cycle_async_read(unsigned long reg_addr, exanic_t *regs);
-void single_cycle_write(unsigned long addr_bus, unsigned long data_bus, exanic_t *regs);
-void set_read_mode_async(exanic_t *regs);
-void set_flash_ctrl_bit(unsigned long mask, exanic_t *regs);
-void clear_flash_ctrl_bit(unsigned long mask, exanic_t *regs);
-unsigned long read_data(exanic_t *regs);
-void write_data(unsigned long data, exanic_t *regs);
-void drive_address(unsigned long addr, exanic_t *regs);
-int check_target_hardware(char *header, exanic_t *regs);
-int check_prom(char **prom);
-long int prom_line_checksum(char *p);
-void clear_status_register(exanic_t *regs);
-void clear_status_register_addr(unsigned long addr, exanic_t *regs);
-unsigned long read_status_register(unsigned long addr, exanic_t *regs);
-void single_word_write(unsigned long addr, unsigned int data, exanic_t *regs);
-void unlock_all_blocks(void);
-int buffered_write(char **prom_data);
-int parse_mcs_record(char *char_record, mcs_record_t *parsed_record);
-int parse_mcs_record16(char *char_record, mcs_record_t *parsed_record);
-int verify_download(char **prom_data, exanic_t *regs);
-int check_mcs_data_record(mcs_record_t *parsed_record, unsigned long _base_address, exanic_t *regs);
-unsigned long address_adjust(unsigned long mcs_address);
-void range_unlock_and_erase(int init_partn, int fin_partn,
-                              int init_blk, int fin_blk, exanic_t *regs);
-inline unsigned long wait_for_device(unsigned long addr, exanic_t *regs);
-
-static unsigned long exanic_flash_ctrl_reg = 0;
-static int upper = 1; // default working on the upper image
-static uint32_t global_hw_id; /* Current hardware id. */
-
-#define UPPER_BYTE(x) ((x >> 8) & 0xFF)
-#define LOWER_BYTE(x) ((x >> 0) & 0xFF)
-
-static inline int get_upper_offset(void)
+static void report_phase(const char *description)
 {
-    switch (global_hw_id)
+    printf("%s...", description);
+    fflush(stdout);
+    gettimeofday(&tv_start, NULL);
+}
+
+static void report_progress()
+{
+    putchar('.');
+    fflush(stdout);
+}
+
+static void report_phase_done()
+{
+    float time_taken;
+    gettimeofday(&tv_end, NULL);
+    time_taken = (tv_end.tv_sec - tv_start.tv_sec) + (tv_end.tv_usec - tv_start.tv_usec) / 1000000.0;
+    printf("done (%.1fs)\n", time_taken);
+}
+
+
+/*
+ * Functions to check firmware image against target hardware
+ */
+
+static bool has_prefix(const char *firmware_id, const char *prefix)
+{
+    size_t prefixlen = strlen(prefix);
+    return (memcmp(firmware_id, prefix, prefixlen) == 0)
+          && ((firmware_id[prefixlen] == '_') || (firmware_id[prefixlen] == 0));
+}
+
+static bool check_target_hardware(const char *firmware_id, exanic_hardware_id_t hw_id)
+{
+    bool ret;
+
+    if (!firmware_id)
+        firmware_id = "unknown";
+
+    switch (hw_id)
     {
+        case EXANIC_HW_X4:
+            ret = has_prefix(firmware_id, "exanic_x4");
+            break;
+        case EXANIC_HW_X2:
+            ret = has_prefix(firmware_id, "exanic_x2");
+            break;
         case EXANIC_HW_X10:
+            ret = has_prefix(firmware_id, "exanic_x10")
+                    && !has_prefix(firmware_id, "exanic_x10_gm")
+                    && !has_prefix(firmware_id, "exanic_x10_hpt");
+            break;
         case EXANIC_HW_X10_GM:
+            ret = has_prefix(firmware_id, "exanic_x10_gm");
+            break;
         case EXANIC_HW_X10_HPT:
+            ret = has_prefix(firmware_id, "exanic_x10_hpt");
+            break;
         case EXANIC_HW_X40:
-            return EXANIC_X10_UPPER_LOC_OFFSET;
+            ret = has_prefix(firmware_id, "exanic_x40");
+            break;
+#if 0 /* disabled pending merge of V5P support into master */
+        case EXANIC_HW_V5P:
+            ret = has_prefix(firmware_id, "exanic_v5p");
+            break;
+#endif
         default:
-            return EXANIC_X4_UPPER_LOC_OFFSET;
+            fprintf(stderr, "ERROR: card hardware unsupported by this software version\n");
+            return false;
     }
+
+    if (!ret)
+        fprintf(stderr, "ERROR: firmware ID %s does not appear to match target hardware %s\n",
+                        firmware_id, exanic_hardware_id_str(hw_id));
+    return ret;
 }
 
-static inline int get_num_blocks(void)
-{
-    switch (global_hw_id)
-    {
-        case EXANIC_HW_X10:
-        case EXANIC_HW_X10_GM:
-        case EXANIC_HW_X10_HPT:
-        case EXANIC_HW_X40:
-            return 63;
-        default:
-            return 31;
-    }
-}
-
-int check_mcs_data_record(mcs_record_t *parsed_record, unsigned long _base_address, exanic_t *regs)
-{
-  unsigned int readback_data;
-  unsigned long start_addr = parsed_record->address + _base_address; //+ 0x2000000;
-  int i;
-
-  single_cycle_write((start_addr>>1), READ_ARRAY, regs);    /* make sure the block is in read array mode */
-
-  for(i = 0; i < parsed_record->byte_count; i+=2){
-    readback_data = single_cycle_async_read((start_addr + i)>>1, regs) & 0xFFFF;
-    if( ((readback_data & 0xFF) != parsed_record->payload[i]) ||
-        ( ((readback_data >> 8) & 0xFF) != parsed_record->payload[i+1])){
-      printf("ERROR: Readback mismatch\n");
-      printf("Readback addr: 0x%lx\n", (start_addr + i)>>1);
-      printf("Readback data: 0x%04x\n", readback_data);
-      printf("Expected byte 0: 0x%02x\n", parsed_record->payload[i]);
-      printf("Expected byte 1: 0x%02x\n", parsed_record->payload[i+1]);
-      return -1;
-    }
-  }
-
-  return 0;
-
-}
-
-int verify_download(char **prom_data, exanic_t *regs)
-{
-  unsigned long _base_address; 
-  mcs_record_t parsed_record;
-  _base_address = (upper) ? get_upper_offset() : 0;
-
-  printf("Verifying flash contents...");
-
-  while(*prom_data != NULL){
-    parse_mcs_record(*prom_data, &parsed_record);
-
-    switch(parsed_record.record_type){
-
-      case MCS_PROM_DATA_RECORD:
-        if( check_mcs_data_record(&parsed_record, _base_address, regs) != 0 )
-          return -1;
-        break;
-
-      case MCS_PROM_EXT_LIN_ADDR_RECORD:
-        _base_address = (parsed_record.payload[0] << 24) + (parsed_record.payload[1] << 16);
-        _base_address |= (upper) ? get_upper_offset() : 0;
-        putchar('.');
-        fflush(stdout);
-        break;
-
-      case MCS_PROM_EOF_RECORD:
-        goto done;
-
-      default:
-        printf("ERROR: Unknown MCS record type\n");
-        return -1;
-    }
-    prom_data++;
-  }
-
-done:
-  printf("done\n");
-  return 0;
-
-}
 
 /*
- * Check that the currently loaded firmware has support for hot reloading
+ * exanic-fwupdate main function
  */
-int check_firmware_can_hot_reload(exanic_t *exanic, int silent)
+
+int main(int argc, char *argv[])
 {
-  uint32_t caps;
-  caps = exanic_register_read(exanic, REG_EXANIC_INDEX(REG_EXANIC_CAPS));
-
-  exanic_function_id_t function = exanic_get_function_id(exanic);
-  if (function == EXANIC_FUNCTION_DEVKIT && exanic_is_devkit_demo(exanic))
-  {
-    if (!silent)
-      printf("ERROR: the hot reload feature is not available for evaluation FDKs\n");
-    return -1;
-  }
- 
-  if((caps & EXANIC_CAP_HOT_RELOAD) == 0)
-  {
-    if (!silent)
-      printf("ERROR: the firmware version that is currently loaded does not support reconfiguring the FPGA without a host reset\n");
-    return -1;
-  }
-
-  return 0;
-}
-
-/*
- * Check that that the user has permission to rescan the PCI bus, and then that
-   the firmware supports hot reloading
- */
-int check_can_hot_reload(exanic_t *exanic, int silent)
-{
-  FILE *f = fopen("/sys/bus/pci/rescan", "w");
-  if(!f)
-  {
-    if (!silent)
-      printf("ERROR: you must be root to reconfigure the FPGA without a host reset\n");
-    return -1;
-  }
-  fclose(f);
-
-  return check_firmware_can_hot_reload(exanic, silent);
-}
-
-/*
- * Utility function for writing the character '1' to files in the /sys filesystem.
- */
-int write_1_to_file(char *fname)
-{
-  FILE *f = fopen(fname, "w");
-  if(!f)
-  {
-    printf("ERROR: could not open %s for writing\n", fname);
-    return -1;
-  }
-  if(fputc('1', f) == EOF)
-  {
-    printf("ERROR: failed to write to %s\n", fname);
-    return -1;
-  }
-  fclose(f);
-  return 0;
-}
-
-/*
- * Reload firmware without requiring a host reset
- */
-int firmware_reload(exanic_t *exanic)
-{
-  char ifname[64];
-  char remove_path[256];
-  char device_path[256];
-  char resolved_path[PATH_MAX];
-  DIR *d;
-  struct dirent *dir;
-  char new_intf_name[64];
-  int  new_intf_port;
-
-  printf("Reloading card...");
-  fflush(stdout);
-
-  /* Get the interface name of the first port on the device */
-  if (exanic_get_interface_name(exanic, 0, ifname, sizeof(ifname)) == -1)
-  {
-    printf("Error: could not get interface name\n");
-    return -1;
-  }
-
-  /* Get the sysfs path (with symlinks) into the pci device section of our net interface */
-  snprintf(device_path, 256, "/sys/class/net/%s/device/net", ifname);
-
-  /* Remove the symlinks so that the path contains no references to the net interface (which may change) */
-  if (realpath(device_path, resolved_path) == NULL)
-    return -1;
-
-  snprintf(remove_path, 256, "/sys/class/net/%s/device/remove", ifname);
-
-  exanic_register_write(exanic, REG_HW_INDEX(REG_HW_RELOAD_RESET_FPGA), 0x1);
-  exanic_release_handle(exanic);
-  if (write_1_to_file(remove_path) == -1)
-    return -1;
-
-  /* Wait for the firmware reload to trigger */
-  sleep(1);
-  putchar('.');
-  fflush(stdout);
-
-  if (write_1_to_file("/sys/bus/pci/rescan") == -1)
-    return -1;
-
-  /* Wait for the rescan */
-  sleep(1);
-  putchar('.');
-  fflush(stdout);
-
-  d = opendir(resolved_path);
-  /* Open the sysfs path corresponding to the PCI device we are using that we saved before */
-  if (d == NULL)
-  {
-    printf("ERROR: unable to open directory: %s\n", resolved_path);
-    return -1;
-  }
-
-  /* Find a file in this directory that looks like a network interface */
-  while ((dir = readdir(d)) != NULL)
-  {
-    if(strcmp(dir->d_name, ".") && strcmp(dir->d_name, "..") && dir->d_type == DT_DIR)
-      break;
-  }
-
-  if (dir == NULL)
-  {
-    printf("ERROR: unable to find network interface in directory: %s\n", resolved_path);
-    return -1;
-  }
-
-  if (exanic_find_port_by_interface_name(dir->d_name, new_intf_name, sizeof(new_intf_name), &new_intf_port) == -1)
-  {
-    printf("Error: unable to get exanic device name for interface name: %s\n", dir->d_name);
-    return -1;
-  }
- 
-  /* Try to reacquire handle */
-  if ((exanic = exanic_acquire_handle(new_intf_name)) == NULL)
-  {
-    printf("%s: %s\n", new_intf_name, exanic_get_last_error());
-    return -1;
-  }
-  else
-  {
-    printf("done\nThe new firmware will take effect immediately.\n");
-    exanic_release_handle(exanic);
-  }
-  return 0;
-}
-
-void single_word_write(unsigned long addr, unsigned int data, exanic_t *regs)
-{
-  unsigned long sr;
-
-  clear_status_register(regs);
-  single_cycle_write(addr, PROGRAM_SETUP, regs);
-  single_cycle_write(addr, data, regs);
-
-  /* Wait for PEC status to revert to 'ready' */
-  while( ((sr = single_cycle_async_read(addr & BLOCK_ADDRESS_MASK, regs)) & PEC_STATUS_MASK) == 0 );
-
-  if ( (sr & PROGRAM_STATUS_MASK) != 0)
-    printf("ERROR: Programming error (SR: 0x%lx)\n", sr);
-
-  if ( (sr & BLOCK_PROTECT_STATUS_MASK) != 0)
-    printf("ERROR: Attempted to program a locked block (SR: 0x%lx)\n", sr);
-
-}
-
-void clear_status_register(exanic_t *regs)
-{
-  single_cycle_write(0, CLEAR_STATUS_REG, regs);
-}
-
-void clear_status_register_addr(unsigned long addr, exanic_t *regs)
-{
-  single_cycle_write(addr, CLEAR_STATUS_REG, regs);
-}
-
-/*
- * Use this function when the flash is in a write mode, such that
- * reads to an address result in the status register being returned
- * and issuing the 'read status register' command is not required
- */
-unsigned long read_status_register(unsigned long addr, exanic_t *regs)
-{
-  return (single_cycle_async_read(addr & FLASH_ADDR_BUS_MASK, regs));
-}
-
-inline void set_read_reg_mode(unsigned long addr, exanic_t *regs)
-{
-  single_cycle_write(addr & FLASH_ADDR_BUS_MASK, READ_STATUS_REG, regs);
-}
-
-unsigned long query_id_register(unsigned long addr, int offset, exanic_t *regs)
-{
-  return (single_cycle_async_read((addr & BLOCK_ADDRESS_MASK) + offset, regs));
-}
-
-/* returns -1 in case parse of error, 0 otherwise */
-int parse_mcs_record16(char *mcs_record, mcs_record_t *parsed_record)
-{
-  char tmp[5];
-  int word_count;
-  int payload_characters, i;
-
-  if(mcs_record == NULL){
-    return -1;
-  }
-
-  if(mcs_record[0] != ':'){
-    printf("ERROR: mcs_record[0] != ':'\n");
-    return -1;
-  }
-
-  tmp[0] = mcs_record[1];
-  tmp[1] = mcs_record[2];
-  tmp[2] = '\0';
-
-  parsed_record->byte_count = (int)strtol(tmp, NULL, 16);
-
-  tmp[0] = mcs_record[3];
-  tmp[1] = mcs_record[4];
-  tmp[2] = mcs_record[5];
-  tmp[3] = mcs_record[6];
-  tmp[4] = '\0';
-
-  parsed_record->address = (int)strtol(tmp, NULL, 16);
-
-  tmp[0] = mcs_record[7];
-  tmp[1] = mcs_record[8];
-  tmp[2] = '\0';
-
-  parsed_record->record_type = (int)strtol(tmp, NULL, 16);
-
-  word_count = parsed_record->byte_count/2;
-  tmp[4] = '\0';
-
-  for(i = 0; i < word_count; i++){
-
-    /* don't swap bytes within a word */
-    tmp[2] = mcs_record[9 + 4*i + 0];
-    tmp[3] = mcs_record[9 + 4*i + 1];
-    tmp[0] = mcs_record[9 + 4*i + 2];
-    tmp[1] = mcs_record[9 + 4*i + 3];
-
-    parsed_record->payload[i] = (unsigned int)strtol(tmp, NULL, 16);
-
-  }
-
-  payload_characters = 2 * parsed_record->byte_count;
-
-  tmp[2] = '\0';
-  tmp[0] = mcs_record[9 + payload_characters];
-  tmp[1] = mcs_record[9 + payload_characters + 1];
-
-  parsed_record->checksum = (int)strtol(tmp, NULL, 16);
-
-  return 0;
-
-}
-
-/* returns -1 in case parse of error, 0 otherwise */
-int parse_mcs_record(char *mcs_record, mcs_record_t *parsed_record)
-{
-  char tmp[5];
-  int payload_characters, i;
-
-  if(mcs_record == NULL){
-    return -1;
-  }
-
-  if(mcs_record[0] != ':'){
-    printf("ERROR: mcs_record[0] != ':'\n");
-    return -1;
-  }
-
-  tmp[0] = mcs_record[1];
-  tmp[1] = mcs_record[2];
-  tmp[2] = '\0';
-
-  parsed_record->byte_count = (int)strtol(tmp, NULL, 16);
-
-  tmp[0] = mcs_record[3];
-  tmp[1] = mcs_record[4];
-  tmp[2] = mcs_record[5];
-  tmp[3] = mcs_record[6];
-  tmp[4] = '\0';
-
-  parsed_record->address = (int)strtol(tmp, NULL, 16);
-
-  tmp[0] = mcs_record[7];
-  tmp[1] = mcs_record[8];
-  tmp[2] = '\0';
-
-  parsed_record->record_type = (int)strtol(tmp, NULL, 16);
-
-  tmp[2] = '\0';
-  for(i = 0; i < parsed_record->byte_count; i++){
-    tmp[0] = mcs_record[9 + 2*i];
-    tmp[1] = mcs_record[9 + 2*i + 1];
-    parsed_record->payload[i] = (int)strtol(tmp, NULL, 16);
-  }
-
-  payload_characters = 2 * parsed_record->byte_count;
-
-  tmp[0] = mcs_record[9 + payload_characters];
-  tmp[1] = mcs_record[9 + payload_characters + 1];
-
-  parsed_record->checksum = (int)strtol(tmp, NULL, 16);
-
-  return 0;
-
-}
-
-/* Starting addresses in the MCS file seem to refer to 8-bit locations...*/
-unsigned long address_adjust(unsigned long mcs_address)
-{
-  mcs_address |= (upper) ? get_upper_offset() : 0;
-  return (mcs_address >> 1);
-}
-
-/* returns the number of lines written
- * zero lines written indicates an error */
-int burst_write(char **prom_data, exanic_t *regs,
-                unsigned long g_base_address)
-{
-  int i, j, k;
-  unsigned long sr;
-  mcs_record_t lines[WORDS_PER_BUFFERED_WRITE/8];
-
-  if(prom_data == NULL)
-    return -1;
-
-  /* grab a maximum of WORDS_PER_BUFFERED_WRITE words to perform a buffered write */
-  /* There are 8 words per mcs record */
-  for(i = 0; i < (WORDS_PER_BUFFERED_WRITE/8); i++){
-
-    if( parse_mcs_record16(*prom_data, (lines+i)) == -1 )
-      break;
-
-    if( lines[i].record_type != MCS_PROM_DATA_RECORD )
-      break;
-
-    prom_data++;
-
-  }
-
-  /* Perform the burst write */
-  if(i > 0){
-
-    clear_status_register(regs);
-
-    // issue the set-up command
-    single_cycle_write(address_adjust(lines[0].address + g_base_address),
-                       BUFFER_PROGRAM, regs);
-
-    // write the value (word_count -1)
-    single_cycle_write(address_adjust(lines[0].address + g_base_address),
-                       (i*8)-1, regs);
-
-    // burst the data
-    for(j = 0; j < i; j++){
-
-      for(k = 0; k < 8; k++){
-        single_cycle_write(address_adjust(lines[j].address + g_base_address) + k, lines[j].payload[k], regs);
-
-      }
-    }
-
-    // write the confirmation
-    single_cycle_write(address_adjust(lines[0].address + g_base_address),
-                                      BUFFER_PROGRAM_CONFRM, regs);
-
-    unsigned long ret = wait_for_device(address_adjust(lines[0].address + g_base_address), regs);
-
-    if(SR_PROG_ERROR_BITS(ret))
-    {
-      printf("ERROR: Programming error 0x%2lx\n", SR_PROG_ERROR_BITS(ret));
-    }
-    else if (SR_BLOCK_LOCK_ERR_BIT(ret))
-    {
-      printf("ERROR: Locked block error\n");
-    }
-
-    return i;
-
-  }
-
-  for(j = 0; j < i; j++)
-    for(k = 0; k < 8; k++)
-      single_cycle_write(address_adjust(lines[j].address + g_base_address) + k, lines[j].payload[k], regs);
-
-  /* write the confirmation */
-  single_cycle_write(0xFFFFFF, BUFFER_PROGRAM_CONFRM, regs);
-
-  while( ((sr = read_status_register(address_adjust(lines[0].address + g_base_address), regs)) & PEC_STATUS_MASK) == 0 );
-
-  if( (sr & PROGRAM_STATUS_MASK) == 1 )
-    printf("ERROR: Programming error\n");
-
-  if( (sr & VPP_STATUS_MASK) == 1 )
-    printf("ERROR: Vpp invalid\n");
-
-  if( (sr & BLOCK_PROTECT_STATUS_MASK) == 1 )
-    printf("ERROR: Locked block error\n");
-
-  single_cycle_write(address_adjust(lines[0].address + g_base_address), READ_ARRAY, regs);
-
-  return i;
-
-}
-
-int write_prom_data(char **prom_data, exanic_t *regs)
-{
-  mcs_record_t parsed_line;
-  int lines_written;
-  unsigned long g_base_address = 0;
-
-  printf("Programming...");
-  fflush(stdout);
-
-  while(*prom_data != NULL){
-
-    if( parse_mcs_record(*prom_data, &parsed_line) == -1 )
-    {
-      printf("ERROR: Unexpected parse error, bailing\n");
-      return -1;
-    }
-
-    switch(parsed_line.record_type){
-
-      case MCS_PROM_EXT_LIN_ADDR_RECORD:
-        g_base_address = (parsed_line.payload[0] << 24)
-            + (parsed_line.payload[1] << 16);
-        putchar('.');
-        fflush(stdout);
-        prom_data++;
-        break;
-
-      case MCS_PROM_EOF_RECORD:
-        goto done;
-
-      case MCS_PROM_DATA_RECORD:
-        if( (lines_written = burst_write(prom_data, regs, g_base_address)) == -1 ){
-          printf("ERROR: Unexpected failure in burst_write(), exiting\n");
-          return -1;
-        }
-        prom_data += lines_written;
-        break;
-
-      default:
-        printf("ERROR: Unexpected record type\n");
-        break;
-
-    }
-  }
-done:
-  printf("done\n");
-  return 0;
-}
-
-
-char **slurp_prom(char *filename)
-{
-#define MAX_FW_LINES 1000000
-  FILE *fp;
-  char **prom_data;
-  unsigned int line_len;
-  unsigned int buff_used = 0;
-  unsigned int buff_alloced = MAX_FW_LINES;
-  int header_seen = 0;
-  char *value;
-  char tmp[50];
-
-  printf("Loading %s...", filename);
-  fflush(stdout);
-
-  fp = fopen(filename, "r");
-  if (fp == NULL)
-  {
-    perror(filename);
-    return NULL;
-  }
-
-  prom_data = (char **)calloc(sizeof(char *), buff_alloced);
-  if (prom_data == NULL)
-  {
-    printf("ERROR: Memory allocation failed\n");
-    fclose(fp);
-    return NULL;
-  }
-
-  while( fscanf(fp, "%49s", tmp) == 1 ){
-    line_len = strlen(tmp);
-    if(tmp[0] == ';')
-    {
-      /* Allow the first line starting with ';' as it's the header and used elsewhere
-       * but ignore all others
-       */
-      if(!header_seen)
-        header_seen = 1;
-      else
-        continue;
-    }
-    value = (char *)calloc((line_len+1), sizeof(char));
-    if(value == NULL){
-      printf("ERROR: Memory allocation failed\n");
-      fclose(fp);
-      return NULL;
-    }
-
-    strcpy(value, tmp);
-    prom_data[buff_used] = value;
-
-    buff_used++;
-
-    if(buff_used == buff_alloced){
-      printf("ERROR: File too large\n");
-      fclose(fp);
-      return NULL;
-    }
-  }
-
-  fclose(fp);
-  printf("done\n");
-  return prom_data;
-
-}
-
-long int prom_line_checksum(char *p)
-{
-  long int csum = 0;
-  int i;
-  int line_len = strlen(p);
-  line_len -= 2; /* remove 2 chars for the C/S */
-  char tmp[3];
-
-  tmp[2] = '\0';
-
-  for(i = 0; i < line_len; i += 2){
-    tmp[0] = p[i];
-    tmp[1] = p[i+1];
-    csum += strtol(tmp, 0, 16);
-  }
-
-  csum = 0xff - csum;
-  csum += 1;
-  csum &= 0xff;
-
-  return csum;
-
-}
-
-int check_target_hardware(char *header, exanic_t *regs)
-{
-  uint32_t hw_id;
-  hw_id = exanic_register_read(regs, REG_EXANIC_INDEX(REG_EXANIC_HW_ID));
-  if ((strncmp(header, ";exanic_x4,", 11) == 0) && (hw_id == EXANIC_HW_X4))
-    return 0;
-  if ((strncmp(header, ";exanic_x4_firewall", 19) == 0) && (hw_id == EXANIC_HW_X4))
-    return 0;
-  if ((strncmp(header, ";exanic_x2,", 11) == 0) && (hw_id == EXANIC_HW_X2))
-    return 0;
-  if ((strncmp(header, ";exanic_x10,", 12) == 0) && (hw_id == EXANIC_HW_X10))
-    return 0;
-  if ((strncmp(header, ";exanic_x10_gm,", 15) == 0) && (hw_id == EXANIC_HW_X10_GM))
-    return 0;
-  if ((strncmp(header, ";exanic_x10_hpt,", 16) == 0) && (hw_id == EXANIC_HW_X10_HPT))
-    return 0;
-  if ((strncmp(header, ";exanic_x40,", 12) == 0) && (hw_id == EXANIC_HW_X40))
-    return 0;
-  printf("ERROR: firmware image does not match target hardware\n");
-  return -1;
-}
-
-int check_prom(char **prom)
-{
-  unsigned int i = 0;
-  long int record_type, byte_count;
-  long int line_len, computed_checksum, expected_checksum;
-  char *p;
-  char tmp[3];
-
-  printf("Validating firmware image...");
-  fflush(stdout);
-
-  for (i = 0; (p = prom[i]) != NULL; i++) {
-
-    if ( p[0] == ';' )
-      continue;
-
-    if ( p[0] != ':' ){
-      printf("ERROR: Invalid start character (%c), line %i, aborting\n", p[0], i);
-      return -1;
-    }
-
-    line_len = strlen(p);
-
-    if (line_len < 11){
-      printf("ERROR: Unexpectedly short record, bailing\n");
-      return -1;
-    }
-
-    tmp[0] = p[7];
-    tmp[1] = p[8];
-    tmp[2] = '\0';
-
-    record_type = strtol(tmp, NULL, 16);
-
-    if( (record_type != MCS_PROM_DATA_RECORD) &&
-        (record_type != MCS_PROM_EOF_RECORD) &&
-        (record_type != MCS_PROM_EXT_LIN_ADDR_RECORD) ){
-      printf("ERROR: Unknown record type (%li), bailing\n", record_type);
-      return -1;
-    }
-
-    tmp[0] = p[1];
-    tmp[1] = p[2];
-    byte_count = strtol(tmp, NULL, 16);
-
-    if( (record_type == MCS_PROM_EOF_RECORD) &&
-        (byte_count != 0) ){
-      printf("ERROR: unexpected data found in end-of-file record, bailing\n");
-      return -1;
-    }
-
-    computed_checksum = prom_line_checksum(p+1);
-    expected_checksum = strtol( (p+line_len-2), NULL, 16);
-
-    if( computed_checksum != expected_checksum ){
-      printf("ERROR: Checksum failure, line %i; computed 0x%02lx, expected 0x%02lx\n", i, computed_checksum, expected_checksum);
-      return -1;
-    }
-  }
-
-  printf("done\n");
-  return 0;
-
-}
-
-const char*
-byte_to_binary(int x)
-{
-    static char b[9];
-    b[0] = '\0';
-
-    int z;
-    for (z = 256; z > 0; z >>= 1)
-    {
-        strcat(b, ((x & z) == z) ? "1" : "0");
-    }
-
-    return b;
-}
-
-unsigned long get_data_dir(void)
-{
-  return ((exanic_flash_ctrl_reg & DATA_DIR_BIT_MASK) >> DATA_DIR_BIT_POS);
-}
-
-void set_data_dir(unsigned long dir, exanic_t *regs)
-{
-  exanic_flash_ctrl_reg = read_exanic_flash_ctrl_reg(regs);
-  if(dir == FPGA_TO_FLASH){
-    exanic_flash_ctrl_reg |= DATA_DIR_BIT_MASK;
-  } else if(dir == FLASH_TO_FPGA) {
-    exanic_flash_ctrl_reg &= ~DATA_DIR_BIT_MASK;
-  } else
-    return;
-
-  write_exanic_flash_ctrl_reg(exanic_flash_ctrl_reg & EXANIC_FLASH_CTRL_REG_MASK, regs);
-  return;
-
-}
-
-/* Clear the specified bit(s) to '0' */
-void clear_flash_ctrl_bit(unsigned long mask, exanic_t *regs)
-{
-  unsigned long tmp = read_exanic_flash_ctrl_reg(regs);
-  tmp &= ~mask;
-  write_exanic_flash_ctrl_reg( tmp & EXANIC_FLASH_CTRL_REG_MASK, regs);
-}
-
-/* Set the specified bit(s) to '1' */
-void set_flash_ctrl_bit(unsigned long mask, exanic_t *regs)
-{
-  unsigned long tmp = read_exanic_flash_ctrl_reg(regs);
-  tmp |= mask;
-  write_exanic_flash_ctrl_reg( tmp & EXANIC_FLASH_CTRL_REG_MASK, regs);
-}
-
-void drive_address(unsigned long addr, exanic_t *regs)
-{
-  exanic_register_write(regs, EXANIC_FLASH_ADDR_REG_ADDR, addr & FLASH_ADDR_BUS_MASK);
-}
-
-unsigned long read_data(exanic_t *regs)
-{
-  uint32_t value;
-  value = exanic_register_read(regs, EXANIC_FLASH_DIN_BUS_ADDR);
-  return value & FLASH_DATA_BUS_MASK;
-}
-
-void write_data(unsigned long data, exanic_t *regs)
-{
-  /* drive the output to the dout register*/
-  exanic_register_write(regs, EXANIC_FLASH_DOUT_BUS_ADDR, data & FLASH_DATA_BUS_MASK);
-}
-
-unsigned long read_exanic_flash_ctrl_reg(exanic_t *regs)
-{
-  uint32_t value;
-  value = exanic_register_read(regs, EXANIC_FLASH_CTRL_REG_ADDR);
-  return value;
-}
-
-void write_exanic_flash_ctrl_reg(unsigned long value, exanic_t *regs)
-{
-  exanic_register_write(regs, EXANIC_FLASH_CTRL_REG_ADDR, value);
-}
-
-void set_read_mode_async(exanic_t *regs)
-{
-  const unsigned long CR_async_rd = CR_DEFAULT | ASYC_READ_MODE_MASK;
-
-  /* issue set-up command */
-  single_cycle_write(CR_async_rd, SET_CR_SETUP, regs);
-
-  /* issue confirmation command */
-  single_cycle_write(CR_async_rd, SET_CR_CONFIRM, regs);
-}
-
-void single_cycle_write(unsigned long addr_bus, unsigned long data_bus, exanic_t *regs)
-{
-  /* Set the data bus direction to FPGA->Flash */
-  set_data_dir(FPGA_TO_FLASH, regs);
-
-  set_flash_ctrl_bit(nL, regs);
-  set_flash_ctrl_bit(nE, regs);
-  set_flash_ctrl_bit(nW, regs);
-  set_flash_ctrl_bit(nG, regs);
-
-  /* Drive the address value on to the address bus */
-  drive_address(addr_bus, regs);
-
-  /* drive nE (chip enable) low to enable the chip */
-  clear_flash_ctrl_bit(nE, regs);
-
-  /* write the command to the data bus */
-  write_data(data_bus, regs);
-
-  /* drive nL (latch enable) low */
-  clear_flash_ctrl_bit(nL, regs);
-
-  /* drive nL (latch enable) high to latch the address value */
-  set_flash_ctrl_bit(nL, regs);
-
-  /* drive nW (write enable) low */
-  clear_flash_ctrl_bit(nW, regs);
-
-  /* drive nW (write enable) high to latch the data value */
-  set_flash_ctrl_bit(nW, regs);
-
-  /* drive nE (chip enable) high to end the write cycle */
-  set_flash_ctrl_bit(nE, regs);
-}
-
-unsigned long single_cycle_async_read(unsigned long reg_addr, exanic_t *regs)
-{
-  unsigned long tmp;
-
-  /* set the data bus direction to Flash->FPGA */
-  set_data_dir(FLASH_TO_FPGA, regs);
-
-  /* drive nE high */
-  set_flash_ctrl_bit(nE, regs);
-
-  /* drive nL high */
-  set_flash_ctrl_bit(nL, regs);
-
-  /* drive nG high */
-  set_flash_ctrl_bit(nG, regs);
-
-  /* Drive the address on to the address bus */
-  drive_address(reg_addr, regs);
-
-  /* drive nE and nL low */
-  clear_flash_ctrl_bit(nE | nL, regs);
-
-  /* drive nG (output enable) low to enable chip outputs */
-  clear_flash_ctrl_bit(nG, regs);
-
-  /* drive nL (latch enable) high to latch the address */
-  set_flash_ctrl_bit(nL, regs);
-
-  /* Read the data register */
-  tmp = read_data(regs);
-
-  /* drive nG (output enable) & nE (chip enable) high to end the cycle */
-  set_flash_ctrl_bit(nG | nE, regs);
-
-  return tmp;
-}
-
-inline unsigned long wait_for_device(unsigned long addr, exanic_t *regs)
-{
-  unsigned long sr;
-  do
-  {
-    sr = read_status_register(addr, regs);
-  } while (!(sr & PEC_STATUS_MASK));
-
-  return sr;
-}
-
-int block_operation(unsigned long addr, exanic_t *regs,
-                    unsigned long cmd_code, unsigned long confrm_code)
-{
-  unsigned long _addr = addr & BLOCK_ADDRESS_MASK;
-  clear_status_register(regs);
-
-  // issue the blank check command & confirmation
-  single_cycle_write(_addr, cmd_code, regs);
-  single_cycle_write(_addr, confrm_code, regs);
-
-  return wait_for_device(_addr, regs);
-}
-
-int unlock_block(unsigned long addr, exanic_t *regs)
-{
-  unsigned long _addr = addr & BLOCK_ADDRESS_MASK;
-  return block_operation(_addr, regs, UNLOCK_BLOCK_SETUP, UNLOCK_BLOCK_CONFIRM);
-}
-
-int lock_block(unsigned long addr, exanic_t *regs)
-{
-  unsigned long _addr = addr & BLOCK_ADDRESS_MASK;
-  return block_operation(_addr, regs, LOCK_BLOCK_SETUP, LOCK_BLOCK_CONFIRM);
-}
-
-int erase_block(unsigned long addr, exanic_t *regs)
-{
-  unsigned long _addr = addr & BLOCK_ADDRESS_MASK;
-  int ret = block_operation(_addr, regs, BLOCK_ERASE_SETUP, BLOCK_ERASE_CONFRM);
-
-  if (ret & ERASE_CHECK_STATUS_MASK)
-    printf("ERROR: erase error\n");
-
-  if (ret & BLOCK_PROTECT_STATUS_MASK)
-    printf("ERROR: erase error (block locked)\n");
-
-  return ret & (ERASE_CHECK_STATUS_MASK);
-}
-
-void range_unlock_and_erase(int init_partn, int fin_partn,
-                            int init_blk, int fin_blk, exanic_t *regs)
-{
-  const unsigned long main_block_addr_jump = 0x10000;
-  unsigned long addr = (upper) ? (get_upper_offset()>>1) : 0;
-  int p, b;
-
-  printf("Erasing...");
-  fflush(stdout);
-  for(p = init_partn; p <= fin_partn; p++)
-  {
-    for(b = init_blk; b <= fin_blk; b++)
-    {
-      unlock_block(addr, regs);
-
-      if(erase_block(addr, regs))
-      {
-        printf("ERROR: Error erasing partition (p:%i, b:%i)\n", p, b);
-      }
-
-      putchar('.');
-      fflush(stdout);
-      addr += main_block_addr_jump;
-    }
-  }
-  printf("done\n");
-}
-
-int verify(exanic_t *regs, char **prom_data)
-{
-  int result = verify_download(&prom_data[1], regs);
-  exanic_release_handle(regs);
-  return result;
-}
-
-int program(exanic_t *regs, char **prom_data, int hot_reload)
-{
-  if (check_target_hardware(prom_data[0], regs) == -1)
-    return -1;
-  if (hot_reload && (check_can_hot_reload(regs, 0) == -1))
-    return -1;
-  range_unlock_and_erase(0, 1, 0, get_num_blocks(), regs);
-  if (write_prom_data(&prom_data[1], regs) != 0)
-    return -1;
-  if (verify_download(&prom_data[1], regs))
-    return -1;
-
-  if (hot_reload)
-  {
-    return firmware_reload(regs);
-  }
-  else if (check_firmware_can_hot_reload(regs, 1) == 0)
-  {
-    printf("The new firmware will take effect after the next system reboot" \
-           ", or you can load it now using the exanic-fwupdate reload command.\n");
-  }
-  else
-  {
-    printf("The new firmware will take effect after the next system reboot.\n");
-  }
-  exanic_release_handle(regs);
-  return 0;
-}
-
-int reload(exanic_t *regs)
-{
-  if (check_can_hot_reload(regs, 0) == -1)
-    return -1;
-  return firmware_reload(regs);
-}
-
-char **read_prom_file(char *filename)
-{
-  char **prom_data;
-
-  prom_data = slurp_prom(filename);
-  if (!prom_data)
-    return NULL;
-
-  if (check_prom(prom_data) != 0)
-    return NULL;
-
-  return prom_data;
-}
-
-void usage(const char *command)
-{
-    printf("usage:\n"
-              "  %s [-d device] [-r] exanic_XXX_YYYYYY.fw\n"
-              "     - program, verify and optionally reload now (with -r)\n"
-              "  %s [-d device] exanic_XXX_YYYYYY.fw verify\n"
-              "     - verify only\n"
-              "  %s [-d device] reload\n"
-              "     - reload only\n", command, command, command);
-}
-
-int
-main(int argc, char *argv[])
-{
-    char *command;
-    char *fw_file;
-    char **prom_data;
-    exanic_t *exanic_regs;
-    int c, ret = -1;
-    int write_lower = 0, force = 0;
-    char *dev = NULL;
-    int hot_reload = 0;
-
-    while ((c = getopt(argc, argv, "rRfd:h?")) != -1)
+    const char *device = NULL;
+    const char *filename = NULL;
+    bool hot_reload = false;
+    bool recovery_partition = false;
+    bool verify_only = false;
+    bool force = false;
+    exanic_t *exanic = NULL;
+    struct flash_device *flash = NULL;
+    const char *firmware_id = NULL;
+    flash_word_t *data;
+    flash_size_t partition_size, data_size;
+    int c, ret = 1;
+
+    while ((c = getopt(argc, argv, "d:rRVfh?")) != -1)
     {
         switch (c)
         {
-            case 'R':
-                write_lower = 1;
-                break;
-            case 'f':
-                force = 1;
-                break;
             case 'd':
-                dev = optarg;
+                device = optarg;
                 break;
             case 'r':
-                hot_reload = 1;
+                hot_reload = true;
+                break;
+            case 'R':
+                recovery_partition = true;
+                break;
+            case 'V':
+                verify_only = true;
+                break;
+            case 'f':
+                force = true;
                 break;
             default:
-                usage(argv[0]);
-                return 1;
+                goto usage;
         }
     }
 
-    //Every command requires at least one argument
-    if (argc == optind)
+    if (argc > optind+1)
+       goto usage;
+
+    if (argc > optind)
+       filename = argv[optind];
+
+    if (!hot_reload && !filename)
+        goto usage;
+
+    if (recovery_partition && !verify_only && !force)
     {
-        usage(argv[0]);
+        fprintf(stderr, "ERROR: -f (force) is required to program the recovery image portion of flash\n");
         return 1;
     }
 
-    //We need the device, regardless of the command, so get it now
-    if (!dev)
+    if (!device)
     {
-        exanic_regs = exanic_acquire_handle("exanic1");
-        if (exanic_regs != NULL)
+        exanic = exanic_acquire_handle("exanic1");
+        if (exanic)
         {
-            exanic_release_handle(exanic_regs);
-            printf("Multiple ExaNICs found, please specify which card to update (e.g. -d exanic0)\n");
+            exanic_release_handle(exanic);
+            fprintf(stderr, "ERROR: multiple ExaNICs found, please specify which card to update (e.g. -d exanic0)\n");
             return 1;
         }
-        dev = "exanic0";
+        device = "exanic0";
     }
 
-    if ((exanic_regs = exanic_acquire_handle(dev)) == NULL)
+    exanic = exanic_acquire_handle(device);
+    if (!exanic)
     {
-        printf("%s: %s\n", dev, exanic_get_last_error());
+        fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
         return 1;
     }
 
-    /* TODO: We need to refactor this utility, but in the mean time... */
-    global_hw_id = exanic_register_read(exanic_regs, REG_EXANIC_INDEX(REG_EXANIC_HW_ID));
-    set_read_mode_async(exanic_regs);
+    if (hot_reload && !check_can_hot_reload(exanic, false))
+        goto error;
 
-    if (!strcmp("reload", argv[optind]))
+    if (filename)
     {
-        reload(exanic_regs);
-    }
-    else
-    {
-        if (write_lower)
+        report_phase("Querying target device");
+        flash = flash_open(exanic, recovery_partition, &partition_size);
+        if (!flash)
+            goto error;
+        report_phase_done();
+
+        report_phase("Loading and verifying update");
+        data = read_firmware(filename, flash->partition_size,
+                             &data_size, &firmware_id);
+        if (!data)
+            goto error;
+        report_phase_done();
+
+        if (!check_target_hardware(firmware_id, exanic_get_hw_type(exanic)))
+            goto error;
+
+        if (!verify_only)
         {
-            if (force)
-            {
-                upper = 0;
-                printf("WARNING: loading recovery image portion of flash\n");
-            }
-            else
-            {
-                printf("-f (force) is required to load the recovery image portion of flash\n");
-                return 1;
-            }
+            report_phase("Erasing");
+            if (!flash_erase(flash, data_size, report_progress))
+                goto error;
+            report_phase_done();
+
+            report_phase("Programming");
+            if (!flash_program(flash, data, data_size, report_progress))
+                goto error;
+            report_phase_done();
         }
 
-        fw_file = argv[optind++];
-        if (argc == optind)
-            command = "program";
-        else
-            command = argv[optind];
-
-        prom_data = read_prom_file(fw_file);
-        if (!prom_data)
-            return 1;
-
-        if (!strcmp("program", command))
-        {
-            ret = program(exanic_regs, prom_data, hot_reload);
-        }
-        else if (!strcmp("verify", command))
-        {
-            ret = verify(exanic_regs, prom_data);
-        }
-        else
-        {
-            printf("%s: unrecognised command\n", command);
-        }
-
-        free(prom_data);
-
+        report_phase("Verifying flash contents");
+        if (!flash_verify(flash, data, data_size, report_progress))
+            goto error;
+        report_phase_done();
     }
 
-    return (ret == -1) ? 1 : 0;
+    if (hot_reload)
+    {
+        report_phase("Reloading card");
+        exanic = reload_firmware(exanic, report_progress);
+        if (!exanic)
+            goto error;
+        report_phase_done();
+        printf("The new firmware will take effect immediately.\n");
+    }
+    else if (!verify_only)
+    {
+        printf("The new firmware will take effect after a system reboot");
+        if (check_firmware_can_hot_reload(exanic, true))
+            printf(", or you can load it now using exanic-fwupdate -r");
+        printf(".\n");
+    }
+
+    ret = 0;
+error:
+    if (firmware_id)
+        free((void *)firmware_id);
+    if (flash)
+        flash_close(flash);
+    if (exanic)
+        exanic_release_handle(exanic);
+    return ret;
+
+usage:
+    printf("usage:\n"
+              "  %s [-d device] [-r] exanic_XXX_YYYYYY.fw\n"
+              "     - program, verify and optionally reload now (with -r)\n"
+              "  %s [-d device] -V exanic_XXX_YYYYYY.fw\n"
+              "     - verify only\n"
+              "  %s [-d device] -r\n"
+              "     - reload only\n", argv[0], argv[0], argv[0]);
+    return 1;
 }
+
