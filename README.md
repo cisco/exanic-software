@@ -37,7 +37,7 @@ Installation
 ------------
 To install from source please run ``make`` and ``sudo make install`` from the top level.
 
-Pre-built packages for Ubuntu are available from our [apt](http://www.exablaze.com/downloads/apt/) repository, and pre-built packages for Redhat/CentOS are available from our [yum](http://www.exablaze.com/downloads/yum/) repository.
+Pre-built packages for Ubuntu are available from our [apt](http://www.exablaze.com/downloads/apt/) repository, and pre-built packages for Redhat/CentOS are available from our [yum](http://www.exablaze.com/downloads/yum/) repository.  Packages for ArchLinux are available from [AUR](https://aur.archlinux.org/packages/exanic/).
 
 Support
 -------
