@@ -50,7 +50,8 @@ typedef struct timespec ptp_timespec_t;
     ((exanic)->hw_id == EXANIC_HW_X10 || \
      (exanic)->hw_id == EXANIC_HW_X40 || \
      (exanic)->hw_id == EXANIC_HW_X10_GM || \
-     (exanic)->hw_id == EXANIC_HW_X10_HPT)
+     (exanic)->hw_id == EXANIC_HW_X10_HPT) || \
+     (exanic)->hw_id == EXANIC_HW_V5P
 
 #define EXANIC_SUPPORTS_PER_OUT_10M(exanic) \
     ((exanic)->hw_id == EXANIC_HW_X10_GM || \

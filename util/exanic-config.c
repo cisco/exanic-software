@@ -60,6 +60,7 @@ int exanic_i2c_eeprom_read( exanic_t *exanic, uint8_t regaddr, char *buffer,
         case EXANIC_HW_X10_GM:
         case EXANIC_HW_X10_HPT:
         case EXANIC_HW_X40:
+        case EXANIC_HW_V5P:
             return exanic_x2_i2c_eeprom_read(exanic, regaddr, buffer, size );
         case EXANIC_HW_X4:
             return exanic_x4_i2c_eeprom_read(exanic, regaddr, buffer, size );
@@ -321,7 +322,8 @@ void show_device_info(const char *device, int port_number, int verbose)
     if (hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
         hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
         hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-        hw_type == EXANIC_HW_X40  || hw_type == EXANIC_HW_X10_HPT)
+        hw_type == EXANIC_HW_X40  || hw_type == EXANIC_HW_X10_HPT ||
+        hw_type == EXANIC_HW_V5P)
     {
         uint32_t temp, vccint, vccaux;
         double temp_real=0, vccint_real=0, vccaux_real=0;
@@ -344,12 +346,18 @@ void show_device_info(const char *device, int port_number, int verbose)
             vccint_real = vccint * 3.0 / 4096.0;
             vccaux_real = vccaux * 3.0 / 4096.0;
         }
+        else if (hw_type == EXANIC_HW_V5P)
+        {
+            temp_real = temp * (509.314 / 4096.0) - 280.231;
+            vccint_real = vccint * 3.0 / 4096.0;
+            vccaux_real = vccaux * 3.0 / 4096.0;
+        }
 
         printf("  Temperature: %.1f C   VCCint: %.2f V   VCCaux: %.2f V\n",
                 temp_real, vccint_real, vccaux_real);
     }
 
-    if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 )
+    if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 || hw_type == EXANIC_HW_V5P)
     {
         uint32_t reg, count, tick_hz;
         double rpm, divisor;
@@ -387,6 +395,13 @@ void show_device_info(const char *device, int port_number, int verbose)
         user_version = exanic_register_read(exanic,
                         REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_USER_VERSION));
         printf("  Customer version: %u (%x)\n", user_version, user_version);
+    }
+
+    if (hw_type == EXANIC_HW_V5P)
+    {
+        uint32_t ext_pwr = exanic_register_read(exanic,
+                    REG_HW_INDEX(REG_HW_MISC_GPIO));
+        printf("  External 12V power: %s\n", ext_pwr ? "detected" : "not detected");
     }
 
     if (function == EXANIC_FUNCTION_NIC ||
@@ -477,7 +492,7 @@ void show_device_info(const char *device, int port_number, int verbose)
         printf("    Port speed: %u Mbps\n", exanic_get_port_speed(exanic, i));
 
         port_status = exanic_get_port_status(exanic, i);
-        if (hw_type == EXANIC_HW_X40)
+        if ((hw_type == EXANIC_HW_X40) || (hw_type == EXANIC_HW_V5P))
         {
             /* No signal detected pin on QSFP. */
             printf("    Port status: %s, %s, %s\n",
@@ -541,7 +556,8 @@ void show_device_info(const char *device, int port_number, int verbose)
 
             if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
                     hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-                    hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT)
+                    hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT ||
+                    hw_type == EXANIC_HW_V5P)
             {
                 if (verbose)
                 {
@@ -704,7 +720,7 @@ void show_sfp_status(const char *device, int port_number)
         exit(1);
     }
 
-    if (hw_type == EXANIC_HW_X40)
+    if (hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_V5P)
     {
         printf("Device %s port %d QSFP module %d status:\n", device,
                     port_number, port_number/4);

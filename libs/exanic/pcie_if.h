@@ -395,8 +395,14 @@ enum
     REG_HW_PER_OUT_CONFIG               = 25,
 
     /**
-     * Range of registers for FDK JTAG access over PCIe
+     * Miscellaneous GPIO
+     * Bit 0 [RO] - External 12V input sense (V5P only)
      */
+    REG_HW_MISC_GPIO                    = 26,
+
+    /**
+    * Range of registers for FDK JTAG access over PCIe
+    */
     REG_HW_JTAG_LENGTH                  = 33,
     REG_HW_JTAG_TMS_VECTOR              = 34,
     REG_HW_JTAG_TDI_VECTOR              = 35,
@@ -948,6 +954,7 @@ typedef enum
     EXANIC_HW_X10_GM        = 5, /**< ExaNIC X10-GM */
     EXANIC_HW_X40           = 6, /**< ExaNIC X40 */
     EXANIC_HW_X10_HPT       = 7, /**< ExaNIC X10-HPT */
+    EXANIC_HW_V5P           = 8, /**< ExaNIC V5P */
 } exanic_hardware_id_t;
 
 /**
@@ -979,6 +986,8 @@ static inline const char * exanic_hardware_id_str(exanic_hardware_id_t id)
             return "ExaNIC X40";
         case EXANIC_HW_X10_HPT:
             return "ExaNIC X10-HPT";
+        case EXANIC_HW_V5P:
+            return "ExaNIC V5P";
         default:
             return NULL;
     }

@@ -44,6 +44,7 @@ static struct pci_device_id exanic_pci_ids[] = {
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X40) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10_HPT) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X40_40G) },
+    { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_V5P) },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, exanic_pci_ids);
@@ -475,7 +476,8 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
                 exanic->hw_id == EXANIC_HW_X10 || 
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT)
+                exanic->hw_id == EXANIC_HW_X10_HPT ||
+                exanic->hw_id == EXANIC_HW_V5P)
             err = exanic_x4_x2_poweroff_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweroff_port(exanic, port_num);
@@ -504,7 +506,8 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
                 exanic->hw_id == EXANIC_HW_X10 ||
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT)
+                exanic->hw_id == EXANIC_HW_X10_HPT ||
+                exanic->hw_id == EXANIC_HW_V5P)
             err = exanic_x4_x2_poweron_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweron_port(exanic, port_num);
@@ -515,7 +518,8 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
                 exanic->hw_id == EXANIC_HW_X10 ||
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT)
+                exanic->hw_id == EXANIC_HW_X10_HPT ||
+                exanic->hw_id == EXANIC_HW_V5P)
               && (speed_reg == SPEED_100))
         {
             msleep(100); /* Wait for PHY to power up. */
@@ -852,7 +856,8 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
                 exanic->hw_id == EXANIC_HW_X10 || 
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT)
+                exanic->hw_id == EXANIC_HW_X10_HPT ||
+                exanic->hw_id == EXANIC_HW_V5P)
             exanic_x4_x2_save_feature_cfg(exanic);
     }
 
@@ -1026,6 +1031,7 @@ static int exanic_probe(struct pci_dev *pdev,
             exanic->num_ports = 4;
             break;
         case EXANIC_HW_X40:
+        case EXANIC_HW_V5P:
             exanic->num_ports = exanic_get_num_ports(exanic);
             break;
         default:
@@ -1045,7 +1051,8 @@ static int exanic_probe(struct pci_dev *pdev,
 
     /* Set up and map the development kit memory if present. */
     if ((exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4 ||
-            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40) &&
+            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
+            exanic->hw_id == EXANIC_HW_V5P) &&
                 exanic->function_id == EXANIC_FUNCTION_DEVKIT)
     {
         exanic->devkit_regs_offset = 
@@ -1337,7 +1344,9 @@ static int exanic_probe(struct pci_dev *pdev,
             exanic->hw_id == EXANIC_HW_X10 ||
             exanic->hw_id == EXANIC_HW_X10_GM ||
             exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_X10_HPT)
+            exanic->hw_id == EXANIC_HW_X10_HPT ||
+            exanic->hw_id == EXANIC_HW_V5P)
+
     {
         /* Get serial number in EEPROM to use as MAC address */
         if (exanic_x4_x2_get_serial(exanic, mac_addr) == 0)

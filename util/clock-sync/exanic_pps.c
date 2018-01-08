@@ -105,7 +105,7 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
         pps_type = PPS_DIFFERENTIAL;
     }
     else if (((hw_id == EXANIC_HW_X10) || (hw_id == EXANIC_HW_X10_GM) ||
-                (hw_id == EXANIC_HW_X40)) &&
+                (hw_id == EXANIC_HW_X40 || (hw_id == EXANIC_HW_V5P) )) &&
             pps_type == PPS_DIFFERENTIAL)
     {
         log_printf(LOG_WARNING, "%s: %s does not support differential PPS input",

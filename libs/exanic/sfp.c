@@ -28,6 +28,7 @@ static int sfp_read(exanic_t *exanic, int port_number, int devaddr, int regaddr,
             return exanic_x4_x2_i2c_sfp_read(exanic, port_number, devaddr, regaddr,
                     buf, size);
         case EXANIC_HW_X40:
+        case EXANIC_HW_V5P:
             return exanic_x40_i2c_sfp_read(exanic, port_number, devaddr, regaddr,
                     buf, size);
         default:
