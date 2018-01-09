@@ -211,12 +211,14 @@ static int i2c_read(exanic_t *exanic, int bus_number, uint8_t devaddr,
             !i2c_outb(&dev, regaddr))
     {
         exanic_err_printf("no ack from device on I2C read");
+        i2c_stop(&dev);
         return -1;
     }
     i2c_repstart(&dev);
     if (!i2c_outb(&dev, devaddr | 1))
     {
         exanic_err_printf("no ack from device on I2C read");
+        i2c_stop(&dev);
         return -1;
     }
     for (i = 0; i < size-1; i++)
@@ -248,6 +250,7 @@ static int i2c_write(exanic_t *exanic, int bus_number, uint8_t devaddr,
             !i2c_outb(&dev, regaddr))
     {
         exanic_err_printf("no ack from device on I2C write");
+        i2c_stop(&dev);
         return -1;
     }
     for (i = 0; i < size; i++)
@@ -255,6 +258,7 @@ static int i2c_write(exanic_t *exanic, int bus_number, uint8_t devaddr,
         if (!i2c_outb(&dev, buffer[i]))
         {
             exanic_err_printf("no ack from device on I2C write");
+            i2c_stop(&dev);
             return -1;
         }
     }
