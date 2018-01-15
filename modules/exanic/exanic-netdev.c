@@ -1519,6 +1519,11 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
 #endif
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+    /* Allow jumbo frames (in 4.10+ MTU limit is 1500 by default) */
+    ndev->max_mtu = 9000;
+#endif
+
     if (priv->exanic->function_id != EXANIC_FUNCTION_NIC &&
             priv->exanic->function_id != EXANIC_FUNCTION_PTP_GM &&
                 priv->exanic->function_id != EXANIC_FUNCTION_DEVKIT)
