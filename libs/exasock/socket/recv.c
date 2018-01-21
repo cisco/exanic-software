@@ -801,6 +801,9 @@ read(int fd, void *buf, size_t count)
     struct exa_socket * restrict sock = exa_socket_get(fd);
     ssize_t ret;
 
+    if (override_disabled)
+        return LIBC(read, fd, buf, count);
+
     TRACE_CALL("read");
     TRACE_ARG(INT, fd);
     TRACE_FLUSH();

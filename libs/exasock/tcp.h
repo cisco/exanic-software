@@ -1,6 +1,10 @@
 #ifndef EXASOCK_TCP_H
 #define EXASOCK_TCP_H
 
+#include <unistd.h>
+#include <fcntl.h>
+#include "override.h"
+
 #define EXA_TCP_RETRANSMIT_NS 1000000000
 
 extern struct exa_hashtable __exa_tcp_sockfds;
@@ -17,6 +21,25 @@ struct exa_tcp_conn
 
     struct exa_socket_state *state;
 };
+
+static inline void
+exa_tcp_init(struct exa_socket_state * restrict state)
+{
+    struct exa_tcp_state * restrict tcp = &state->p.tcp;
+    int fd;
+
+    /* Grab current slow_start_after_idle setting */
+    exasock_override_off();
+    tcp->ss_after_idle = '0';
+    fd = open("/proc/sys/net/ipv4/tcp_slow_start_after_idle", O_RDONLY);
+    if (fd != -1)
+    {
+        read(fd, &tcp->ss_after_idle, 1);
+        close(fd);
+    }
+    tcp->ss_after_idle -= '0';
+    exasock_override_on();
+}
 
 static inline void
 exa_tcp_conn_init(struct exa_tcp_conn * restrict ctx,

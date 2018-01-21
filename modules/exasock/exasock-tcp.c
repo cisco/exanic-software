@@ -484,7 +484,6 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
     struct exa_socket_state *user_page;
     int err;
     unsigned hash;
-    struct file *f;
     int i;
 
     /* Get local address from native socket */
@@ -555,16 +554,6 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
     user_page->p.tcp.rmss = 536; /* RFC2581 */
     user_page->p.tcp.cwnd = 3 * EXA_TCP_MSS;
     user_page->p.tcp.ssthresh = 3 * EXA_TCP_MSS;
-
-    /* Grab current slow_start_after_idle setting */
-    user_page->p.tcp.ss_after_idle = '0';
-    f = filp_open("/proc/sys/net/ipv4/tcp_slow_start_after_idle", O_RDONLY, 0);
-    if (f != NULL)
-    {
-        vfs_read(f, &user_page->p.tcp.ss_after_idle, 1, 0);
-        filp_close(f, NULL);
-    }
-    user_page->p.tcp.ss_after_idle -= '0';
 
     return tcp;
 

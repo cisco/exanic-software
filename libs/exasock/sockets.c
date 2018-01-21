@@ -304,6 +304,8 @@ exa_socket_tcp_enable_bypass(struct exa_socket * restrict sock)
         goto err_tcp_alloc;
     }
 
+    exa_tcp_init(sock->state);
+
     exa_notify_tcp_init(sock);
 
     return 0;
