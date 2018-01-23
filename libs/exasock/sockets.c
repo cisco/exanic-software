@@ -295,17 +295,18 @@ exa_socket_tcp_init(struct exa_socket * restrict sock)
 {
     struct exa_tcp_state * restrict tcp = &sock->state->p.tcp;
     int fd;
+    char c;
 
     /* Grab current slow_start_after_idle setting */
     exasock_override_off();
-    tcp->ss_after_idle = '0';
+    tcp->ss_after_idle = 0;
     fd = open("/proc/sys/net/ipv4/tcp_slow_start_after_idle", O_RDONLY);
     if (fd != -1)
     {
-        read(fd, &tcp->ss_after_idle, 1);
+        if (read(fd, &c, 1) == 1 && c == '1')
+            tcp->ss_after_idle = 1;
         close(fd);
     }
-    tcp->ss_after_idle -= '0';
     exasock_override_on();
 }
 
