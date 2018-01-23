@@ -11,6 +11,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
 #include <sched.h>
@@ -289,6 +290,25 @@ err_udp_alloc:
     return -1;
 }
 
+static void
+exa_socket_tcp_init(struct exa_socket * restrict sock)
+{
+    struct exa_tcp_state * restrict tcp = &sock->state->p.tcp;
+    int fd;
+
+    /* Grab current slow_start_after_idle setting */
+    exasock_override_off();
+    tcp->ss_after_idle = '0';
+    fd = open("/proc/sys/net/ipv4/tcp_slow_start_after_idle", O_RDONLY);
+    if (fd != -1)
+    {
+        read(fd, &tcp->ss_after_idle, 1);
+        close(fd);
+    }
+    tcp->ss_after_idle -= '0';
+    exasock_override_on();
+}
+
 static int
 exa_socket_tcp_enable_bypass(struct exa_socket * restrict sock)
 {
@@ -304,7 +324,7 @@ exa_socket_tcp_enable_bypass(struct exa_socket * restrict sock)
         goto err_tcp_alloc;
     }
 
-    exa_tcp_init(sock->state);
+    exa_socket_tcp_init(sock);
 
     exa_notify_tcp_init(sock);
 
