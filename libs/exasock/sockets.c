@@ -303,7 +303,7 @@ exa_socket_tcp_init(struct exa_socket * restrict sock)
     fd = open("/proc/sys/net/ipv4/tcp_slow_start_after_idle", O_RDONLY);
     if (fd != -1)
     {
-        if (read(fd, &c, 1) == 1 && c == '1')
+        if (exasock_libc_read(fd, &c, 1) == 1 && c == '1')
             tcp->ss_after_idle = 1;
         close(fd);
     }

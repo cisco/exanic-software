@@ -140,3 +140,9 @@ exasock_override_is_off(void)
 {
     return override_disabled;
 }
+
+ssize_t
+exasock_libc_read(int fd, void *buf, size_t count)
+{
+    return LIBC(read, fd, buf, count);
+}
