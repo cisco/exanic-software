@@ -10,7 +10,7 @@ CC=gcc
 LDFLAGS=-shared
 LDLIBS=-ldl -lrt -lexanic -L../exanic
 
-CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c
+CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c warn.c
 SOCK_SRCS=socket/override.c socket/trace.c socket/socket.c socket/recv.c socket/send.c socket/select.c socket/signal.c socket/epoll.c
 EXT_SRCS=extensions/tcp.c
 
