@@ -1529,6 +1529,9 @@ void show_ptp_status(const char *device)
     printf("    Announce receipt timeout: %d (%gs)\n", announce_receipt_timeout,
             announce_receipt_timeout * pow(2, log_announce_interval));
 
+    printf("    One-step or two-step clock: %s\n",
+            (conf1 & EXANIC_PTP_CONF1_PTP_TWO_STEP_EN) ? "two-step" : "one-step");
+
     printf("  GPS configuration:\n");
     printf("    Antenna cable delay: %dns\n", antenna_cable_delay);
 
@@ -1933,6 +1936,23 @@ void ptp_set_ptp_enable_state(const char *device, int on)
     release_handle(exanic);
 }
 
+void ptp_set_ptp_two_step_enable(const char *device, int on)
+{
+    exanic_t *exanic;
+    uint32_t conf;
+
+    exanic = acquire_handle(device);
+    conf = exanic_register_read(exanic, REG_PTP_INDEX(REG_PTP_CONF1));
+    if (on)
+        conf |= EXANIC_PTP_CONF1_PTP_TWO_STEP_EN;
+    else
+        conf &= ~EXANIC_PTP_CONF1_PTP_TWO_STEP_EN;
+    exanic_register_write(exanic, REG_PTP_INDEX(REG_PTP_CONF1), conf);
+    printf("%s: PTP clock set to %s mode\n", device,
+            on ? "two-step" : "one-step");
+    release_handle(exanic);
+}
+
 int ptp_command(const char *progname, const char *device,
         int argc, char *argv[])
 {
@@ -2006,6 +2026,16 @@ int ptp_command(const char *progname, const char *device,
         ptp_set_profile(device, val);
         return 0;
     }
+    else if ((argc == 1) && strcmp(argv[0], "one-step") == 0)
+    {
+        ptp_set_ptp_two_step_enable(device, 0);
+        return 0;
+    }
+    else if ((argc == 1) && strcmp(argv[0], "two-step") == 0)
+    {
+        ptp_set_ptp_two_step_enable(device, 1);
+        return 0;
+    }
     else if (argc == 2)
     {
         for (i = 0; i < ptp_num_options; i++)
@@ -2051,6 +2081,7 @@ usage_error:
     fprintf(stderr, "   %s <device> ptp show-profile\n", progname);
     fprintf(stderr, "   %s <device> ptp profile { default | telecom | none }\n"
             , progname);
+    fprintf(stderr, "   %s <device> ptp { one-step | two-step }\n", progname);
     for (i = 0; i < ptp_num_options; i++)
         fprintf(stderr, "   %s <device> ptp %s %s\n", progname,
                 ptp_options[i].name,
