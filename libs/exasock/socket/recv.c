@@ -27,6 +27,7 @@
 #include "../kernel/structs.h"
 #include "../lock.h"
 #include "../rwlock.h"
+#include "../warn.h"
 #include "../structs.h"
 #include "../checksum.h"
 #include "../ip.h"
@@ -39,6 +40,17 @@
 #include "common.h"
 
 void __chk_fail(void);
+
+static inline void
+print_warning(struct exa_socket * restrict sock, int fd)
+{
+    if (sock->warn_mcast_bound)
+    {
+        WARN_PRINT(
+           "listening to multicast data on not accelerated socket (fd=%i)", fd);
+        sock->warn_mcast_bound = false;
+    }
+}
 
 /* Skip skip_len bytes in the iovec before copying data
  * Returns number of bytes copied */
@@ -318,6 +330,7 @@ recv(int sockfd, void *buf, size_t len, int flags)
 
         if (!sock->bypass)
         {
+            print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(recv, sockfd, buf, len, flags);
         }
@@ -358,6 +371,7 @@ __recv_chk(int sockfd, void *buf, size_t len, size_t buflen, int flags)
 
         if (!sock->bypass)
         {
+            print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(recv, sockfd, buf, len, flags);
         }
@@ -397,6 +411,7 @@ recvfrom(int sockfd, void *buf, size_t len, int flags,
 
         if (!sock->bypass)
         {
+            print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(recvfrom, sockfd, buf, len, flags, src_addr, addrlen);
         }
@@ -441,6 +456,7 @@ __recvfrom_chk(int sockfd, void *buf, size_t len, size_t buflen,
 
         if (!sock->bypass)
         {
+            print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(recvfrom, sockfd, buf, len, flags, src_addr, addrlen);
         }
@@ -694,6 +710,7 @@ recvmsg(int sockfd, struct msghdr *msg, int flags)
 
         if (!sock->bypass)
         {
+            print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(recvmsg, sockfd, msg, flags);
         }
@@ -813,6 +830,7 @@ read(int fd, void *buf, size_t count)
 
         if (!sock->bypass)
         {
+            print_warning(sock, fd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(read, fd, buf, count);
         }
@@ -852,6 +870,7 @@ __read_chk(int fd, void *buf, size_t nbytes, size_t buflen)
 
         if (!sock->bypass)
         {
+            print_warning(sock, fd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(read, fd, buf, nbytes);
         }
@@ -962,6 +981,7 @@ readv(int fd, const struct iovec *iov, int iovcnt)
 
         if (!sock->bypass)
         {
+            print_warning(sock, fd);
             exa_read_unlock(&sock->lock);
             ret = LIBC(readv, fd, iov, iovcnt);
         }

@@ -250,6 +250,10 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
                 assert(sock->bypass);
             }
+            else if (IN_MULTICAST(ntohl(in_addr->sin_addr.s_addr)))
+            {
+                sock->warn_mcast_bound = true;
+            }
         }
     }
 
