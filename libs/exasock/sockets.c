@@ -29,6 +29,7 @@
 #include "override.h"
 #include "lock.h"
 #include "rwlock.h"
+#include "warn.h"
 #include "structs.h"
 #include "checksum.h"
 #include "ip.h"
@@ -402,6 +403,13 @@ exa_socket_enable_bypass(struct exa_socket * restrict sock)
 
     if (getenv("EXASOCK_DEBUG"))
         fprintf(stderr, "exasock: enabled bypass on fd %u\n", fd);
+
+    if (sock->warn.so_sndbuf)
+        WARNING_SOCKOPT("SO_SNDBUF");
+    if (sock->warn.so_rcvbuf)
+        WARNING_SOCKOPT("SO_RCVBUF");
+    if (sock->warn.so_keepalive)
+        WARNING_SOCKOPT("SO_KEEPALIVE");
 
     return 0;
 

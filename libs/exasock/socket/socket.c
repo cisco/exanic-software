@@ -33,6 +33,7 @@
 #include "../kernel/structs.h"
 #include "../lock.h"
 #include "../rwlock.h"
+#include "../warn.h"
 #include "../structs.h"
 #include "../sockets.h"
 #include "../checksum.h"
@@ -252,7 +253,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
             }
             else if (IN_MULTICAST(ntohl(in_addr->sin_addr.s_addr)))
             {
-                sock->warn_mcast_bound = true;
+                sock->warn.mcast_bound = true;
             }
         }
     }
@@ -1883,6 +1884,27 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             }
             sock->so_rcvtimeo.enabled =
                 sock->so_rcvtimeo.val.tv_sec || sock->so_rcvtimeo.val.tv_usec;
+            break;
+        case SO_SNDBUF:
+            /* Not supported with bypass enabled */
+            if (sock->bypass)
+                WARNING_SOCKOPT("SO_SNDBUF");
+            else
+                sock->warn.so_sndbuf = true;
+            break;
+        case SO_RCVBUF:
+            /* Not supported with bypass enabled */
+            if (sock->bypass)
+                WARNING_SOCKOPT("SO_RCVBUF");
+            else
+                sock->warn.so_rcvbuf = true;
+            break;
+        case SO_KEEPALIVE:
+            /* Not supported with bypass enabled */
+            if (sock->bypass)
+                WARNING_SOCKOPT("SO_KEEPALIVE");
+            else
+                sock->warn.so_keepalive = true;
             break;
         }
     }

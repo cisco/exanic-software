@@ -161,7 +161,12 @@ struct exa_socket
     struct exa_notify *notify_parent;
 
     /* Warnings tracking */
-    bool warn_mcast_bound;
+    struct {
+        bool mcast_bound;
+        bool so_sndbuf;
+        bool so_rcvbuf;
+        bool so_keepalive;
+    } warn;
 };
 
 #define EXA_HASHTABLE_SIZE_LOG2 16

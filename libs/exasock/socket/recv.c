@@ -44,11 +44,10 @@ void __chk_fail(void);
 static inline void
 print_warning(struct exa_socket * restrict sock, int fd)
 {
-    if (sock->warn_mcast_bound)
+    if (sock->warn.mcast_bound)
     {
-        WARN_PRINT(
-           "listening to multicast data on not accelerated socket (fd=%i)", fd);
-        sock->warn_mcast_bound = false;
+        WARNING_MCAST(fd);
+        sock->warn.mcast_bound = false;
     }
 }
 
