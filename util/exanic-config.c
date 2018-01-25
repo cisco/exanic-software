@@ -414,12 +414,19 @@ void show_device_info(const char *device, int port_number, int verbose)
             uint32_t config = exanic_register_read(exanic,
                       REG_HW_INDEX(REG_HW_PER_OUT_CONFIG));
             int pps_out = (flags & EXANIC_HW_SERIAL_PPS_OUT_EN) ? 1 : 0;
-            if (config & EXANIC_HW_PER_OUT_CONFIG_PPS)
-                printf("  PPS out: %s\n", pps_out ? "enabled" : "disabled");
-            else if (config & EXANIC_HW_PER_OUT_CONFIG_10M)
-                printf("  10Mhz out: %s\n", pps_out ? "enabled" : "disabled");
+            int pps_term_en = (flags & EXANIC_HW_SERIAL_PPS_TERM_EN) ? 1 : 0;
+            printf("  PPS port: ");
+            if (pps_out)
+            {
+                printf("output, %s\n",
+                           (config & EXANIC_HW_PER_OUT_CONFIG_PPS) ? "1Hz"
+                           : (config & EXANIC_HW_PER_OUT_CONFIG_10M) ? "10Mhz"
+                           : "disabled");
+            }
             else
-                printf("  PPS out: disabled\n");
+            {
+                printf("input, termination %s\n", pps_term_en ? "enabled" : "disabled");
+            }
         }
     }
 
