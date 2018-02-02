@@ -171,11 +171,16 @@ static irqreturn_t exanic_rx_irq_handler(int irq, void *dev_id)
 /**
  * Periodic checking of exanic link status.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void exanic_link_timer_callback(struct timer_list *link_timer)
+{
+    struct exanic *exanic = container_of(link_timer, struct exanic, link_timer);
+#else
 static void exanic_link_timer_callback(unsigned long data)
 {
     struct exanic *exanic = (struct exanic *)data;
+#endif
     int i;
-
     for (i = 0; i < exanic->num_ports; ++i)
         if (exanic->ndev[i])
             exanic_netdev_check_link(exanic->ndev[i]);
@@ -1544,9 +1549,13 @@ static int exanic_probe(struct pci_dev *pdev,
     exanic_ptp_init(exanic);
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+    timer_setup(&exanic->link_timer, exanic_link_timer_callback, 0);
+#else
     /* Set up timer to poll link status */
     setup_timer(&exanic->link_timer, exanic_link_timer_callback,
             (unsigned long)exanic);
+#endif
     mod_timer(&exanic->link_timer, jiffies + HZ);
 
     /* Register device (misc_dev.minor already initialized) */

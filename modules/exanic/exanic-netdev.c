@@ -468,10 +468,16 @@ static int __exanic_transmit_frame(struct exanic_netdev_tx *tx,
 /**
  * This is the polling function used when interrupts are not available.
  */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void exanic_timer_callback(struct timer_list *rx_timer)
+{
+    struct exanic_netdev_priv *priv =
+        container_of(rx_timer, struct exanic_netdev_priv, rx_timer);
+#else
 static void exanic_timer_callback(unsigned long data)
 {
     struct exanic_netdev_priv *priv = (struct exanic_netdev_priv *)data;
-
+#endif
     if (priv->rx_enabled)
     {
         if (exanic_rx_ready(&priv->rx))
@@ -590,7 +596,11 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
                 "using timer to poll for packets\n");
 
         /* Set up timer callback to trigger polling */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+        timer_setup(&priv->rx_timer, exanic_timer_callback, 0);
+#else
         setup_timer(&priv->rx_timer, exanic_timer_callback, (unsigned long)priv);
+#endif
         mod_timer(&priv->rx_timer, jiffies + 1);
     }
 

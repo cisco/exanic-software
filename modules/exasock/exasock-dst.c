@@ -267,7 +267,11 @@ static void __remove_dst_entry(unsigned int idx)
 }
 
 /* Check first entry in the list, remove if expired and adjust the table */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void dst_expiry_timer_handler(struct timer_list *t)
+#else
 static void dst_expiry_timer_handler(unsigned long data)
+#endif
 {
     struct neighbour *new_neigh;
     struct exasock_dst_entry *de;
@@ -743,8 +747,12 @@ int __init exasock_dst_init(void)
         INIT_LIST_HEAD(&dst_neigh_hash[i]);
 
     dst_expiry_timer_running = true;
-    setup_timer(&dst_expiry_timer, dst_expiry_timer_handler, 0);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+    timer_setup(&dst_expiry_timer, dst_expiry_timer_handler, 0);
+#else
+    setup_timer(&dst_expiry_timer, dst_expiry_timer_handler, 0);
+#endif
     return 0;
 
 err_alloc:
