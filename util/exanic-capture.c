@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sched.h>
 #include <stdio.h>
 #include <errno.h>
 #include <time.h>
@@ -471,7 +472,7 @@ int main(int argc, char *argv[])
     exanic_cycles32_t timestamp;
     struct timespec ts;
     struct exanic_timespecps tsps;
-    int hw_tstamp = 0, nsec_pcap = 0, snaplen = sizeof(rx_buf), flush = 0;
+    int hw_tstamp = 0, nsec_pcap = 0, snaplen = sizeof(rx_buf), flush = 0, yield = 0;
     int promisc = 1, set_promisc, filter;
     unsigned long rx_success = 0, rx_aborted = 0, rx_corrupt = 0,
                   rx_hwovfl = 0, rx_swovfl = 0, rx_other = 0;
@@ -481,7 +482,7 @@ int main(int argc, char *argv[])
     char file_name_buf[4096];
     int c;
 
-    while ((c = getopt(argc, argv, "i:w:s:C:F:pHNh?")) != -1)
+    while ((c = getopt(argc, argv, "i:w:s:C:F:pHNYh?")) != -1)
     {
         switch (c)
         {
@@ -515,6 +516,9 @@ int main(int argc, char *argv[])
                 break;
             case 'N':
                 nsec_pcap = 1;
+                break;
+            case 'Y':
+                yield = 1;
                 break;
             default:
                 goto usage_error;
@@ -599,7 +603,12 @@ int main(int argc, char *argv[])
                 &timestamp, &status);
 
         if (rx_size < 0 && status == EXANIC_RX_FRAME_OK)
+        {
+            if(yield)
+                sched_yield();
+
             continue;
+        }
 
         /* Get timestamp */
         if (rx_size > 0 && hw_tstamp)
@@ -728,7 +737,8 @@ usage_error:
     fprintf(stderr, "  -F: file format [pcap|erf] (default is pcap)\n");
     fprintf(stderr, "  -p: do not attempt to put interface in promiscuous mode\n");
     fprintf(stderr, "  -H: use hardware timestamps (requires exanic-clock-sync or exanic-ptpd)\n");
-    fprintf(stderr, "  -N: write nanosecond-resolution pcap format\n\n");
+    fprintf(stderr, "  -N: write nanosecond-resolution pcap format\n");
+    fprintf(stderr, "  -Y: yield CPU between spins\n\n");
     fprintf(stderr, "Filter examples:\n");
     fprintf(stderr, "  tcp port 80                   (to/from tcp port 80)\n");
     fprintf(stderr, "  host 192.168.0.1 tcp port 80  (to/from 192.168.0.1:80)\n");
