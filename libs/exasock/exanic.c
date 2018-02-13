@@ -1365,8 +1365,7 @@ exanic_tcp_connect(struct exa_socket * restrict sock,
 /* Apply connection state of a newly accepted connection to a socket */
 void
 exanic_tcp_accept(struct exa_socket * restrict sock,
-                  struct exa_endpoint * restrict ep,
-                  struct exa_tcp_init_state * restrict tcp_state)
+                  struct exa_endpoint * restrict ep)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
     struct exanic_ip * restrict ip_ctx = sock->listen.interface;
@@ -1393,7 +1392,7 @@ exanic_tcp_accept(struct exa_socket * restrict sock,
         exa_eth_set_dest(&ctx->eth, ctx->dst.eth_addr);
 
     /* Set TCP connection state */
-    exa_tcp_accept(&ctx->tcp, &ep->port, exa_ip_addr_csum(&ctx->ip), tcp_state);
+    exa_tcp_accept(&ctx->tcp, &ep->port, exa_ip_addr_csum(&ctx->ip));
 
     /* Update socket ready state */
     exa_notify_update(sock);

@@ -697,6 +697,9 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
         endpoint.addr.local = src_addr;
     }
 
+    /* initialize TCP state */
+    exa_tcp_state_init_conn(sock->state);
+
     /* Update kernel about the connection endpoint */
     if (exa_sys_update(fd, &endpoint) == -1)
         goto err_sys_update;
@@ -786,11 +789,14 @@ exa_socket_tcp_accept(struct exa_endpoint * restrict endpoint,
 
     sock->bound = true;
 
+    /* initialize TCP state */
+    exa_tcp_state_init_acc(sock->state, tcp_state);
+
     /* Update kernel about the connection endpoint */
     if (exa_sys_update(fd, endpoint) == -1)
         goto err_sys_update;
 
-    exanic_tcp_accept(sock, endpoint, tcp_state);
+    exanic_tcp_accept(sock, endpoint);
 
     /* The kernel writes to the rx buffer, so we need to poll for updates */
     sock->need_rx_ready_poll = true;

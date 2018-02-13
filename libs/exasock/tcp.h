@@ -118,6 +118,19 @@ exa_tcp_init_seq(void)
 }
 
 static inline void
+exa_tcp_state_init_conn(struct exa_socket_state * restrict state)
+{
+    struct exa_tcp_state * restrict tcp = &state->p.tcp;
+
+    /* Generate initial sequence number */
+    tcp->send_ack = tcp->send_seq = exa_tcp_init_seq();
+    tcp->rwnd_end = tcp->send_ack;
+
+    /* Initialize stats */
+    tcp->stats.init_send_seq = tcp->send_seq;
+}
+
+static inline void
 exa_tcp_connect(struct exa_tcp_conn * restrict ctx,
                 struct exa_endpoint_port * restrict port,
                 uint64_t addr_csum)
@@ -138,20 +151,30 @@ exa_tcp_connect(struct exa_tcp_conn * restrict ctx,
 
     ctx->ph_csum = csum(NULL, 0, addr_csum + htons(IPPROTO_TCP));
 
-    /* Generate initial sequence number */
-    state->send_ack = state->send_seq = exa_tcp_init_seq();
-    state->rwnd_end = state->send_ack;
-
-    /* Initialize stats */
-    state->stats.init_send_seq = state->send_seq;
-
     state->state = EXA_TCP_SYN_SENT;
 }
 
 static inline void
+exa_tcp_state_init_acc(struct exa_socket_state * restrict state,
+                       struct exa_tcp_init_state * restrict tcp_state)
+{
+    struct exa_tcp_state * restrict tcp = &state->p.tcp;
+
+    tcp->send_ack = tcp->send_seq = tcp_state->local_seq;
+    tcp->rwnd_end = tcp->send_ack + tcp_state->peer_window;
+    tcp->rmss = tcp_state->peer_mss;
+    tcp->wscale = tcp_state->peer_wscale;
+
+    tcp->read_seq = tcp->recv_seq = tcp->proc_seq = tcp_state->peer_seq;
+
+    /* Initialize stats */
+    tcp->stats.init_send_seq = tcp->send_seq;
+    tcp->stats.init_recv_seq = tcp->recv_seq;
+}
+
+static inline void
 exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
-               struct exa_endpoint_port * restrict port, uint64_t addr_csum,
-               struct exa_tcp_init_state * restrict tcp_state)
+               struct exa_endpoint_port * restrict port, uint64_t addr_csum)
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
 
@@ -168,17 +191,6 @@ exa_tcp_accept(struct exa_tcp_conn * restrict ctx,
     ctx->hdr.th_sum = 0;
 
     ctx->ph_csum = csum(NULL, 0, addr_csum + htons(IPPROTO_TCP));
-
-    state->send_ack = state->send_seq = tcp_state->local_seq;
-    state->rwnd_end = state->send_ack + tcp_state->peer_window;
-    state->rmss = tcp_state->peer_mss;
-    state->wscale = tcp_state->peer_wscale;
-
-    state->read_seq = state->recv_seq = state->proc_seq = tcp_state->peer_seq;
-
-    /* Initialize stats */
-    state->stats.init_send_seq = state->send_seq;
-    state->stats.init_recv_seq = state->recv_seq;
 
     state->state = EXA_TCP_ESTABLISHED;
 }

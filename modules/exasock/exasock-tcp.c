@@ -111,10 +111,10 @@ struct exasock_tcp
     /* For keeping track of duplicate acks for entering fast retransmit */
     struct
     {
+        unsigned                    cnt;
         uint32_t                    ack_seq;
         uint32_t                    win_end;
-    } last_recv;
-    int                             num_dup_acks;
+    } dup_acks;
 
     /* Fast retransmit state */
     bool                            fast_retransmit;
@@ -633,6 +633,10 @@ void exasock_tcp_update(struct exasock_tcp *tcp,
     tcp->user_page->e.ip.local_port = tcp->local_port;
     tcp->user_page->e.ip.peer_addr = tcp->peer_addr;
     tcp->user_page->e.ip.peer_port = tcp->peer_port;
+
+    /* Initialize duplicate ACKs context */
+    tcp->dup_acks.ack_seq = tcp->user_page->p.tcp.send_ack;
+    tcp->dup_acks.win_end = tcp->user_page->p.tcp.rwnd_end;
 
     exasock_tcp_stats_update(tcp);
 }
@@ -1375,14 +1379,14 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     if (th->ack)
     {
         /* Duplicate ACK processing for fast retransmit */
-        if (ack_seq == tcp->last_recv.ack_seq &&
-            win_end == tcp->last_recv.win_end)
+        if (ack_seq == tcp->dup_acks.ack_seq &&
+            win_end == tcp->dup_acks.win_end)
         {
             /* Duplicate ACK */
             uint32_t send_seq = state->p.tcp.send_seq;
 
             if (ack_seq != send_seq && datalen == 0)
-                tcp->num_dup_acks++;
+                tcp->dup_acks.cnt++;
         }
         else
         {
@@ -1399,7 +1403,7 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             while (after(win_end, rwnd_end))
                 rwnd_end = cmpxchg(&state->p.tcp.rwnd_end, rwnd_end, win_end);
 
-            if (after(ack_seq, tcp->last_recv.ack_seq))
+            if (after(ack_seq, tcp->dup_acks.ack_seq))
             {
                 uint32_t cwnd = state->p.tcp.cwnd;
                 uint32_t ssthresh = state->p.tcp.ssthresh;
@@ -1417,14 +1421,17 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
 
                 state->p.tcp.cwnd = cwnd;
 
-                tcp->num_dup_acks = 0;
+                tcp->dup_acks.cnt = 0;
+                tcp->dup_acks.ack_seq = ack_seq;
 
                 if (tcp->fast_retransmit)
                     exasock_tcp_retransmit(tcp, ack_seq, true);
             }
+            if (after(win_end, tcp->dup_acks.win_end))
+                tcp->dup_acks.win_end = win_end;
         }
 
-        if (tcp->num_dup_acks >= 3 && !tcp->fast_retransmit)
+        if (tcp->dup_acks.cnt >= 3 && !tcp->fast_retransmit)
         {
             uint32_t flight_size, ssthresh, send_seq, send_ack;
 
@@ -1452,9 +1459,6 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             /* Leave fast retransmit state */
             tcp->fast_retransmit = false;
         }
-
-        tcp->last_recv.ack_seq = ack_seq;
-        tcp->last_recv.win_end = win_end;
     }
 
     err = exasock_tcp_process_data(skb, state, tcp->rx_buffer, tcp->rx_seg,

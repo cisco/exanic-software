@@ -44,8 +44,7 @@ void exanic_tcp_get_device(struct exa_socket * restrict sock, char *dev,
                            size_t len, int *port_number);
 void exanic_tcp_listen(struct exa_socket * restrict sock, int backlog);
 void exanic_tcp_accept(struct exa_socket * restrict sock,
-                       struct exa_endpoint * restrict ep,
-                       struct exa_tcp_init_state * restrict tcp_state);
+                       struct exa_endpoint * restrict ep);
 void exanic_tcp_connect(struct exa_socket * restrict sock,
                         struct exa_endpoint * restrict ep);
 void exanic_tcp_shutdown_write(struct exa_socket * restrict sock);
