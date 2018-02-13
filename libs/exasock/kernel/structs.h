@@ -80,7 +80,10 @@ struct exa_tcp_state
      * advertised by libexasock */
     uint32_t adv_wnd_end;
 
-    uint8_t __reserved0[4];
+    uint8_t __reserved0[52];
+
+    /* 64 */
+    /* user read-write, kernel not interested */
 
     /* Out of order received segments */
     struct {
@@ -88,7 +91,9 @@ struct exa_tcp_state
         uint32_t end;
     } recv_seg[EXA_TCP_MAX_RX_SEGMENTS];
 
-    /* 64 */
+    uint8_t __reserved1[16];
+
+    /* 128 */
     /* either user read-write and kernel read-mostly, or
      * user read-mostly and kernel read-write.
      * Note: In most of scenarios the first case applies. The second
@@ -112,9 +117,9 @@ struct exa_tcp_state
      * the socket's rx_buffer. */
     uint32_t proc_seq;
 
-    uint8_t __reserved1[48];
+    uint8_t __reserved2[48];
 
-    /* 128 */
+    /* 192 */
     /* user read-mostly, kernel read-mostly */
 
     /* Receiver maximum segment size */
@@ -126,9 +131,9 @@ struct exa_tcp_state
     /* Slow start after idle? */
     uint8_t ss_after_idle;
 
-    uint8_t __reserved2[59];
+    uint8_t __reserved3[59];
 
-    /* 192 */
+    /* 256 */
     /* user read-mostly, kernel read-write */
 
     /* Congestion window */
@@ -136,17 +141,17 @@ struct exa_tcp_state
     /* Slow start threshold */
     uint32_t ssthresh;
 
-    uint8_t __reserved3[56];
+    uint8_t __reserved4[56];
 
-    /* 256 */
+    /* 320 */
     /* user write-mostly, kernel read-write */
 
     /* Set to true to signal that an ACK is needed */
     uint8_t ack_pending;
 
-    uint8_t __reserved4[63];
+    uint8_t __reserved5[63];
 
-    /* 320 */
+    /* 384 */
     /* Stats related info: user initialize, kernel read-write */
 
     struct {
