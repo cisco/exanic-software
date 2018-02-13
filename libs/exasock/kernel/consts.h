@@ -3,5 +3,6 @@
 
 #define EXA_TCP_MSS 1460
 #define EXA_TCP_WSCALE 8
+#define EXA_TCP_SYNACK_WIN 32000
 
 #endif /* EXASOCK_KERNEL_CONSTS_H */

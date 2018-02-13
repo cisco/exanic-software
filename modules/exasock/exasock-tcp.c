@@ -105,6 +105,13 @@ struct exasock_tcp
     uint32_t                        last_send_seq;
     uint32_t                        last_send_ack;
 
+    /* Last advertised window */
+    struct
+    {
+        uint32_t                    end;
+        bool                        valid;
+    } adv_win;
+
     /* Retransmit timeout is triggered when count reaches 0 */
     int                             retransmit_countdown;
 
@@ -202,7 +209,7 @@ static struct delayed_work      tcp_req_work;
 static void exasock_tcp_conn_worker(struct work_struct *work);
 static void exasock_tcp_conn_win_worker(struct work_struct *work);
 static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans);
-static void exasock_tcp_send_ack(struct exasock_tcp *tcp);
+static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup);
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp);
 static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req);
 
@@ -287,6 +294,14 @@ static inline bool before_eq(uint32_t seq1, uint32_t seq2)
 static inline bool after_eq(uint32_t seq1, uint32_t seq2)
 {
     return (int32_t)(seq1 - seq2) >= 0;
+}
+
+static inline uint32_t get_last_win_end(struct exasock_tcp *tcp,
+                                        struct exa_socket_state *state)
+{
+    return (after(tcp->adv_win.end, state->p.tcp.adv_wnd_end) &&
+                 tcp->adv_win.valid) ?
+                 tcp->adv_win.end : state->p.tcp.adv_wnd_end;
 }
 
 static inline void exasock_tcp_seg_list_cleanup(struct list_head *seg_list)
@@ -826,6 +841,16 @@ static struct exasock_tcp *exasock_tcp_lookup(uint32_t local_addr,
     return NULL;
 }
 
+static inline uint16_t exasock_tcp_scale_window(uint32_t rx_space,
+                                                struct exa_socket_state *state)
+{
+    /* Window scaling is enabled if remote host gave a non-zero window scale */
+    if (state->p.tcp.wscale != 0)
+        rx_space >>= EXA_TCP_WSCALE;
+
+    return rx_space < 0xFFFF ? rx_space : 0xFFFF;
+}
+
 static uint16_t exasock_tcp_calc_window(struct exasock_tcp *tcp)
 {
     struct exa_socket_state *state = tcp->user_page;
@@ -835,11 +860,7 @@ static uint16_t exasock_tcp_calc_window(struct exasock_tcp *tcp)
     rx_space = state->rx_buffer_size -
                (state->p.tcp.recv_seq - state->p.tcp.read_seq);
 
-    /* Window scaling is enabled if remote host gave a non-zero window scale */
-    if (state->p.tcp.wscale != 0)
-        rx_space >>= EXA_TCP_WSCALE;
-
-    return rx_space < 0xFFFF ? rx_space : 0xFFFF;
+    return exasock_tcp_scale_window(rx_space, state);
 }
 
 static bool exasock_tcp_intercept(struct sk_buff *skb)
@@ -881,7 +902,7 @@ static void exasock_tcp_update_state(volatile struct exa_tcp_state *tcp_st,
                                      uint32_t seq, unsigned len, bool th_ack,
                                      bool th_fin)
 {
-    if (seq != tcp_st->recv_seq)
+    if (before(seq, tcp_st->recv_seq))
         tcp_st->ack_pending = true;
 
 update_state:
@@ -1235,7 +1256,8 @@ static int exasock_tcp_process_data(struct sk_buff *skb,
                                     struct exa_socket_state *state,
                                     void *rx_buffer,
                                     struct exasock_tcp_rx_seg *rx_seg,
-                                    char *data, unsigned seg_len, struct tcphdr *th)
+                                    char *data, unsigned seg_len, struct tcphdr *th,
+                                    bool *out_of_order)
 {
     struct exa_tcp_state *tcp_st = &state->p.tcp;
     volatile uint32_t *tcp_st_recv_seq = &tcp_st->recv_seq;
@@ -1281,10 +1303,17 @@ proc_check:
     /* Release all data already copied to the ring buffer by the library */
     exasock_tcp_rx_seg_cleanup(rx_seg, recv_seq);
 
-    /* Check if packet gives us any new data */
     if (after(recv_seq, seg_end_seq) ||
         (recv_seq == seg_end_seq && seg_len > 0))
+    {
+       /* packet does not give us any new data */
         goto skip_proc;
+    }
+    else if (after(seg_seq, recv_seq))
+    {
+        /* out of order segment */
+        *out_of_order = true;
+    }
 
     /* If the library has currently locked the segment for processing,
      * we assume the library is ahead. Kernel will defer its processing
@@ -1373,6 +1402,7 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     uint32_t ack_seq = ntohl(th->ack_seq);
     uint8_t wscale = th->syn ? 0 : state->p.tcp.wscale;
     uint32_t win_end = ack_seq + (ntohs(th->window) << wscale);
+    bool out_of_order = false;
     int err;
 
     if (th->ack)
@@ -1462,13 +1492,17 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     }
 
     err = exasock_tcp_process_data(skb, state, tcp->rx_buffer, tcp->rx_seg,
-                                   data, datalen, th);
+                                   data, datalen, th, &out_of_order);
     if (err)
         return -1; /* Segment locked, retry later */
 
     /* Send ACK if needed */
     if (state->p.tcp.ack_pending)
-        exasock_tcp_send_ack(tcp);
+        exasock_tcp_send_ack(tcp, false);
+
+    /* Send duplicate ACK if out-of-order segment received */
+    if (out_of_order)
+        exasock_tcp_send_ack(tcp, true);
 
     if (exasock_tcp_calc_window(tcp) == 0 && tcp->win_work_on == 0)
     {
@@ -1826,7 +1860,7 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     }
     else if (state->p.tcp.ack_pending)
     {
-        exasock_tcp_send_ack(tcp);
+        exasock_tcp_send_ack(tcp, false);
     }
 
     if (tcp_state == EXA_TCP_CLOSED || tcp_state == EXA_TCP_LISTEN)
@@ -1906,7 +1940,7 @@ static void exasock_tcp_conn_win_worker(struct work_struct *work)
 
     /* If there was window space update, ack_pending has been set */
     if (state->p.tcp.ack_pending)
-        exasock_tcp_send_ack(tcp);
+        exasock_tcp_send_ack(tcp, false);
 
     /* Continue monitoring only if there is still no space in the window */
     if (exasock_tcp_calc_window(tcp) > 0)
@@ -1945,13 +1979,14 @@ static int exasock_tcp_tx_buffer_get(struct exasock_tcp *tcp, char *data,
 }
 
 static void exasock_tcp_retransmit_packet(struct exasock_tcp *tcp,
-                                          uint32_t seq, uint32_t len)
+                                          uint32_t seq, uint32_t len, bool dup)
 {
     struct exa_socket_state *state = tcp->user_page;
     struct sk_buff *skb;
     struct tcphdr *th;
     uint8_t tcp_state;
     uint32_t send_seq, recv_seq;
+    uint16_t window;
     bool data_allowed = false;
 
     /* We are just reading so don't need any locks */
@@ -2068,7 +2103,29 @@ static void exasock_tcp_retransmit_packet(struct exasock_tcp *tcp,
     }
 
     th->doff = skb->len / 4;
-    th->window = htons(exasock_tcp_calc_window(tcp));
+
+    if (dup)
+    {
+        window = exasock_tcp_scale_window(
+                                        get_last_win_end(tcp, state) - recv_seq,
+                                        state);
+    }
+    else
+    {
+        uint32_t adv_wnd_end = state->p.tcp.adv_wnd_end;
+
+        window = exasock_tcp_calc_window(tcp);
+        tcp->adv_win.end = recv_seq +
+                        (window << (state->p.tcp.wscale ? EXA_TCP_WSCALE : 0));
+        tcp->adv_win.valid = true;
+
+        /* Prevent libexasock's adv_wnd_end from being left too far behind if
+         * no data gets sent to the peer for a long time */
+        while (tcp->adv_win.end - adv_wnd_end > 0x3FFFFFFF)
+            adv_wnd_end = cmpxchg(&state->p.tcp.adv_wnd_end, adv_wnd_end,
+                                  tcp->adv_win.end);
+    }
+    th->window = htons(window);
 
     if (data_allowed && len > 0)
     {
@@ -2124,14 +2181,14 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans)
     else
         tcp->counters.s.conn.retrans_segs_to++;
 
-    exasock_tcp_retransmit_packet(tcp, send_ack, len);
+    exasock_tcp_retransmit_packet(tcp, send_ack, len, false);
 }
 
-static void exasock_tcp_send_ack(struct exasock_tcp *tcp)
+static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup)
 {
     struct exa_socket_state *state = tcp->user_page;
 
-    exasock_tcp_retransmit_packet(tcp, state->p.tcp.send_seq, 0);
+    exasock_tcp_retransmit_packet(tcp, state->p.tcp.send_seq, 0, dup);
 }
 
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp)
@@ -2220,7 +2277,7 @@ static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req)
     th->dest = req->peer_port;
     th->seq = htonl(req->local_seq - 1);
     th->ack_seq = htonl(req->peer_seq);
-    th->window = htons(32000); /* Smaller than the real window size */
+    th->window = htons(EXA_TCP_SYNACK_WIN); /* Smaller than the real window size */
     th->syn = 1;
     th->ack = 1;
 

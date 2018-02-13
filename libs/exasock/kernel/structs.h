@@ -76,8 +76,11 @@ struct exa_tcp_state
     uint32_t send_seq;
     /* Next received sequence number to be delivered to user */
     uint32_t read_seq;
+    /* First sequence number beyond the local receive window most recently
+     * advertised by libexasock */
+    uint32_t adv_wnd_end;
 
-    uint8_t __reserved0[8];
+    uint8_t __reserved0[4];
 
     /* Out of order received segments */
     struct {

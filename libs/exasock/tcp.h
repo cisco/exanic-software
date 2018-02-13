@@ -166,6 +166,7 @@ exa_tcp_state_init_acc(struct exa_socket_state * restrict state,
     tcp->wscale = tcp_state->peer_wscale;
 
     tcp->read_seq = tcp->recv_seq = tcp->proc_seq = tcp_state->peer_seq;
+    tcp->adv_wnd_end = tcp->recv_seq + EXA_TCP_SYNACK_WIN;
 
     /* Initialize stats */
     tcp->stats.init_send_seq = tcp->send_seq;
@@ -279,19 +280,31 @@ exa_tcp_clear_ack_pending(struct exa_tcp_conn * restrict ctx)
 
 /* Calculate the value of the window field in the TCP header */
 static inline uint16_t
-__exa_tcp_calc_window(struct exa_socket_state * restrict state)
+__exa_tcp_calc_window(struct exa_socket_state * restrict state,
+                      struct exa_tcp_state * restrict tcp, uint32_t recv_seq)
 {
-    struct exa_tcp_state * restrict tcp = &state->p.tcp;
     uint32_t rx_space;
 
     /* Calculate window size from remaining space in buffer */
-    rx_space = state->rx_buffer_size - (tcp->recv_seq - tcp->read_seq);
+    rx_space = state->rx_buffer_size - (recv_seq - tcp->read_seq);
 
     /* Window scaling is enabled if remote host gave a non-zero window scale */
     if (tcp->wscale != 0)
         rx_space >>= EXA_TCP_WSCALE;
 
     return rx_space < TCP_MAXWIN ? rx_space : TCP_MAXWIN;
+}
+
+static inline uint16_t
+exa_tcp_get_window(struct exa_socket_state * restrict state, uint32_t recv_seq)
+{
+    struct exa_tcp_state * restrict tcp = &state->p.tcp;
+    uint16_t window = __exa_tcp_calc_window(state, tcp, recv_seq);
+
+    /* Store the window end point that is going to be advertised now */
+    tcp->adv_wnd_end = recv_seq +
+                       (window << (tcp->wscale ? EXA_TCP_WSCALE : 0));
+    return window;
 }
 
 /* Construct a packet with no data for the current state */
@@ -301,6 +314,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
     struct tcphdr * restrict h;
+    uint32_t recv_seq = state->recv_seq;
     size_t optlen = 0;
 
     if (state->state == EXA_TCP_SYN_SENT || state->state == EXA_TCP_SYN_RCVD)
@@ -337,55 +351,55 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
     case EXA_TCP_SYN_RCVD:
         /* Send SYN ACK */
         h->th_seq = htonl(state->send_seq - 1);
-        h->th_ack = htonl(state->recv_seq);
+        h->th_ack = htonl(recv_seq);
         h->th_flags = TH_SYN | TH_ACK;
         break;
 
     case EXA_TCP_ESTABLISHED:
         /* Send ACK */
         h->th_seq = htonl(state->send_seq);
-        h->th_ack = htonl(state->recv_seq);
+        h->th_ack = htonl(recv_seq);
         h->th_flags = TH_ACK;
         break;
 
     case EXA_TCP_CLOSE_WAIT:
         /* Send ACK for remote FIN */
         h->th_seq = htonl(state->send_seq);
-        h->th_ack = htonl(state->recv_seq + 1);
+        h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
 
     case EXA_TCP_FIN_WAIT_1:
         /* Send FIN */
         h->th_seq = htonl(state->send_seq);
-        h->th_ack = htonl(state->recv_seq);
+        h->th_ack = htonl(recv_seq);
         h->th_flags = TH_FIN | TH_ACK;
         break;
 
     case EXA_TCP_FIN_WAIT_2:
         /* Send ACK */
         h->th_seq = htonl(state->send_seq);
-        h->th_ack = htonl(state->recv_seq);
+        h->th_ack = htonl(recv_seq);
         h->th_flags = TH_ACK;
         break;
 
     case EXA_TCP_CLOSING:
         /* Send ACK for remote FIN */
         h->th_seq = htonl(state->send_seq);
-        h->th_ack = htonl(state->recv_seq + 1);
+        h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
         break;
 
     case EXA_TCP_LAST_ACK:
         /* Send FIN */
         h->th_seq = htonl(state->send_seq);
-        h->th_ack = htonl(state->recv_seq + 1);
+        h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_FIN | TH_ACK;
         break;
 
     case EXA_TCP_TIME_WAIT:
         /* Send ACK for remote FIN */
         h->th_seq = htonl(state->send_seq + 1);
-        h->th_ack = htonl(state->recv_seq + 1);
+        h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
         break;
 
@@ -394,7 +408,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         return false;
     }
 
-    h->th_win = htons(__exa_tcp_calc_window(ctx->state));
+    h->th_win = htons(exa_tcp_get_window(ctx->state, recv_seq));
     h->th_off = (sizeof(struct tcphdr) + optlen) / 4;
     h->th_sum = ~csum(h, sizeof(struct tcphdr) + optlen,
                       ctx->ph_csum + htons(sizeof(struct tcphdr) + optlen));
@@ -466,6 +480,7 @@ exa_tcp_build_hdr(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
 {
     struct tcphdr * restrict h = (struct tcphdr *)(*hdr - sizeof(struct tcphdr));
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
+    uint32_t recv_seq = state->recv_seq;
     uint64_t csum_hdr;
 
     assert(state->state == EXA_TCP_ESTABLISHED ||
@@ -477,11 +492,9 @@ exa_tcp_build_hdr(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
     *h = ctx->hdr;
 
     h->th_seq = htonl(send_seq);
-    h->th_ack = htonl(state->recv_seq +
-                      (state->state == EXA_TCP_CLOSE_WAIT ? 1 : 0));
+    h->th_ack = htonl(recv_seq + (state->state == EXA_TCP_CLOSE_WAIT ? 1 : 0));
     h->th_flags = TH_PUSH | TH_ACK;
-
-    h->th_win = htons(__exa_tcp_calc_window(ctx->state));
+    h->th_win = htons(exa_tcp_get_window(ctx->state, recv_seq));
 
     csum_hdr = csum_part(h, sizeof(struct tcphdr), ctx->ph_csum +
                          htons(sizeof(struct tcphdr) + data_len));
@@ -598,6 +611,7 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         {
             /* Reset sequence numbers */
             state->read_seq = state->recv_seq = state->proc_seq = data_seq;
+            state->adv_wnd_end = state->recv_seq;
             state->stats.init_recv_seq = state->recv_seq;
 
             /* Parse and apply TCP options */
@@ -663,7 +677,7 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         return;
     }
 
-    if (data_seq != state->recv_seq)
+    if (seq_compare(data_seq, state->recv_seq) < 0)
         state->ack_pending = true;
 }
 
