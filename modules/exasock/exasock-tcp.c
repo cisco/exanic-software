@@ -201,8 +201,7 @@ static struct delayed_work      tcp_req_work;
 
 static void exasock_tcp_conn_worker(struct work_struct *work);
 static void exasock_tcp_conn_win_worker(struct work_struct *work);
-static void exasock_tcp_retransmit(struct exasock_tcp *tcp, uint32_t seq,
-                                   bool fast_retrans);
+static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans);
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp);
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp);
 static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req);
@@ -1425,7 +1424,14 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
                 tcp->dup_acks.ack_seq = ack_seq;
 
                 if (tcp->fast_retransmit)
-                    exasock_tcp_retransmit(tcp, ack_seq, true);
+                {
+                    /* Retransmit data still missing at receivers end or leave
+                     * fast retransmit state */
+                    if (before(ack_seq, tcp->fast_retransmit_recover_seq))
+                        exasock_tcp_retransmit(tcp, true);
+                    else
+                        tcp->fast_retransmit = false;
+                }
             }
             if (after(win_end, tcp->dup_acks.win_end))
                 tcp->dup_acks.win_end = win_end;
@@ -1451,13 +1457,7 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             tcp->fast_retransmit = true;
             tcp->fast_retransmit_recover_seq = send_seq;
 
-            exasock_tcp_retransmit(tcp, ack_seq, true);
-        }
-
-        if (!before(ack_seq, tcp->fast_retransmit_recover_seq))
-        {
-            /* Leave fast retransmit state */
-            tcp->fast_retransmit = false;
+            exasock_tcp_retransmit(tcp, true);
         }
     }
 
@@ -1822,7 +1822,7 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
         /* ACK timeout */
         tcp->retransmit_countdown = -1;
         state->p.tcp.cwnd = EXA_TCP_MSS;
-        exasock_tcp_retransmit(tcp, send_ack, false);
+        exasock_tcp_retransmit(tcp, false);
     }
     else if (state->p.tcp.ack_pending)
     {
@@ -2087,18 +2087,15 @@ abort_packet:
     kfree_skb(skb);
 }
 
-/* Retransmit one MSS of data at the given sequence number */
-static void exasock_tcp_retransmit(struct exasock_tcp *tcp, uint32_t seq,
-                                   bool fast_retrans)
+/* Retransmit one MSS of data not acknowledged yet */
+static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans)
 {
     struct exa_socket_state *state = tcp->user_page;
-    uint32_t rmss, send_seq;
+    uint32_t send_ack = state->p.tcp.send_ack;
+    uint32_t send_seq = state->p.tcp.send_seq;
+    uint32_t rmss = state->p.tcp.rmss;
+    uint8_t tcp_state = state->p.tcp.state;
     uint32_t len;
-    uint8_t tcp_state;
-
-    rmss = state->p.tcp.rmss;
-    send_seq = state->p.tcp.send_seq;
-    tcp_state = state->p.tcp.state;
 
     if (tcp_state == EXA_TCP_SYN_RCVD || tcp_state == EXA_TCP_SYN_SENT)
     {
@@ -2107,7 +2104,10 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, uint32_t seq,
     }
     else
     {
-        len = send_seq - seq;
+        len = send_seq - send_ack;
+
+        if (len == 0)
+            return;
 
         if (len > EXA_TCP_MSS)
             len = EXA_TCP_MSS;
@@ -2124,7 +2124,7 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, uint32_t seq,
     else
         tcp->counters.s.conn.retrans_segs_to++;
 
-    exasock_tcp_retransmit_packet(tcp, seq, len);
+    exasock_tcp_retransmit_packet(tcp, send_ack, len);
 }
 
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp)
