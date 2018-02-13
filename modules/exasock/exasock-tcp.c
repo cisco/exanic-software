@@ -867,14 +867,14 @@ static inline uint16_t exasock_tcp_scale_window(uint32_t rx_space,
     return rx_space < 0xFFFF ? rx_space : 0xFFFF;
 }
 
-static uint16_t exasock_tcp_calc_window(struct exasock_tcp *tcp)
+static uint16_t exasock_tcp_calc_window(struct exasock_tcp *tcp,
+                                        uint32_t recv_seq)
 {
     struct exa_socket_state *state = tcp->user_page;
     uint32_t rx_space;
 
     /* Calculate window size from remaining space in buffer */
-    rx_space = state->rx_buffer_size -
-               (state->p.tcp.recv_seq - state->p.tcp.read_seq);
+    rx_space = state->rx_buffer_size - (recv_seq - state->p.tcp.read_seq);
 
     return exasock_tcp_scale_window(rx_space, state);
 }
@@ -1581,7 +1581,8 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     /* Send duplicate ACK if out-of-order segment received */
     exasock_tcp_process_out_of_order(tcp, state, out_of_order);
 
-    if (exasock_tcp_calc_window(tcp) == 0 && tcp->win_work_on == 0)
+    if (exasock_tcp_calc_window(tcp, state->p.tcp.recv_seq) == 0 &&
+        tcp->win_work_on == 0)
     {
         /* The last sent window size was 0. Start monitoring to make sure
          * the peer gets updated as soon as the window space gets available
@@ -2022,7 +2023,7 @@ static void exasock_tcp_conn_win_worker(struct work_struct *work)
         exasock_tcp_send_ack(tcp, false);
 
     /* Continue monitoring only if there is still no space in the window */
-    if (exasock_tcp_calc_window(tcp) > 0)
+    if (exasock_tcp_calc_window(tcp, state->p.tcp.recv_seq) > 0)
         tcp->win_work_on = 0;
     else
         queue_delayed_work(tcp_workqueue, &tcp->win_work, 1);
@@ -2193,7 +2194,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
     {
         uint32_t adv_wnd_end = state->p.tcp.adv_wnd_end;
 
-        window = exasock_tcp_calc_window(tcp);
+        window = exasock_tcp_calc_window(tcp, recv_seq);
         tcp->adv_win.end = recv_seq +
                         (window << (state->p.tcp.wscale ? EXA_TCP_WSCALE : 0));
         tcp->adv_win.valid = true;
