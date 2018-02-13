@@ -90,6 +90,14 @@ struct exa_tcp_state
     /* 64 */
     /* user read-write, kernel not interested */
 
+    /* First sequence number beyond the local receive window most recently
+     * pre-staged to be advertised by libexasock. This value is going to be
+     * moved to adv_wnd_end as soon as a segment gets transmitted.
+     * Note: Updating of this field does not affect duplicate ACKs generation
+     *       until it gets moved to adv_wnd_end. It is safe then to update this
+     *       field without actually sending the segment. */
+    uint32_t wnd_end_pending;
+
     /* Out of order received segments */
     struct {
         uint32_t begin;
@@ -107,7 +115,7 @@ struct exa_tcp_state
         uint8_t seg_count;
     } out_of_order;
 
-    uint8_t __reserved1[11];
+    uint8_t __reserved1[7];
 
     /* 128 */
     /* either user read-write and kernel read-mostly, or

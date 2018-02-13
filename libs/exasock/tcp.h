@@ -295,8 +295,8 @@ exa_tcp_get_window(struct exa_socket_state * restrict state, uint32_t recv_seq)
     uint16_t window = __exa_tcp_calc_window(state, tcp, recv_seq);
 
     /* Store the window end point that is going to be advertised now */
-    tcp->adv_wnd_end = recv_seq +
-                       (window << (tcp->wscale ? EXA_TCP_WSCALE : 0));
+    tcp->wnd_end_pending = recv_seq +
+                           (window << (tcp->wscale ? EXA_TCP_WSCALE : 0));
     return window;
 }
 
