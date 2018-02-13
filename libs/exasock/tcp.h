@@ -262,15 +262,6 @@ exa_tcp_write_closed(struct exa_tcp_conn * restrict ctx)
            state->state != EXA_TCP_LISTEN;
 }
 
-/* Return true if we need to send an ACK */
-static inline bool
-exa_tcp_ack_pending(struct exa_tcp_conn * restrict ctx)
-{
-    struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
-
-    return state->ack_pending;
-}
-
 /* Update state after an ACK is sent */
 static inline void
 exa_tcp_clear_ack_pending(struct exa_tcp_conn * restrict ctx)
