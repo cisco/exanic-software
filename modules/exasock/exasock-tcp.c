@@ -109,7 +109,11 @@ struct exasock_tcp
     int                             retransmit_countdown;
 
     /* For keeping track of duplicate acks for entering fast retransmit */
-    uint32_t                        last_recv_ack_seq;
+    struct
+    {
+        uint32_t                    ack_seq;
+        uint32_t                    win_end;
+    } last_recv;
     int                             num_dup_acks;
 
     /* Fast retransmit state */
@@ -1364,41 +1368,27 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
 {
     struct exa_socket_state *state = tcp->user_page;
     uint32_t ack_seq = ntohl(th->ack_seq);
+    uint8_t wscale = th->syn ? 0 : state->p.tcp.wscale;
+    uint32_t win_end = ack_seq + (ntohs(th->window) << wscale);
     int err;
 
     if (th->ack)
     {
         /* Duplicate ACK processing for fast retransmit */
-        if (ack_seq == tcp->last_recv_ack_seq)
+        if (ack_seq == tcp->last_recv.ack_seq &&
+            win_end == tcp->last_recv.win_end)
         {
             /* Duplicate ACK */
             uint32_t send_seq = state->p.tcp.send_seq;
 
-            if (ack_seq != send_seq)
+            if (ack_seq != send_seq && datalen == 0)
                 tcp->num_dup_acks++;
         }
         else
         {
             /* Non-duplicate ACK */
-            uint32_t cwnd = state->p.tcp.cwnd;
-            uint32_t ssthresh = state->p.tcp.ssthresh;
             uint32_t send_ack = state->p.tcp.send_ack;
-            uint8_t wscale = th->syn ? 0 : state->p.tcp.wscale;
-            uint32_t win_end = ack_seq + (ntohs(th->window) << wscale);
             uint32_t rwnd_end = state->p.tcp.rwnd_end;
-
-            if (cwnd <= ssthresh)
-            {
-                /* Slow-start mode */
-                cwnd += EXA_TCP_MSS;
-            }
-            else
-            {
-                /* Congestion avoidance mode */
-                cwnd += EXA_TCP_MSS * EXA_TCP_MSS / cwnd;
-            }
-
-            state->p.tcp.cwnd = cwnd;
 
             /* If this packet has not been processed by user space yet, kernel
              * needs to update TCP state with new ACK and/or receiver buffer
@@ -1409,11 +1399,30 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             while (after(win_end, rwnd_end))
                 rwnd_end = cmpxchg(&state->p.tcp.rwnd_end, rwnd_end, win_end);
 
-            tcp->num_dup_acks = 0;
-        }
+            if (after(ack_seq, tcp->last_recv.ack_seq))
+            {
+                uint32_t cwnd = state->p.tcp.cwnd;
+                uint32_t ssthresh = state->p.tcp.ssthresh;
 
-        if (tcp->fast_retransmit && after(ack_seq, tcp->last_recv_ack_seq))
-            exasock_tcp_retransmit(tcp, ack_seq, true);
+                if (cwnd <= ssthresh)
+                {
+                    /* Slow-start mode */
+                    cwnd += EXA_TCP_MSS;
+                }
+                else
+                {
+                    /* Congestion avoidance mode */
+                    cwnd += EXA_TCP_MSS * EXA_TCP_MSS / cwnd;
+                }
+
+                state->p.tcp.cwnd = cwnd;
+
+                tcp->num_dup_acks = 0;
+
+                if (tcp->fast_retransmit)
+                    exasock_tcp_retransmit(tcp, ack_seq, true);
+            }
+        }
 
         if (tcp->num_dup_acks >= 3 && !tcp->fast_retransmit)
         {
@@ -1444,7 +1453,8 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             tcp->fast_retransmit = false;
         }
 
-        tcp->last_recv_ack_seq = ack_seq;
+        tcp->last_recv.ack_seq = ack_seq;
+        tcp->last_recv.win_end = win_end;
     }
 
     err = exasock_tcp_process_data(skb, state, tcp->rx_buffer, tcp->rx_seg,
