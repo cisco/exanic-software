@@ -112,10 +112,23 @@ struct exasock_tcp
         bool                        valid;
     } adv_win;
 
+    /* Counters for out of order segments received without progress in recv_seq
+     */
+    struct
+    {
+        /* Count of out of order segments received in kernel */
+        unsigned                    cnt;
+        /* Number of duplicate ACKs sent */
+        unsigned                    acks_sent;
+        /* Ack Num value in the duplicate ACK */
+        uint32_t                    ack_seq;
+        bool                        valid;
+    } out_of_order;
+
     /* Retransmit timeout is triggered when count reaches 0 */
     int                             retransmit_countdown;
 
-    /* For keeping track of duplicate acks for entering fast retransmit */
+    /* Received duplicate acks state. Used for entering fast retransmit. */
     struct
     {
         unsigned                    cnt;
@@ -572,6 +585,9 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
     user_page->p.tcp.rmss = 536; /* RFC2581 */
     user_page->p.tcp.cwnd = 3 * EXA_TCP_MSS;
     user_page->p.tcp.ssthresh = 3 * EXA_TCP_MSS;
+
+    /* Invalidate duplicate ACKs trigger */
+    user_page->p.tcp.dup_acks_seq = user_page->p.tcp.recv_seq - 1;
 
     return tcp;
 
@@ -1252,6 +1268,67 @@ static unsigned exasock_tcp_data_length(struct exasock_tcp_rx_seg *rx_seg,
     return len;
 }
 
+static inline void exasock_tcp_out_of_order_update(struct exasock_tcp *tcp,
+                                                   uint32_t recv_seq)
+{
+    if (!tcp->out_of_order.valid || tcp->out_of_order.ack_seq != recv_seq)
+    {
+        tcp->out_of_order.ack_seq = recv_seq;
+        tcp->out_of_order.cnt = 0;
+        tcp->out_of_order.acks_sent = 0;
+        tcp->out_of_order.valid = true;
+    }
+}
+
+static inline void exasock_tcp_send_pending_dup_acks(struct exasock_tcp *tcp)
+{
+    int i;
+
+    for (i = tcp->out_of_order.acks_sent; i < EXA_TCP_FAST_RETRANS_THRESH; i++)
+    {
+        exasock_tcp_send_ack(tcp, true);
+        tcp->out_of_order.acks_sent++;
+    }
+}
+
+static inline void exasock_tcp_check_dup_acks_pending(struct exasock_tcp *tcp,
+                                                 struct exa_socket_state *state)
+{
+    uint32_t recv_seq = state->p.tcp.recv_seq;
+
+    exasock_tcp_out_of_order_update(tcp, recv_seq);
+
+    /* If libexasock has processed at least three out of order segments
+     * without advancing of recv_seq, we make sure at least that many duplicate
+     * ACKs get generated */
+    if (state->p.tcp.dup_acks_seq == recv_seq)
+        exasock_tcp_send_pending_dup_acks(tcp);
+}
+
+static void exasock_tcp_process_out_of_order(struct exasock_tcp *tcp,
+                                             struct exa_socket_state *state,
+                                             bool out_of_order)
+{
+    uint32_t recv_seq = state->p.tcp.recv_seq;
+
+    exasock_tcp_out_of_order_update(tcp, recv_seq);
+
+    /* Send duplicate ACK if out-of-order segment has been received */
+    if (out_of_order)
+    {
+        tcp->out_of_order.cnt++;
+        if (tcp->out_of_order.cnt > tcp->out_of_order.acks_sent)
+        {
+            exasock_tcp_send_ack(tcp, true);
+            tcp->out_of_order.acks_sent++;
+        }
+    }
+
+    /* Process out of order segments seen in libexasock */
+    if (state->p.tcp.dup_acks_seq == recv_seq)
+        exasock_tcp_send_pending_dup_acks(tcp);
+}
+
 static int exasock_tcp_process_data(struct sk_buff *skb,
                                     struct exa_socket_state *state,
                                     void *rx_buffer,
@@ -1467,7 +1544,8 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
                 tcp->dup_acks.win_end = win_end;
         }
 
-        if (tcp->dup_acks.cnt >= 3 && !tcp->fast_retransmit)
+        if (tcp->dup_acks.cnt >= EXA_TCP_FAST_RETRANS_THRESH &&
+            !tcp->fast_retransmit)
         {
             uint32_t flight_size, ssthresh, send_seq, send_ack;
 
@@ -1501,8 +1579,7 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
         exasock_tcp_send_ack(tcp, false);
 
     /* Send duplicate ACK if out-of-order segment received */
-    if (out_of_order)
-        exasock_tcp_send_ack(tcp, true);
+    exasock_tcp_process_out_of_order(tcp, state, out_of_order);
 
     if (exasock_tcp_calc_window(tcp) == 0 && tcp->win_work_on == 0)
     {
@@ -1862,6 +1939,8 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     {
         exasock_tcp_send_ack(tcp, false);
     }
+
+    exasock_tcp_check_dup_acks_pending(tcp, state);
 
     if (tcp_state == EXA_TCP_CLOSED || tcp_state == EXA_TCP_LISTEN)
     {

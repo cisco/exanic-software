@@ -1,6 +1,8 @@
 #ifndef EXASOCK_TCP_BUFFER_H
 #define EXASOCK_TCP_BUFFER_H
 
+#include "kernel/consts.h"
+
 static inline int
 seq_compare(uint32_t a, uint32_t b)
 {
@@ -21,6 +23,30 @@ proc_seq_update(uint32_t *proc_seq, uint32_t *old, uint32_t new)
     } while (seq_compare(new, *old) > 0);
 
     return false;
+}
+
+static inline void
+out_of_order_reset(struct exa_tcp_state * restrict tcp)
+{
+    tcp->out_of_order.seg_count = 0;
+    tcp->out_of_order.ack_seq = tcp->recv_seq;
+    tcp->dup_acks_seq = tcp->out_of_order.ack_seq - 1;
+}
+
+static inline void
+out_of_order_seg_count(struct exa_tcp_state * restrict tcp, uint32_t recv_seq)
+{
+    if (tcp->out_of_order.ack_seq == recv_seq)
+    {
+        tcp->out_of_order.seg_count++;
+        if (tcp->out_of_order.seg_count == EXA_TCP_FAST_RETRANS_THRESH)
+            tcp->dup_acks_seq = tcp->out_of_order.ack_seq;
+    }
+    else
+    {
+        tcp->out_of_order.ack_seq = recv_seq;
+        tcp->out_of_order.seg_count = 1;
+    }
 }
 
 static inline int
@@ -97,7 +123,15 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
     unsigned int i, j, k;
 
     if (len == 0)
+    {
+        /* Just handle an out of order segment and return */
+        if (seq_compare(recv_seq, seq) < 0)
+            out_of_order_seg_count(tcp, recv_seq);
+        else if (seq_compare(recv_seq, tcp->out_of_order.ack_seq) > 0)
+            out_of_order_reset(tcp);
+
         return;
+    }
 
     /* Remove out of order segments already processed by kernel */
     if (tcp->recv_seg[0].end - tcp->recv_seg[0].begin != 0 &&
@@ -151,9 +185,14 @@ exa_tcp_rx_buffer_commit(struct exa_socket * restrict sock,
          * new data right now (recv_seq == seq). We can safely update recv_seq.
          */
         tcp->recv_seq = tcp->proc_seq;
+
+        out_of_order_reset(tcp);
     }
     else
     {
+        /* Update out of order segments counter */
+        out_of_order_seg_count(tcp, recv_seq);
+
         /* Find place to insert into out of order segment list */
         for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS &&
              tcp->recv_seg[i].end - tcp->recv_seg[i].begin != 0 &&

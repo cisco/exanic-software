@@ -79,8 +79,13 @@ struct exa_tcp_state
     /* First sequence number beyond the local receive window most recently
      * advertised by libexasock */
     uint32_t adv_wnd_end;
+    /* Next receive sequence number expected on the network for which at least
+     * three out of order segments have been noticed in libexasock. This is the
+     * Acknowledgment Number to be sent from kernel in respective duplicate ACKs.
+     * Valid only when equal to recv_seq. */
+    uint32_t dup_acks_seq;
 
-    uint8_t __reserved0[52];
+    uint8_t __reserved0[48];
 
     /* 64 */
     /* user read-write, kernel not interested */
@@ -91,7 +96,18 @@ struct exa_tcp_state
         uint32_t end;
     } recv_seg[EXA_TCP_MAX_RX_SEGMENTS];
 
-    uint8_t __reserved1[16];
+    /* Out of order segments counter used for duplicate ACKs generation */
+    struct {
+        /* Acknowledgment Number to be sent in the duplicate ACK.
+         * It is the next receive sequence number expected on the network at
+         * the moment the out of order segment got received. */
+        uint32_t ack_seq;
+        /* Number of out of order segments processed for the same next receive
+         * sequence number expected on the network. */
+        uint8_t seg_count;
+    } out_of_order;
+
+    uint8_t __reserved1[11];
 
     /* 128 */
     /* either user read-write and kernel read-mostly, or

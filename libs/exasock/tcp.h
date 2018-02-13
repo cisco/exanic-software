@@ -167,6 +167,8 @@ exa_tcp_state_init_acc(struct exa_socket_state * restrict state,
 
     tcp->read_seq = tcp->recv_seq = tcp->proc_seq = tcp_state->peer_seq;
     tcp->adv_wnd_end = tcp->recv_seq + EXA_TCP_SYNACK_WIN;
+    tcp->out_of_order.ack_seq = tcp->recv_seq;
+    tcp->dup_acks_seq = tcp->out_of_order.ack_seq - 1;
 
     /* Initialize stats */
     tcp->stats.init_send_seq = tcp->send_seq;
@@ -612,6 +614,8 @@ exa_tcp_pre_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
             /* Reset sequence numbers */
             state->read_seq = state->recv_seq = state->proc_seq = data_seq;
             state->adv_wnd_end = state->recv_seq;
+            state->out_of_order.ack_seq = state->recv_seq;
+            state->dup_acks_seq = state->out_of_order.ack_seq - 1;
             state->stats.init_recv_seq = state->recv_seq;
 
             /* Parse and apply TCP options */
