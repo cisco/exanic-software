@@ -1978,8 +1978,8 @@ static int exasock_tcp_tx_buffer_get(struct exasock_tcp *tcp, char *data,
     return 0;
 }
 
-static void exasock_tcp_retransmit_packet(struct exasock_tcp *tcp,
-                                          uint32_t seq, uint32_t len, bool dup)
+static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
+                                     uint32_t len, bool dup)
 {
     struct exa_socket_state *state = tcp->user_page;
     struct sk_buff *skb;
@@ -2181,14 +2181,14 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans)
     else
         tcp->counters.s.conn.retrans_segs_to++;
 
-    exasock_tcp_retransmit_packet(tcp, send_ack, len, false);
+    exasock_tcp_send_segment(tcp, send_ack, len, false);
 }
 
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup)
 {
     struct exa_socket_state *state = tcp->user_page;
 
-    exasock_tcp_retransmit_packet(tcp, state->p.tcp.send_seq, 0, dup);
+    exasock_tcp_send_segment(tcp, state->p.tcp.send_seq, 0, dup);
 }
 
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp)
