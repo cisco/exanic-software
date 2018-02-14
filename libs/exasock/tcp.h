@@ -288,6 +288,8 @@ __exa_tcp_calc_window(struct exa_socket_state * restrict state,
     return rx_space < TCP_MAXWIN ? rx_space : TCP_MAXWIN;
 }
 
+/* Get the value of the window field for the TCP header and keep it
+ * in the internal state */
 static inline uint16_t
 exa_tcp_get_window(struct exa_socket_state * restrict state, uint32_t recv_seq)
 {
@@ -300,7 +302,10 @@ exa_tcp_get_window(struct exa_socket_state * restrict state, uint32_t recv_seq)
     return window;
 }
 
-/* Construct a packet with no data for the current state */
+/* Construct a packet with no data for the current state.
+ * Record the window endpoint that will be advertised if this packet is sent.
+ * Note that it is safe to call this function without actually sending
+ * the packet. */
 static inline bool
 exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
                    size_t * restrict hdr_len)
@@ -401,7 +406,9 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         return false;
     }
 
+    /* Calculate the window field and keep it in the internal state */
     h->th_win = htons(exa_tcp_get_window(ctx->state, recv_seq));
+
     h->th_off = (sizeof(struct tcphdr) + optlen) / 4;
     h->th_sum = ~csum(h, sizeof(struct tcphdr) + optlen,
                       ctx->ph_csum + htons(sizeof(struct tcphdr) + optlen));
@@ -464,7 +471,10 @@ exa_tcp_build_rst(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
     return true;
 }
 
-/* Construct a packet with data, only works when TCP is synchronised */
+/* Construct a packet with data, only works when TCP is synchronised.
+ * Record the window endpoint that will be advertised if this packet is sent.
+ * Note that it is safe to call this function without actually sending
+ * the packet. */
 static inline void
 exa_tcp_build_hdr(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
                   size_t * restrict hdr_len, size_t send_seq,
@@ -487,6 +497,7 @@ exa_tcp_build_hdr(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
     h->th_seq = htonl(send_seq);
     h->th_ack = htonl(recv_seq + (state->state == EXA_TCP_CLOSE_WAIT ? 1 : 0));
     h->th_flags = TH_PUSH | TH_ACK;
+    /* Calculate the window field and keep it in the internal state */
     h->th_win = htons(exa_tcp_get_window(ctx->state, recv_seq));
 
     csum_hdr = csum_part(h, sizeof(struct tcphdr), ctx->ph_csum +
