@@ -1929,20 +1929,6 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     if (tcp->retransmit_countdown > 0)
         tcp->retransmit_countdown--;
 
-    if (tcp->retransmit_countdown == 0)
-    {
-        /* ACK timeout */
-        tcp->retransmit_countdown = -1;
-        state->p.tcp.cwnd = EXA_TCP_MSS;
-        exasock_tcp_retransmit(tcp, false);
-    }
-    else if (state->p.tcp.ack_pending)
-    {
-        exasock_tcp_send_ack(tcp, false);
-    }
-
-    exasock_tcp_check_dup_acks_pending(tcp, state);
-
     if (tcp_state == EXA_TCP_CLOSED || tcp_state == EXA_TCP_LISTEN)
     {
         /* No retransmissions in these states */
@@ -1972,6 +1958,20 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
         /* No ACKs pending, disable timeout */
         tcp->retransmit_countdown = -1;
     }
+
+    if (tcp->retransmit_countdown == 0)
+    {
+        /* ACK timeout */
+        tcp->retransmit_countdown = -1;
+        state->p.tcp.cwnd = EXA_TCP_MSS;
+        exasock_tcp_retransmit(tcp, false);
+    }
+    else if (state->p.tcp.ack_pending)
+    {
+        exasock_tcp_send_ack(tcp, false);
+    }
+
+    exasock_tcp_check_dup_acks_pending(tcp, state);
 
     if (state->p.tcp.ss_after_idle &&
         send_ack == send_seq && 
