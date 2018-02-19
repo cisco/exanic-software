@@ -140,6 +140,13 @@ struct exasock_tcp
     bool                            fast_retransmit;
     uint32_t                        fast_retransmit_recover_seq;
 
+    /* Keep-alive counters */
+    struct
+    {
+        unsigned                    timer;
+        unsigned                    probe_cnt;
+    } keepalive;
+
     struct delayed_work             work;
 
     /* Window space availability monitoring */
@@ -201,13 +208,14 @@ static struct delayed_work      tcp_req_work;
 #define NUM_BUCKETS             4096
 
 /* Timer fires once every 250ms */
-#define TCP_TIMER_JIFFIES       (HZ / 4)
+#define TCP_TIMER_PER_SEC       4
+#define TCP_TIMER_JIFFIES       (HZ / TCP_TIMER_PER_SEC)
 
 /* Number of timer firings until retransmit */
-#define RETRANSMIT_TIMEOUT      4
+#define RETRANSMIT_TIMEOUT      TCP_TIMER_PER_SEC
 
 /* Number of timer firings until window update monitoring expires */
-#define WIN_WORK_TIMEOUT        2
+#define WIN_WORK_TIMEOUT        (TCP_TIMER_PER_SEC / 2)
 
 /* Number of jiffies until an incomplete TCP request expires */
 #define TCP_REQUEST_JIFFIES     HZ
@@ -225,6 +233,7 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans);
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup);
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp);
 static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req);
+static void exasock_tcp_send_probe(struct exasock_tcp *tcp);
 
 static inline void exasock_tcp_counters_update_locked(
                                           struct exasock_tcp_conn_counters *cnt,
@@ -1582,6 +1591,10 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
     /* Send duplicate ACK if out-of-order segment received */
     exasock_tcp_process_out_of_order(tcp, state, out_of_order);
 
+    /* Reset keep-alive timer */
+    tcp->keepalive.timer = state->p.tcp.keepalive.time * TCP_TIMER_PER_SEC;
+    tcp->keepalive.probe_cnt = 0;
+
     if (exasock_tcp_calc_window(tcp, state->p.tcp.recv_seq) == 0 &&
         tcp->win_work_on == 0)
     {
@@ -1996,6 +2009,32 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     if ((tcp_state != EXA_TCP_CLOSED) && (tcp_state != EXA_TCP_LISTEN) &&
         (tcp_state != EXA_TCP_SYN_SENT) && (tcp_state != EXA_TCP_SYN_RCVD))
     {
+        /* Check keep-alive counters */
+        if (tcp->keepalive.timer > 0)
+        {
+            tcp->keepalive.timer--;
+            if (tcp->keepalive.timer == 0)
+            {
+                if (tcp->keepalive.probe_cnt < state->p.tcp.keepalive.probes)
+                {
+                    /* Send keep-alive probe */
+                    exasock_tcp_send_probe(tcp);
+                    tcp->keepalive.probe_cnt++;
+                    tcp->keepalive.timer = state->p.tcp.keepalive.intvl *
+                                           TCP_TIMER_PER_SEC;
+                }
+                else
+                {
+                    /* Connection timed out, move to CLOSED state */
+                    state->error = ETIMEDOUT;
+                    state->p.tcp.state = EXA_TCP_CLOSED;
+
+                    /* TODO: Flush send and receive buffers */
+                }
+            }
+        }
+
+        /* Update stats */
         exasock_tcp_counters_update(&tcp->counters, &state->p.tcp);
     }
 
@@ -2151,7 +2190,8 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
         /* Send FIN */
         th->seq = htonl(seq);
         th->ack_seq = htonl(recv_seq + 1);
-        th->fin = 1;
+        if (send_seq == seq)
+            th->fin = 1;
         th->ack = 1;
         data_allowed = true;
         break;
@@ -2379,6 +2419,13 @@ static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req)
                                   IPPROTO_TCP, csum_partial(th, skb->len, 0));
 
     exasock_ip_send(IPPROTO_TCP, req->peer_addr, req->local_addr, skb);
+}
+
+static void exasock_tcp_send_probe(struct exasock_tcp *tcp)
+{
+    struct exa_socket_state *state = tcp->user_page;
+
+    exasock_tcp_send_segment(tcp, state->p.tcp.send_ack - 1, 0, false);
 }
 
 int exasock_tcp_notify_add(uint32_t local_addr, uint16_t local_port,

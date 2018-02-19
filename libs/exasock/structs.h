@@ -142,6 +142,7 @@ struct exa_socket
     int so_timestamping;
     struct exa_timeo so_sndtimeo;
     struct exa_timeo so_rcvtimeo;
+    bool so_keepalive;
 
     /* Timestamp generation enable state */
     bool rx_sw_timestamp;
@@ -165,7 +166,6 @@ struct exa_socket
         bool mcast_bound;
         bool so_sndbuf;
         bool so_rcvbuf;
-        bool so_keepalive;
     } warn;
 };
 

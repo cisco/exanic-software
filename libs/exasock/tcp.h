@@ -2,6 +2,9 @@
 #define EXASOCK_TCP_H
 
 #define EXA_TCP_RETRANSMIT_NS 1000000000
+#define EXA_TCP_KEEPALIVE_INTVL_DEF     75
+#define EXA_TCP_KEEPALIVE_PROBES_DEF    9
+#define EXA_TCP_KEEPALIVE_TIME_DEF      7200
 
 extern struct exa_hashtable __exa_tcp_sockfds;
 

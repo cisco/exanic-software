@@ -1324,8 +1324,7 @@ getsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             }
             break;
         case SO_KEEPALIVE:
-            /* We don't support SO_KEEPALIVE */
-            val = 0;
+            val = sock->so_keepalive ? 1 : 0;
             out_int = true;
             ret = 0;
             break;
@@ -1790,8 +1789,10 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
     int val = 0;
     int ret;
 
-    if (optname == SO_TIMESTAMP || optname == SO_TIMESTAMPNS ||
-            optname == SO_TIMESTAMPING)
+    if (optname == SO_TIMESTAMP ||
+        optname == SO_TIMESTAMPNS ||
+        optname == SO_TIMESTAMPING ||
+        optname == SO_KEEPALIVE)
     {
         if (optlen >= sizeof(int))
             val = *(int *)optval;
@@ -1900,11 +1901,12 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
                 sock->warn.so_rcvbuf = true;
             break;
         case SO_KEEPALIVE:
-            /* Not supported with bypass enabled */
-            if (sock->bypass)
-                WARNING_SOCKOPT("SO_KEEPALIVE");
-            else
-                sock->warn.so_keepalive = true;
+            sock->so_keepalive = (val != 0);
+            if (sock->bypass && sock->domain == AF_INET &&
+                sock->type == SOCK_STREAM)
+            {
+                exa_socket_tcp_update_keepalive(sock);
+            }
             break;
         }
     }

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
@@ -145,6 +146,41 @@ exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr)
 
 #define exa_socket_holds_interfaces(sk)  \
                         ((sk)->listen.all_if || (sk)->listen.interface != NULL)
+
+/* Read system global IP parameter from /proc interface */
+static int exa_socket_get_param_from_proc(const char *param, int *val)
+{
+    int fd;
+    char procfs_file[64];
+    char buf[32] = {'\0'};
+    char *endptr;
+    int v;
+
+    snprintf(procfs_file, sizeof(procfs_file), "/proc/sys/net/ipv4/%s", param);
+
+    exasock_override_off();
+
+    fd = open(procfs_file, O_RDONLY);
+    if (fd == -1)
+        goto err_open;
+
+    exasock_libc_read(fd, buf, sizeof(buf) - 1);
+    v = strtol(buf, &endptr, 10);
+    if (*buf == '\0' || (*endptr != '\0' && !isspace(*endptr)))
+        goto err_read;
+
+    close(fd);
+    exasock_override_on();
+
+    *val = v;
+    return 0;
+
+err_read:
+    close(fd);
+err_open:
+    exasock_override_on();
+    return -1;
+}
 
 /* Update timestamping flags according to socket options */
 void
@@ -291,12 +327,61 @@ err_udp_alloc:
     return -1;
 }
 
+void
+exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock)
+{
+    struct exa_tcp_state * restrict tcp;
+    int val;
+
+    assert(sock->bypass);
+    assert(sock->domain == AF_INET);
+    assert(sock->type == SOCK_STREAM);
+
+    tcp = &sock->state->p.tcp;
+
+    if (sock->so_keepalive)
+    {
+        /* Enable keep-alive */
+
+        if (exa_socket_get_param_from_proc("tcp_keepalive_intvl", &val) == -1
+                || val < 0)
+            tcp->keepalive.intvl = EXA_TCP_KEEPALIVE_INTVL_DEF;
+        else
+            tcp->keepalive.intvl = (uint32_t)val;
+
+        if (exa_socket_get_param_from_proc("tcp_keepalive_probes", &val) == -1
+                || val < 0)
+            tcp->keepalive.probes = EXA_TCP_KEEPALIVE_PROBES_DEF;
+        else
+            tcp->keepalive.probes = (uint32_t)val;
+
+        if (exa_socket_get_param_from_proc("tcp_keepalive_time", &val) == -1
+                || val < 0)
+            tcp->keepalive.time = EXA_TCP_KEEPALIVE_TIME_DEF;
+        else
+            tcp->keepalive.time = (uint32_t)val;
+    }
+    else
+    {
+        /* Disable keep-alive */
+        tcp->keepalive.intvl = 0;
+        tcp->keepalive.probes = 0;
+        tcp->keepalive.time = 0;
+    }
+}
+
 static void
 exa_socket_tcp_init(struct exa_socket * restrict sock)
 {
-    struct exa_tcp_state * restrict tcp = &sock->state->p.tcp;
+    struct exa_tcp_state * restrict tcp;
     int fd;
     char c;
+
+    assert(sock->bypass);
+    assert(sock->domain == AF_INET);
+    assert(sock->type == SOCK_STREAM);
+
+    tcp = &sock->state->p.tcp;
 
     /* Grab current slow_start_after_idle setting */
     exasock_override_off();
@@ -309,6 +394,9 @@ exa_socket_tcp_init(struct exa_socket * restrict sock)
         close(fd);
     }
     exasock_override_on();
+
+    /* Initialize keep-alive settings */
+    exa_socket_tcp_update_keepalive(sock);
 }
 
 static int
@@ -408,8 +496,6 @@ exa_socket_enable_bypass(struct exa_socket * restrict sock)
         WARNING_SOCKOPT("SO_SNDBUF");
     if (sock->warn.so_rcvbuf)
         WARNING_SOCKOPT("SO_RCVBUF");
-    if (sock->warn.so_keepalive)
-        WARNING_SOCKOPT("SO_KEEPALIVE");
 
     return 0;
 

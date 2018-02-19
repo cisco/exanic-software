@@ -152,10 +152,16 @@ struct exa_tcp_state
     uint8_t wscale;
     /* TCP connection state */
     uint8_t state;
+    /* Keep-alive settings */
+    struct {
+        uint32_t time;
+        uint32_t intvl;
+        uint32_t probes;
+    } keepalive;
     /* Slow start after idle? */
     uint8_t ss_after_idle;
 
-    uint8_t __reserved3[59];
+    uint8_t __reserved3[47];
 
     /* 256 */
     /* user read-mostly, kernel read-write */
