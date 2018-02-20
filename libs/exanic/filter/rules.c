@@ -126,7 +126,7 @@ int exanic_clear_filter_string(const char *ruleset, int slot)
 
 int exanic_clear_all_filter_strings(const char *ruleset)
 {
-    char path[256];
+    char path[512];
     DIR *d;
     struct dirent *e;
 
