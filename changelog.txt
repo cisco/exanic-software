@@ -1,3 +1,22 @@
+2.1.0 [2018-02-20]
+* Support for ExaNIC V5P
+* exasock: support for policy-based routing
+* exasock: process outstanding TCP data in kernel if user space lags
+  (avoids poor TCP behaviour for applications that poll insufficiently)
+* exasock: multiple improvements to retransmit behaviour
+* exasock: add SO_EXA_MCAST_LISTEN socket option - alternative
+  to IP_ADD_MEMBERSHIP when joining group is not required or
+  listening to multiple interfaces
+* exasock: intercept __poll (used in gethostbyname)
+* driver: fix compile on Linux kernel 4.14+
+* driver: fix jumbo frames on Linux kernel 4.10+
+* driver: add txbuf_size_min parameter (allows increasing kernel
+  transmit buffer size for higher kernel throughput)
+* exanic-fwupdate: internal redesign, now faster
+* exanic-fwupdate: now supports .fw.gz and .bit as well as .fw
+* exanic-config: fix 'sfp status' for some SFPs/QSFPs (I2C protocol issue)
+* devkit: add exanic-xvcserver for JTAG access over PCIe
+
 2.0.1 [2017-11-03]
 * Support for firmware update without reboot (card must be running
   firmware 20171019 or later)
