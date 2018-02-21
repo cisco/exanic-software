@@ -654,6 +654,11 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         uint32_t win_end = ack_seq +
                            (win << ((flags & TH_SYN) ? 0 : state->wscale));
         uint32_t rwnd_end = state->rwnd_end;
+        uint32_t send_seq = state->send_seq;
+
+        /* Check if ACK is from future; set ACK = SEQ in that case */
+        if (seq_compare(send_seq, ack_seq) < 0)
+            ack_seq = send_seq;
 
         /* Check if got ACK for more of our sent data */
         while (seq_compare(send_ack, ack_seq) < 0)

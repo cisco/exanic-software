@@ -1822,11 +1822,15 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             /* Non-duplicate ACK */
             uint32_t send_ack = state->p.tcp.send_ack;
             uint32_t rwnd_end = state->p.tcp.rwnd_end;
+            uint32_t send_seq = state->p.tcp.send_seq;
 
             /* If this packet has not been processed by user space yet, kernel
              * needs to update TCP state with new ACK and/or receiver buffer
              * space.
              */
+            if (after(ack_seq, send_seq))
+                ack_seq = send_seq;
+
             while (after(ack_seq, send_ack))
                 send_ack = cmpxchg(&state->p.tcp.send_ack, send_ack, ack_seq);
             while (after(win_end, rwnd_end))
