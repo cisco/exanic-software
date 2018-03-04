@@ -6,8 +6,11 @@
  * To be used with "exanic_x4_trigger.fw" from the devkit examples.
  */
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <signal.h>
+#include <limits.h>
+#include <getopt.h>
 #include <exanic/exanic.h>
 #include <exanic/util.h>
 #include <arpa/inet.h>
@@ -37,10 +40,12 @@ void sig_handler(int sig)
 
 int main(int argc, char *argv[])
 {
+    const char *device;
     exanic_t *exanic;
     volatile uint32_t *application_registers;
     char * application_memory;
-    int trigger_count = 0;
+    int c, index, trigger_count = 0;
+    int32_t max_triggers = INT32_MAX;
 
     struct __attribute__ ((__packed__)) my_ip_frame
     {
@@ -64,30 +69,48 @@ int main(int argc, char *argv[])
         uint8_t  payload[23];
     } pattern_data, mask_data, reply;
 
-    if (argc != 2)
-        goto usage_error;
+    static struct option long_options[] = {
+        {"max-triggers", required_argument, NULL, 0},
+        {NULL, 0, NULL, 0}
+    };
 
-    if ((exanic = exanic_acquire_handle(argv[1])) == NULL)
+    while ((c = getopt_long(argc, argv, "", long_options, &index)) != -1) {
+        switch(c) {
+        case 0:
+            max_triggers = atoi(optarg);
+        case '?':
+            break;
+        default:
+            goto usage_error;
+        }
+    }
+
+    if (optind != argc - 1) // one remaining arg - the exanic to use
+        goto usage_error;
+    device = argv[optind];
+    exanic = exanic_acquire_handle(device);
+
+    if (exanic == NULL)
     {
-        fprintf(stderr, "%s: %s\n", argv[1], exanic_get_last_error());
+        fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
         return -1;
     }
 
     if (exanic_get_function_id(exanic) != EXANIC_FUNCTION_DEVKIT)
     {
-        fprintf(stderr, "%s: %s\n", argv[1], "Device is not a development kit.");
+        fprintf(stderr, "%s: %s\n", device, "Device is not a development kit.");
         return -1;
     }
 
     if ((application_registers = exanic_get_devkit_registers(exanic)) == NULL)
     {
-        fprintf(stderr, "%s: %s\n", argv[1], exanic_get_last_error());
+        fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
         return -1;
     }
 
     if ((application_memory = exanic_get_devkit_memory(exanic)) == NULL)
     {
-        fprintf(stderr, "%s: %s\n", argv[1], exanic_get_last_error());
+        fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
         return -1;
     }
 
@@ -115,17 +138,18 @@ int main(int argc, char *argv[])
     reply.payload[1] = 0xAD;
     reply.payload[2] = 0xBE;
     reply.payload[3] = 0xEF;
-   
-    /* Copy our mask, pattern and reply to the FPGA memory. */ 
+
+    /* Copy our mask, pattern and reply to the FPGA memory. */
     memcpy(application_memory + PATTERN_RAM_OFFSET, &pattern_data, sizeof(pattern_data));
     memcpy(application_memory + MASK_RAM_OFFSET, &mask_data, sizeof(mask_data));
     memcpy(application_memory + TRANSMIT_RAM_OFFSET, &reply, sizeof(reply));
-    
+
     /* Configure registers. Setup the match length, arm the trigger, etc. */
     application_registers[REG_MATCH_LENGTH] = 25;
     application_registers[REG_TRANSMIT_LENGTH] = sizeof(reply);
     application_registers[REG_ARM] = 1;
     application_registers[REG_TESTFIRE] = 0;
+    application_registers[REG_AUTORELOAD] = 1;
 
     printf("Application Version: %d\n", application_registers[REG_FIRMWARE_VERSION]);
     printf("Armed:               %d\n", application_registers[REG_ARM]);
@@ -133,27 +157,33 @@ int main(int argc, char *argv[])
     printf("Transmit Length:     %d\n", application_registers[REG_TRANSMIT_LENGTH]);
     printf("Trigger count:       %d\n", application_registers[REG_TRIGGER_COUNT]);
 
-    while (keep_running)
+    do
     {
         if (trigger_count != application_registers[REG_TRIGGER_COUNT])
         {
             trigger_count = application_registers[REG_TRIGGER_COUNT];
             printf("-> Triggered. Total %d\n", trigger_count);
+            max_triggers--;
         }
         usleep(1000);
-    }
+    } while (keep_running && max_triggers > 0);
 
     application_registers[REG_ARM] = 0;
-    printf("Signal caught: Disarming trigger.\n");
+
+    if (!keep_running)
+        printf("Signal caught: Disarming trigger.\n");
+    else if (max_triggers == 0)
+        printf("Max trigger count reached: Disarming trigger.\n");
 
     return 0;
     usage_error:
     fprintf(stderr,
-            "Usage: %s <device>\n"
+            "Usage: %s [--max-triggers=MAX_TRIGGERS] <device>\n"
             "Configure the example exanic development kit application on <device>.\n"
             "The example FPGA application sends a pre-loaded reply to incoming frames\n"
             "that match a mask and pattern. In this example, all IP frames are matched\n"
-            "and a dummy reply is sent.\n",
+            "and a dummy reply is sent. The optional argument `max-triggers` controls\n"
+            "the maximum number of triggers seen before exiting.\n",
             argv[0]);
     return -1;
 
