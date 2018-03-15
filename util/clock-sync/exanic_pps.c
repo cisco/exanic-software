@@ -305,7 +305,8 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
 
         /* What the PPS pulse time should be, in ticks since epoch */
         desired_time_tick = (uint64_t)time_sec * state->tick_hz +
-            state->offset_ns;
+            (state->offset_ns / 1000000000) * state->tick_hz +
+            (state->offset_ns % 1000000000) * state->tick_hz / 1000000000;
 
         /* Calculate offset (ns) from the desired time */
         if (pps_time_tick > desired_time_tick)
