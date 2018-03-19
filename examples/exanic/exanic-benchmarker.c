@@ -175,11 +175,13 @@ int main (int argc, char *argv[])
     int cable_est = 0;
     int raw = 0;
 
+    float offset = 0;
+
     /* No args supplied */
     if (argc < 2)
         goto usage_error;
 
-    while ((c = getopt (argc, argv, "d:w:p:P:l:L:t:T:s:c:EROh")) != -1)
+    while ((c = getopt (argc, argv, "d:w:p:P:l:L:t:T:s:c:ERO:h")) != -1)
     {
         switch (c)
         {
@@ -216,7 +218,10 @@ int main (int argc, char *argv[])
             case 'E':
                 cable_est = 1;
                 break;
-            case 'R':
+            case 'O':
+                offset = atof (optarg);
+                break;
+             case 'R':
                 raw = 1;
                 break;
             default:
@@ -395,7 +400,7 @@ int main (int argc, char *argv[])
 
         if (raw)
         {
-            stats[samples] = time_delta_ns;
+            stats[samples] = time_delta_ns - offset;
         }
         else
         {
@@ -492,7 +497,7 @@ int main (int argc, char *argv[])
     fprintf (stderr, "           [-w fileout] [-p txport] [-P rxport] \n");
     fprintf (
             stderr,
-            "           [-l txcablelen] [-L rxcablelen] [-t txmedia] [-T rxmedia] \n");
+            "           [-l txcablelen] [-L rxcablelen] [-t txmedia] [-T rxmedia] [-O offset]\n");
     fprintf (
             stderr,
             "           [-s packetsize] [-c count] [-E estlen] [-X nocomp] [-h] \n");
@@ -509,6 +514,7 @@ int main (int argc, char *argv[])
     fprintf (stderr, "  -c: number of packets to send (default 1000)\n");
     fprintf (stderr,
              "  -E: estimate the length of fibre attached to the device\n");
+    fprintf (stderr, "  -O: apply a fixed offset to measurements\n");
     fprintf (stderr, "  -R: report raw values from the capture.\n");
     fprintf (stderr, "  -h: print this usage information\n\n");
     return 1;
