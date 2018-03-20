@@ -213,6 +213,9 @@ int main(int argc, char *argv[])
         if (!flash_verify(flash, data, data_size, report_progress))
             goto error;
         report_phase_done();
+
+        flash_close(flash);
+        flash = NULL;
     }
 
     if (hot_reload)
