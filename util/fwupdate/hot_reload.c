@@ -94,6 +94,7 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
     struct dirent *dir;
     char new_device_name[64];
     int  new_device_port;
+    unsigned int attempts;
 
     /* Get the interface name of the first port on the device */
     if (exanic_get_interface_name(exanic, 0, ifname, sizeof(ifname)) == -1)
@@ -125,18 +126,24 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
     sleep(1);
     report_progress();
 
-    if (!write_1_to_file("/sys/bus/pci/rescan"))
-        return NULL;
+    for (attempts = 0; attempts < 3; attempts++)
+    {
+        if (!write_1_to_file("/sys/bus/pci/rescan"))
+            return NULL;
 
-    /* Wait for the rescan */
-    sleep(1);
-    report_progress();
+        /* Wait for the rescan */
+        sleep(1);
+        report_progress();
 
-    d = opendir(resolved_path);
-    /* Open the sysfs path corresponding to the PCI device we are using that we saved before */
+        /* Open the sysfs path corresponding to the PCI device we are using that we saved before */
+        d = opendir(resolved_path);
+        if (d != NULL)
+            break;
+    }
+
     if (d == NULL)
     {
-        fprintf(stderr, "ERROR: unable to open directory: %s\n", resolved_path);
+        fprintf(stderr, "ERROR: device did not reappear at %s after hot reload. If you cannot find the card in lspci, a host reboot or recovery mode boot may be required.\n", resolved_path);
         return NULL;
     }
 
