@@ -327,11 +327,52 @@ err_udp_alloc:
     return -1;
 }
 
+int
+exa_socket_get_tcp_keepintvl(struct exa_socket * restrict sock)
+{
+    int val;
+
+    if (sock->tcp_keepintvl)
+        return sock->tcp_keepintvl;
+    else if (exa_socket_get_param_from_proc("tcp_keepalive_intvl",
+                                            &val) == -1 || val < 0)
+        return EXA_TCP_KEEPALIVE_INTVL_DEF;
+    else
+        return val;
+}
+
+int
+exa_socket_get_tcp_keepcnt(struct exa_socket * restrict sock)
+{
+    int val;
+
+    if (sock->tcp_keepcnt)
+        return sock->tcp_keepcnt;
+    else if (exa_socket_get_param_from_proc("tcp_keepalive_probes",
+                                            &val) == -1 || val < 0)
+        return EXA_TCP_KEEPALIVE_PROBES_DEF;
+    else
+        return val;
+}
+
+int
+exa_socket_get_tcp_keepidle(struct exa_socket * restrict sock)
+{
+    int val;
+
+    if (sock->tcp_keepidle)
+        return sock->tcp_keepidle;
+    else if (exa_socket_get_param_from_proc("tcp_keepalive_time",
+                                            &val) == -1 || val < 0)
+        return EXA_TCP_KEEPALIVE_TIME_DEF;
+    else
+        return val;
+}
+
 void
 exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock)
 {
     struct exa_tcp_state * restrict tcp;
-    int val;
 
     assert(sock->bypass);
     assert(sock->domain == AF_INET);
@@ -342,24 +383,9 @@ exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock)
     if (sock->so_keepalive)
     {
         /* Enable keep-alive */
-
-        if (exa_socket_get_param_from_proc("tcp_keepalive_intvl", &val) == -1
-                || val < 0)
-            tcp->keepalive.intvl = EXA_TCP_KEEPALIVE_INTVL_DEF;
-        else
-            tcp->keepalive.intvl = (uint32_t)val;
-
-        if (exa_socket_get_param_from_proc("tcp_keepalive_probes", &val) == -1
-                || val < 0)
-            tcp->keepalive.probes = EXA_TCP_KEEPALIVE_PROBES_DEF;
-        else
-            tcp->keepalive.probes = (uint32_t)val;
-
-        if (exa_socket_get_param_from_proc("tcp_keepalive_time", &val) == -1
-                || val < 0)
-            tcp->keepalive.time = EXA_TCP_KEEPALIVE_TIME_DEF;
-        else
-            tcp->keepalive.time = (uint32_t)val;
+        tcp->keepalive.intvl = exa_socket_get_tcp_keepintvl(sock);
+        tcp->keepalive.probes = exa_socket_get_tcp_keepcnt(sock);
+        tcp->keepalive.time = exa_socket_get_tcp_keepidle(sock);
     }
     else
     {

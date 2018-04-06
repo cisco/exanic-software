@@ -7,6 +7,9 @@ void exa_socket_init(struct exa_socket * restrict sock, int domain,
                      int type, int protocol);
 int exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr);
 void exa_socket_update_timestamping(struct exa_socket * restrict sock);
+int exa_socket_get_tcp_keepintvl(struct exa_socket * restrict sock);
+int exa_socket_get_tcp_keepcnt(struct exa_socket * restrict sock);
+int exa_socket_get_tcp_keepidle(struct exa_socket * restrict sock);
 void exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock);
 int exa_socket_enable_bypass(struct exa_socket * restrict sock);
 int exa_socket_del_mcast(struct exa_socket * restrict sock,

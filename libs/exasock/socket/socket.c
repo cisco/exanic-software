@@ -1273,6 +1273,18 @@ getsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
             val = 1;
             out_int = true;
             break;
+        case TCP_KEEPCNT:
+            val = exa_socket_get_tcp_keepcnt(sock);
+            out_int = true;
+            break;
+        case TCP_KEEPIDLE:
+            val = exa_socket_get_tcp_keepidle(sock);
+            out_int = true;
+            break;
+        case TCP_KEEPINTVL:
+            val = exa_socket_get_tcp_keepintvl(sock);
+            out_int = true;
+            break;
         }
     }
 
@@ -1738,7 +1750,10 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
     int val = 0;
     int ret;
 
-    if (optname == TCP_NODELAY)
+    if (optname == TCP_NODELAY ||
+        optname == TCP_KEEPCNT ||
+        optname == TCP_KEEPIDLE ||
+        optname == TCP_KEEPINTVL)
     {
         if (optlen >= sizeof(int))
             val = *(int *)optval;
@@ -1773,6 +1788,39 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
 
     if (ret == -1)
         goto err_exit;
+
+    if (ret == 0)
+    {
+        /* Keep track of some socket options which we will need to know
+         * if this socket is put into bypass mode */
+        switch (optname)
+        {
+        case TCP_KEEPCNT:
+            sock->tcp_keepcnt = val;
+            if (sock->bypass && sock->domain == AF_INET &&
+                sock->type == SOCK_STREAM)
+            {
+                exa_socket_tcp_update_keepalive(sock);
+            }
+            break;
+        case TCP_KEEPIDLE:
+            sock->tcp_keepidle = val;
+            if (sock->bypass && sock->domain == AF_INET &&
+                sock->type == SOCK_STREAM)
+            {
+                exa_socket_tcp_update_keepalive(sock);
+            }
+            break;
+        case TCP_KEEPINTVL:
+            sock->tcp_keepintvl = val;
+            if (sock->bypass && sock->domain == AF_INET &&
+                sock->type == SOCK_STREAM)
+            {
+                exa_socket_tcp_update_keepalive(sock);
+            }
+            break;
+        }
+    }
 
     exa_write_unlock(&sock->lock);
     return 0;

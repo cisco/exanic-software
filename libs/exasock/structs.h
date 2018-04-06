@@ -143,6 +143,9 @@ struct exa_socket
     struct exa_timeo so_sndtimeo;
     struct exa_timeo so_rcvtimeo;
     bool so_keepalive;
+    int tcp_keepcnt;
+    int tcp_keepidle;
+    int tcp_keepintvl;
 
     /* Timestamp generation enable state */
     bool rx_sw_timestamp;
