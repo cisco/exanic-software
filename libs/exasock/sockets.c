@@ -374,8 +374,7 @@ static void
 exa_socket_tcp_init(struct exa_socket * restrict sock)
 {
     struct exa_tcp_state * restrict tcp;
-    int fd;
-    char c;
+    int val;
 
     assert(sock->bypass);
     assert(sock->domain == AF_INET);
@@ -384,16 +383,10 @@ exa_socket_tcp_init(struct exa_socket * restrict sock)
     tcp = &sock->state->p.tcp;
 
     /* Grab current slow_start_after_idle setting */
-    exasock_override_off();
-    tcp->ss_after_idle = 0;
-    fd = open("/proc/sys/net/ipv4/tcp_slow_start_after_idle", O_RDONLY);
-    if (fd != -1)
-    {
-        if (exasock_libc_read(fd, &c, 1) == 1 && c == '1')
-            tcp->ss_after_idle = 1;
-        close(fd);
-    }
-    exasock_override_on();
+    if (exa_socket_get_param_from_proc("tcp_slow_start_after_idle", &val) == -1)
+        tcp->ss_after_idle = EXA_TCP_SS_AFTER_IDLE_DEF;
+    else
+        tcp->ss_after_idle = (val == 0) ? 0 : 1;
 
     /* Initialize keep-alive settings */
     exa_socket_tcp_update_keepalive(sock);
