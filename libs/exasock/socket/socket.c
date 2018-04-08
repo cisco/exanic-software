@@ -467,8 +467,21 @@ accept4_tcp(struct exa_socket * restrict sock, struct sockaddr *addr,
 
     if (fd != -1)
     {
-        exa_socket_get(fd)->flags = flags;
+        struct exa_socket * restrict new_sock = exa_socket_get(fd);
+
+        exa_write_lock(&new_sock->lock);
+
+        new_sock->flags = flags;
         LIBC(fcntl, fd, F_SETFL, flags);
+
+        /* Inherit required socket options from the listening socket */
+        new_sock->so_keepalive = sock->so_keepalive;
+        new_sock->tcp_keepcnt = sock->tcp_keepcnt;
+        new_sock->tcp_keepidle = sock->tcp_keepidle;
+        new_sock->tcp_keepintvl = sock->tcp_keepintvl;
+        exa_socket_tcp_update_keepalive(new_sock);
+
+        exa_write_unlock(&new_sock->lock);
     }
 
     return fd;
