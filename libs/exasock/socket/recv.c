@@ -151,11 +151,25 @@ __recv_block_tcp_ready(struct exa_socket * restrict sock, int *ret,
         *ret = -1;
         return true;
     }
-    else if (*len1 > 0 || *len2 > 0 || exa_tcp_rx_buffer_eof(sock) ||
-             sock->state->rx_shutdown)
+    else if (*len1 > 0 || *len2 > 0 || sock->state->rx_shutdown)
     {
         *ret = 0;
         return true;
+    }
+    else if (exa_tcp_rx_buffer_eof(sock))
+    {
+        if (sock->state->error == ETIMEDOUT &&
+            sock->state->p.tcp.state == EXA_TCP_CLOSED)
+        {
+            errno = sock->state->error;
+            *ret = -1;
+            return true;
+        }
+        else
+        {
+            *ret = 0;
+            return true;
+        }
     }
     exa_unlock(&sock->state->rx_lock);
     return false;

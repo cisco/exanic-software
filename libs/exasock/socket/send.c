@@ -128,7 +128,10 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         if (ret == -1)
         {
             /* FIXME: Emit signal */
-            errno = EPIPE;
+            if (sock->state->error == ETIMEDOUT)
+                errno = sock->state->error;
+            else
+                errno = EPIPE;
             break;
         }
 
@@ -430,7 +433,10 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         if (ret == -1)
         {
             /* FIXME: Emit signal */
-            errno = EPIPE;
+            if (sock->state->error == ETIMEDOUT)
+                errno = sock->state->error;
+            else
+                errno = EPIPE;
             break;
         }
 
@@ -573,7 +579,10 @@ write_bypass_tcp(struct exa_socket * restrict sock, int fd, const void *buf,
         if (ret == -1)
         {
             /* FIXME: Emit signal */
-            errno = EPIPE;
+            if (sock->state->error == ETIMEDOUT)
+                errno = sock->state->error;
+            else
+                errno = EPIPE;
             break;
         }
 
@@ -708,7 +717,10 @@ writev_bypass_tcp(struct exa_socket * restrict sock, int fd,
         if (ret == -1)
         {
             /* FIXME: Emit signal */
-            errno = EPIPE;
+            if (sock->state->error == ETIMEDOUT)
+                errno = sock->state->error;
+            else
+                errno = EPIPE;
             break;
         }
 
