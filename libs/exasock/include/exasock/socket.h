@@ -1,13 +1,14 @@
 /**
  * \file
- * \brief Exasock private socket options
+ * \brief Exasock private socket options and message flags
  */
 #ifndef EXASOCK_API_SOCKET_H
 #define EXASOCK_API_SOCKET_H
 
 #include <sys/socket.h>
 
-/** \brief Exasock private socket option level
+/**
+ * \brief Exasock private socket option level
  *
  * To manipulate socket options at Exasock level (i.e. manipulate an Exasock
  * private socket option specified in this file) the level argument of
@@ -15,7 +16,8 @@
  */
 #define SOL_EXASOCK 0x200
 
-/** \brief Exasock socket option for disabling acceleration on the socket
+/**
+ * \brief Exasock socket option for disabling acceleration on the socket
  *
  * Disabling of acceleration on a socket is not allowed if the socket has
  * already been accelerated (either by binding it to an ExaNIC interface
@@ -29,7 +31,8 @@
  */
 #define SO_EXA_NO_ACCEL     1
 
-/** \brief Exasock socket option for passively listening to multicast data
+/**
+ * \brief Exasock socket option for passively listening to multicast data
  * arriving on an ExaNIC interface
  *
  * Setting SO_EXA_MCAST_LISTEN has a similar effect to setting the
@@ -93,5 +96,20 @@ static inline int exasock_disable_acceleration(int fd)
     return setsockopt(fd, SOL_EXASOCK, SO_EXA_NO_ACCEL, &disable,
                       sizeof(disable));
 }
+
+/**
+ * \brief Exasock message flag to mark the message to be sent as a fake one.
+ *
+ * Setting this flag in send(), sendto() or sendmsg() results in triggering
+ * a dummy send, which purpose is solely to keep the send code path in cache.
+ * A message passed to this call will be discarded in the end.
+ * Calling a send() with MSG_EXA_WARM flag set on an accelerated socket shortly
+ * before invoking this call for sending an actual data helps in minimizing
+ * latency of getting the data on the wire.
+ *
+ * Ideally the length of the fake message should be equal (or at least similar)
+ * to the length of a subsequent real message to be sent.
+ */
+#define MSG_EXA_WARM    0x100000
 
 #endif /* EXASOCK_API_SOCKET_H */

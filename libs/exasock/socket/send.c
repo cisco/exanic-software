@@ -19,6 +19,8 @@
 #include <poll.h>
 #include <time.h>
 
+#include <exasock/socket.h>
+
 #include "../kernel/api.h"
 #include "../kernel/structs.h"
 #include "../lock.h"
@@ -40,6 +42,7 @@ sendto_bypass_udp(struct exa_socket * restrict sock, int sockfd,
                   const void *buf, size_t len, int flags,
                   const struct sockaddr *dest_addr, socklen_t addrlen)
 {
+    bool fake = !!(flags & MSG_EXA_WARM);
     ssize_t ret;
 
     assert(sock->bypass);
@@ -74,7 +77,7 @@ sendto_bypass_udp(struct exa_socket * restrict sock, int sockfd,
         }
     }
 
-    ret = exanic_udp_send(sock, buf, len);
+    ret = exanic_udp_send(sock, buf, len, fake);
     exa_unlock(&sock->state->tx_lock);
     return ret;
 }
@@ -92,6 +95,7 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
                   const struct sockaddr *dest_addr, socklen_t addrlen)
 {
     bool nonblock = (flags & MSG_DONTWAIT) || (sock->flags & O_NONBLOCK);
+    bool fake = !!(flags & MSG_EXA_WARM);
     ssize_t nwritten, ret;
 
     assert(sock->bypass);
@@ -114,7 +118,7 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         exa_lock(&sock->state->tx_lock);
         while (nwritten < len)
         {
-            ret = exanic_tcp_send(sock, buf + nwritten, len - nwritten);
+            ret = exanic_tcp_send(sock, buf + nwritten, len - nwritten, fake);
             if (ret <= 0)
                 break;
             nwritten += ret;
@@ -327,6 +331,7 @@ static ssize_t
 sendmsg_bypass_udp(struct exa_socket * restrict sock, int sockfd,
                    const struct msghdr *msg, int flags)
 {
+    bool fake = !!(flags & MSG_EXA_WARM);
     ssize_t ret;
 
     assert(sock->bypass);
@@ -372,7 +377,7 @@ sendmsg_bypass_udp(struct exa_socket * restrict sock, int sockfd,
         }
     }
 
-    ret = exanic_udp_send_iov(sock, msg->msg_iov, msg->msg_iovlen);
+    ret = exanic_udp_send_iov(sock, msg->msg_iov, msg->msg_iovlen, fake);
 
     exa_unlock(&sock->state->tx_lock);
     return ret;
@@ -390,6 +395,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
                    const struct msghdr *msg, int flags)
 {
     bool nonblock = (flags & MSG_DONTWAIT) || (sock->flags & O_NONBLOCK);
+    bool fake = !!(flags & MSG_EXA_WARM);
     ssize_t nwritten, ret;
     size_t count, i;
 
@@ -419,7 +425,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         while (nwritten < count)
         {
             ret = exanic_tcp_send_iov(sock, msg->msg_iov, msg->msg_iovlen,
-                                      nwritten, count - nwritten);
+                                      nwritten, count - nwritten, fake);
             if (ret <= 0)
                 break;
             nwritten += ret;
@@ -535,7 +541,7 @@ write_bypass_udp(struct exa_socket * restrict sock, int fd, const void *buf,
     assert(sock->connected);
 
     exa_lock(&sock->state->tx_lock);
-    ret = exanic_udp_send(sock, buf, count);
+    ret = exanic_udp_send(sock, buf, count, false);
     exa_unlock(&sock->state->tx_lock);
 
     return ret;
@@ -565,7 +571,8 @@ write_bypass_tcp(struct exa_socket * restrict sock, int fd, const void *buf,
         exa_lock(&sock->state->tx_lock);
         while (nwritten < count)
         {
-            ret = exanic_tcp_send(sock, buf + nwritten, count - nwritten);
+            ret = exanic_tcp_send(sock, buf + nwritten, count - nwritten,
+                                  false);
             if (ret <= 0)
                 break;
             nwritten += ret;
@@ -666,7 +673,7 @@ writev_bypass_udp(struct exa_socket * restrict sock, int fd,
     assert(sock->connected);
 
     exa_lock(&sock->state->tx_lock);
-    ret = exanic_udp_send_iov(sock, iov, iovcnt);
+    ret = exanic_udp_send_iov(sock, iov, iovcnt, false);
     exa_unlock(&sock->state->tx_lock);
 
     return ret;
@@ -703,7 +710,7 @@ writev_bypass_tcp(struct exa_socket * restrict sock, int fd,
         while (nwritten < count)
         {
             ret = exanic_tcp_send_iov(sock, iov, iovcnt, nwritten,
-                                      count - nwritten);
+                                      count - nwritten, false);
             if (ret <= 0)
                 break;
             nwritten += ret;

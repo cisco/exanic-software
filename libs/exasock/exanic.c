@@ -146,7 +146,7 @@ exanic_get_hardware_time(exanic_t *exanic, exanic_cycles32_t cycles32,
 static inline void
 exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
             const struct iovec * restrict iov, size_t iovcnt, size_t skip_len,
-            size_t data_len)
+            size_t data_len, bool fake)
 {
     char *tx_buf, *p;
     size_t offs;
@@ -195,7 +195,10 @@ exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
     }
     assert(offs == iov_len);
 
-    exanic_end_transmit_frame(ctx->exanic_tx, 0);
+    if (fake)
+        exanic_abort_transmit_frame(ctx->exanic_tx);
+    else
+        exanic_end_transmit_frame(ctx->exanic_tx, 0);
 
     exa_unlock(&exanic_tx_lock);
 }
@@ -669,7 +672,7 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
                    struct exanic_ip * restrict exanic_ctx,
                    char ** restrict hdr_ptr, size_t * restrict hdr_len,
                    const struct iovec *iov, size_t iovcnt, size_t skip_len,
-                   size_t data_len)
+                   size_t data_len, bool fake)
 {
     exa_ip_build_hdr(ip, hdr_ptr, hdr_len, iov, iovcnt, skip_len, data_len);
 
@@ -682,13 +685,13 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
         exa_eth_build_hdr(eth, hdr_ptr, hdr_len, iov, iovcnt, skip_len,
                           data_len);
         exanic_send(exanic_ctx, *hdr_ptr, *hdr_len, iov, iovcnt, skip_len,
-                    data_len);
+                    data_len, fake);
     }
     else
     {
         /* Queue the packet to be sent when neighbour lookup is done */
         exa_sys_dst_queue(dst->dst_addr, exanic_ctx->ip.address, *hdr_ptr,
-                          *hdr_len, iov, iovcnt, skip_len, data_len);
+                          *hdr_len, iov, iovcnt, skip_len, data_len, fake);
     }
 }
 
@@ -1182,7 +1185,7 @@ exanic_udp_prepare(struct exa_socket * restrict sock)
 static inline void
 __exanic_udp_send_iov(struct exanic_udp * restrict ctx,
                       const struct iovec *iov, size_t iovcnt,
-                      size_t skip_len, size_t data_len)
+                      size_t skip_len, size_t data_len, bool fake)
 {
     char hdr[MAX_HDR_LEN];
     char *hdr_ptr = hdr + MAX_HDR_LEN;
@@ -1191,12 +1194,13 @@ __exanic_udp_send_iov(struct exanic_udp * restrict ctx,
     exa_udp_build_hdr(&ctx->udp, &hdr_ptr, &hdr_len, iov, iovcnt, skip_len,
                       data_len);
     exanic_ip_send_iov(&ctx->ip, &ctx->eth, &ctx->dst, ctx->exanic_ctx,
-                       &hdr_ptr, &hdr_len, iov, iovcnt, skip_len, data_len);
+                       &hdr_ptr, &hdr_len, iov, iovcnt, skip_len, data_len,
+                       fake);
 }
 
 ssize_t
 exanic_udp_send_iov(struct exa_socket * restrict sock,
-                    const struct iovec *iov, size_t iovcnt)
+                    const struct iovec *iov, size_t iovcnt, bool fake)
 {
     struct exanic_udp * restrict ctx = sock->ctx.udp;
     size_t data_len, i;
@@ -1209,13 +1213,14 @@ exanic_udp_send_iov(struct exa_socket * restrict sock,
     for (i = 0; i < iovcnt; i++)
         data_len += iov[i].iov_len;
 
-    __exanic_udp_send_iov(ctx, iov, iovcnt, 0, data_len);
+    __exanic_udp_send_iov(ctx, iov, iovcnt, 0, data_len, fake);
 
     return data_len;
 }
 
 ssize_t
-exanic_udp_send(struct exa_socket * restrict sock, const void *buf, size_t len)
+exanic_udp_send(struct exa_socket * restrict sock, const void *buf, size_t len,
+                bool fake)
 {
     struct exanic_udp * restrict ctx = sock->ctx.udp;
     struct iovec iov;
@@ -1226,7 +1231,7 @@ exanic_udp_send(struct exa_socket * restrict sock, const void *buf, size_t len)
     iov.iov_base = (void *)buf;
     iov.iov_len = len;
 
-    __exanic_udp_send_iov(ctx, &iov, 1, 0, len);
+    __exanic_udp_send_iov(ctx, &iov, 1, 0, len, fake);
 
     return len;
 }
@@ -1320,7 +1325,7 @@ exanic_tcp_send_ctrl(struct exa_socket * restrict sock)
     {
         /* Send packet */
         exanic_ip_send_iov(&ctx->ip, &ctx->eth, &ctx->dst, ctx->exanic_ctx,
-                           &hdr_ptr, &hdr_len, NULL, 0, 0, 0);
+                           &hdr_ptr, &hdr_len, NULL, 0, 0, 0, false);
     }
 }
 
@@ -1430,7 +1435,7 @@ exanic_tcp_reset(struct exa_socket * restrict sock)
     {
         /* Send RST packet */
         exanic_ip_send_iov(&ctx->ip, &ctx->eth, &ctx->dst, ctx->exanic_ctx,
-                           &hdr_ptr, &hdr_len, NULL, 0, 0, 0);
+                           &hdr_ptr, &hdr_len, NULL, 0, 0, 0, false);
     }
 
     /* Transition to CLOSED state */
@@ -1482,7 +1487,7 @@ exanic_tcp_write_closed(struct exa_socket *sock)
 ssize_t
 exanic_tcp_send_iov(struct exa_socket * restrict sock,
                     const struct iovec *iov, size_t iovcnt,
-                    size_t skip_len, size_t data_len)
+                    size_t skip_len, size_t data_len, bool fake)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
     char hdr[MAX_HDR_LEN];
@@ -1507,7 +1512,8 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
     send_len = data_len < max_len ? data_len : max_len;
 
     /* Clear ack_pending flag because an ACK is about to be sent */
-    exa_tcp_clear_ack_pending(&ctx->tcp);
+    if (!fake)
+        exa_tcp_clear_ack_pending(&ctx->tcp);
 
     /* Build TCP header */
     exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq,
@@ -1515,16 +1521,19 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
 
     /* Build IP header and send packet */
     exanic_ip_send_iov(&ctx->ip, &ctx->eth, &ctx->dst, ctx->exanic_ctx,
-                       &hdr_ptr, &hdr_len, iov, iovcnt, skip_len, send_len);
+                       &hdr_ptr, &hdr_len, iov, iovcnt, skip_len, send_len,
+                       fake);
 
     /* Update retransmit buffer and sequence numbers */
-    exa_tcp_tx_buffer_write(sock, iov, iovcnt, skip_len, send_len);
+    if (!fake)
+        exa_tcp_tx_buffer_write(sock, iov, iovcnt, skip_len, send_len);
 
     return send_len;
 }
 
 ssize_t
-exanic_tcp_send(struct exa_socket * restrict sock, const void *buf, size_t len)
+exanic_tcp_send(struct exa_socket * restrict sock, const void *buf, size_t len,
+                bool fake)
 {
     struct iovec iov;
 
@@ -1533,7 +1542,7 @@ exanic_tcp_send(struct exa_socket * restrict sock, const void *buf, size_t len)
     iov.iov_base = (void *)buf;
     iov.iov_len = len;
 
-    return exanic_tcp_send_iov(sock, &iov, 1, 0, len);
+    return exanic_tcp_send_iov(sock, &iov, 1, 0, len, fake);
 }
 
 ssize_t
