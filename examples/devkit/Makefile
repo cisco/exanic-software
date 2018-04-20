@@ -6,7 +6,7 @@ LDLIBS=-L../../libs/exanic -lexanic
 EXASOCK_CFLAGS=-I../../libs/exasock/include
 EXASOCK_LDLIBS=-L../../libs/exasock/build -lexasock_ext
 
-BIN=libexanic-responder-example exasock-tcp-responder-example custom-filter-example ping-example exanic-devkit-register-read exanic-devkit-register-write exanic-xvcserver
+BIN=libexanic-responder-example exasock-tcp-responder-example custom-filter-example ping-example exanic-devkit-register-read exanic-devkit-register-write exanic-xvcserver exanic-devkit-multi-preload-tx-example
 all: $(BIN)
 
 libexanic-reponder-example: libexanic-responder-example.c
