@@ -109,6 +109,10 @@ static inline int exasock_disable_acceleration(int fd)
  *
  * Ideally the length of the fake message should be equal (or at least similar)
  * to the length of a subsequent real message to be sent.
+ *
+ * An attempt to send a message with MSG_EXA_WARM flag on not accelerated socket
+ * is not effective. Exasock will return immediately without entering the send
+ * code path at all.
  */
 #define MSG_EXA_WARM    0x100000
 

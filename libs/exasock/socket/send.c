@@ -25,6 +25,7 @@
 #include "../kernel/structs.h"
 #include "../lock.h"
 #include "../rwlock.h"
+#include "../warn.h"
 #include "../structs.h"
 #include "../sockets.h"
 #include "../exanic.h"
@@ -36,6 +37,16 @@
 #include "override.h"
 #include "trace.h"
 #include "common.h"
+
+/* Calculate total length of iovec */
+static inline size_t
+__iovec_total_len(const struct iovec *iov, size_t iovcnt)
+{
+    size_t len = 0, i;
+    for (i = 0; i < iovcnt; i++)
+        len += iov[i].iov_len;
+    return len;
+}
 
 static ssize_t
 sendto_bypass_udp(struct exa_socket * restrict sock, int sockfd,
@@ -189,7 +200,17 @@ send(int sockfd, const void *buf, size_t len, int flags)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = LIBC(send, sockfd, buf, len, flags);
+    {
+        if (flags & MSG_EXA_WARM)
+        {
+            WARNING_MSGWARM(sockfd);
+            ret = len;
+        }
+        else
+        {
+            ret = LIBC(send, sockfd, buf, len, flags);
+        }
+    }
     else
     {
         exa_read_lock(&sock->lock);
@@ -197,7 +218,15 @@ send(int sockfd, const void *buf, size_t len, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = LIBC(send, sockfd, buf, len, flags);
+            if (flags & MSG_EXA_WARM)
+            {
+                WARNING_MSGWARM(sockfd);
+                ret = len;
+            }
+            else
+            {
+                ret = LIBC(send, sockfd, buf, len, flags);
+            }
         }
         else if (sock->connected)
         {
@@ -286,7 +315,17 @@ sendto(int sockfd, const void *buf, size_t len, int flags,
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = LIBC(sendto, sockfd, buf, len, flags, dest_addr, addrlen);
+    {
+        if (flags & MSG_EXA_WARM)
+        {
+            WARNING_MSGWARM(sockfd);
+            ret = len;
+        }
+        else
+        {
+            ret = LIBC(sendto, sockfd, buf, len, flags, dest_addr, addrlen);
+        }
+    }
     else
     {
         if (!sock->bypass && dest_addr != NULL)
@@ -313,7 +352,16 @@ sendto(int sockfd, const void *buf, size_t len, int flags,
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = LIBC(sendto, sockfd, buf, len, flags, dest_addr, addrlen);
+
+            if (flags & MSG_EXA_WARM)
+            {
+                WARNING_MSGWARM(sockfd);
+                ret = len;
+            }
+            else
+            {
+                ret = LIBC(sendto, sockfd, buf, len, flags, dest_addr, addrlen);
+            }
         }
         else
         {
@@ -397,7 +445,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
     bool nonblock = (flags & MSG_DONTWAIT) || (sock->flags & O_NONBLOCK);
     bool fake = !!(flags & MSG_EXA_WARM);
     ssize_t nwritten, ret;
-    size_t count, i;
+    size_t count;
 
     assert(sock->bypass);
     assert(sock->domain == AF_INET);
@@ -411,9 +459,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
     }
 
     /* Calculate total length of iovec */
-    count = 0;
-    for (i = 0; i < msg->msg_iovlen; i++)
-        count += msg->msg_iov[i].iov_len;
+    count = __iovec_total_len(msg->msg_iov, msg->msg_iovlen);
 
     /* Provided address in msg_name is ignored */
 
@@ -492,7 +538,17 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
     TRACE_FLUSH();
 
     if (sock == NULL)
-        ret = LIBC(sendmsg, sockfd, msg, flags);
+    {
+        if (flags & MSG_EXA_WARM)
+        {
+            WARNING_MSGWARM(sockfd);
+            ret = __iovec_total_len(msg->msg_iov, msg->msg_iovlen);
+        }
+        else
+        {
+            ret = LIBC(sendmsg, sockfd, msg, flags);
+        }
+    }
     else
     {
         if (!sock->bypass && msg->msg_name != NULL)
@@ -518,7 +574,15 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
         if (!sock->bypass)
         {
             exa_read_unlock(&sock->lock);
-            ret = LIBC(sendmsg, sockfd, msg, flags);
+            if (flags & MSG_EXA_WARM)
+            {
+                WARNING_MSGWARM(sockfd);
+                ret = __iovec_total_len(msg->msg_iov, msg->msg_iovlen);
+            }
+            else
+            {
+                ret = LIBC(sendmsg, sockfd, msg, flags);
+            }
         }
         else
         {
@@ -692,15 +756,13 @@ writev_bypass_tcp(struct exa_socket * restrict sock, int fd,
 {
     bool nonblock = (sock->flags & O_NONBLOCK);
     ssize_t nwritten, ret;
-    size_t count, i;
+    size_t count;
 
     assert(exa_read_locked(&sock->lock));
     assert(sock->connected);
 
     /* Calculate total length of iovec */
-    count = 0;
-    for (i = 0; i < iovcnt; i++)
-        count += iov[i].iov_len;
+    count = __iovec_total_len(iov, iovcnt);
 
     nwritten = 0;
     while (true)
