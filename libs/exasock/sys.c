@@ -131,7 +131,7 @@ exa_sys_dst_queue(in_addr_t dst_addr, in_addr_t src_addr, char *hdr,
     req.dst_addr = dst_addr;
     req.src_addr = src_addr;
     req.ip_packet = buf;
-    if (!fake)
+    if (EXPECT_TRUE(!fake))
         req.ip_packet_len = hdr_len + offs;
     else
         req.ip_packet_len = 0;

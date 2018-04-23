@@ -195,7 +195,7 @@ exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
     }
     assert(offs == iov_len);
 
-    if (fake)
+    if (EXPECT_FALSE(fake))
         exanic_abort_transmit_frame(ctx->exanic_tx);
     else
         exanic_end_transmit_frame(ctx->exanic_tx, 0);
@@ -1512,7 +1512,7 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
     send_len = data_len < max_len ? data_len : max_len;
 
     /* Clear ack_pending flag because an ACK is about to be sent */
-    if (!fake)
+    if (EXPECT_TRUE(!fake))
         exa_tcp_clear_ack_pending(&ctx->tcp);
 
     /* Build TCP header */
@@ -1525,7 +1525,7 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
                        fake);
 
     /* Update retransmit buffer and sequence numbers */
-    if (!fake)
+    if (EXPECT_TRUE(!fake))
         exa_tcp_tx_buffer_write(sock, iov, iovcnt, skip_len, send_len);
 
     return send_len;
