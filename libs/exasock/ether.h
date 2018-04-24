@@ -3,9 +3,10 @@
 
 struct vlan_hdr
 {
-    uint16_t h_vlan_id;
+    uint16_t h_vlan_tci;
     uint16_t h_vlan_proto;
 };
+#define VLAN_HDR_VID_MASK   0x0FFF
 
 /* Return true if address is broadcast or multicast */
 static inline bool
@@ -60,7 +61,7 @@ exa_eth_set_src(struct exa_eth_tx * restrict ctx, uint8_t src_addr[ETH_ALEN], ui
     memcpy(ctx->hdr.eth.h_source, src_addr, ETH_ALEN);
     if (vlan_id)
     {
-        ctx->hdr.vlan.h_vlan_id = vlan_id;
+        ctx->hdr.vlan.h_vlan_tci = vlan_id;
         ctx->hdr.vlan.h_vlan_proto = ctx->hdr.eth.h_proto;
         ctx->hdr.eth.h_proto = htons(ETH_P_8021Q);
     }
@@ -84,7 +85,7 @@ exa_eth_parse_vlan_hdr(struct exa_eth * restrict ctx, char *hdr,
 
     *next_hdr = hdr + sizeof(struct vlan_hdr);
 
-    if (h->h_vlan_id == ctx->vlan_id)
+    if ((h->h_vlan_tci & htons(VLAN_HDR_VID_MASK)) == ctx->vlan_id)
         return h->h_vlan_proto;
     else
         return -1;
