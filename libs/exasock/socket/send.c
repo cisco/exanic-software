@@ -53,7 +53,7 @@ sendto_bypass_udp(struct exa_socket * restrict sock, int sockfd,
                   const void *buf, size_t len, int flags,
                   const struct sockaddr *dest_addr, socklen_t addrlen)
 {
-    bool fake = !!(flags & MSG_EXA_WARM);
+    bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t ret;
 
     assert(sock->bypass);
@@ -88,7 +88,7 @@ sendto_bypass_udp(struct exa_socket * restrict sock, int sockfd,
         }
     }
 
-    ret = exanic_udp_send(sock, buf, len, fake);
+    ret = exanic_udp_send(sock, buf, len, warm);
     exa_unlock(&sock->state->tx_lock);
     return ret;
 }
@@ -106,7 +106,7 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
                   const struct sockaddr *dest_addr, socklen_t addrlen)
 {
     bool nonblock = (flags & MSG_DONTWAIT) || (sock->flags & O_NONBLOCK);
-    bool fake = !!(flags & MSG_EXA_WARM);
+    bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t nwritten, ret;
 
     assert(sock->bypass);
@@ -129,7 +129,7 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         exa_lock(&sock->state->tx_lock);
         while (nwritten < len)
         {
-            ret = exanic_tcp_send(sock, buf + nwritten, len - nwritten, fake);
+            ret = exanic_tcp_send(sock, buf + nwritten, len - nwritten, warm);
             if (ret <= 0)
                 break;
             nwritten += ret;
@@ -379,7 +379,7 @@ static ssize_t
 sendmsg_bypass_udp(struct exa_socket * restrict sock, int sockfd,
                    const struct msghdr *msg, int flags)
 {
-    bool fake = !!(flags & MSG_EXA_WARM);
+    bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t ret;
 
     assert(sock->bypass);
@@ -425,7 +425,7 @@ sendmsg_bypass_udp(struct exa_socket * restrict sock, int sockfd,
         }
     }
 
-    ret = exanic_udp_send_iov(sock, msg->msg_iov, msg->msg_iovlen, fake);
+    ret = exanic_udp_send_iov(sock, msg->msg_iov, msg->msg_iovlen, warm);
 
     exa_unlock(&sock->state->tx_lock);
     return ret;
@@ -443,7 +443,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
                    const struct msghdr *msg, int flags)
 {
     bool nonblock = (flags & MSG_DONTWAIT) || (sock->flags & O_NONBLOCK);
-    bool fake = !!(flags & MSG_EXA_WARM);
+    bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t nwritten, ret;
     size_t count;
 
@@ -471,7 +471,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
         while (nwritten < count)
         {
             ret = exanic_tcp_send_iov(sock, msg->msg_iov, msg->msg_iovlen,
-                                      nwritten, count - nwritten, fake);
+                                      nwritten, count - nwritten, warm);
             if (ret <= 0)
                 break;
             nwritten += ret;
