@@ -91,7 +91,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
             if (FD_ISSET(fd, readfds))
             {
                 struct exa_socket * restrict sock = exa_socket_get(fd);
-                if (sock != NULL && sock->bypass)
+                if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
                 {
                     FD_SET(fd, (fd_set *)bypass_readfds);
                     bypass_read_count++;
@@ -112,7 +112,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
             if (FD_ISSET(fd, writefds))
             {
                 struct exa_socket * restrict sock = exa_socket_get(fd);
-                if (sock != NULL && sock->bypass)
+                if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
                 {
                     FD_SET(fd, (fd_set *)bypass_writefds);
                     bypass_write_count++;
@@ -133,7 +133,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
             if (FD_ISSET(fd, exceptfds))
             {
                 struct exa_socket * restrict sock = exa_socket_get(fd);
-                if (sock != NULL && sock->bypass)
+                if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
                     bypass_except_count++;
                 else
                 {
@@ -313,7 +313,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
                 exa_read_lock(&sock->lock);
 
-                if (!sock->bypass)
+                if (sock->bypass_state != EXA_BYPASS_ACTIVE)
                 {
                     exa_read_unlock(&sock->lock);
                     continue;
@@ -443,7 +443,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
         struct pollfd * restrict pollfd = &fds[i];
         struct exa_socket * restrict sock = exa_socket_get(pollfd->fd);
 
-        if (sock != NULL && sock->bypass)
+        if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
         {
             pollfd->revents = 0;
             bypass_count++;
@@ -488,7 +488,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
             continue;
 
         exa_read_lock(&sock->lock);
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             continue;
@@ -624,7 +624,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 
                 exa_read_lock(&sock->lock);
 
-                if (!sock->bypass)
+                if (sock->bypass_state != EXA_BYPASS_ACTIVE)
                 {
                     exa_read_unlock(&sock->lock);
                     continue;

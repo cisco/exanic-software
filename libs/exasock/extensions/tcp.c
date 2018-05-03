@@ -52,8 +52,9 @@ exasock_tcp_get_device(int fd, char *dev, size_t dev_len, int *port_num)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass || sock->domain != AF_INET ||
-            sock->type != SOCK_STREAM)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE
+            || sock->domain != AF_INET
+            || sock->type != SOCK_STREAM)
         {
             errno = EOPNOTSUPP;
             ret = -1;
@@ -87,8 +88,9 @@ exasock_tcp_build_header(int fd, void *buf, size_t len, size_t offset,
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass || sock->domain != AF_INET ||
-            sock->type != SOCK_STREAM)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE
+            || sock->domain != AF_INET
+            || sock->type != SOCK_STREAM)
         {
             errno = EOPNOTSUPP;
             ret = -1;
@@ -172,8 +174,9 @@ exasock_tcp_send_advance(int fd, const void *data, size_t data_len)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass || sock->domain != AF_INET ||
-            sock->type != SOCK_STREAM)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE
+            || sock->domain != AF_INET
+            || sock->type != SOCK_STREAM)
         {
             errno = EOPNOTSUPP;
             ret = -1;

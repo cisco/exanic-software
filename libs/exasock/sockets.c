@@ -72,6 +72,9 @@ exa_socket_init(struct exa_socket * restrict sock, int domain, int type,
     sock->ip_membership.mcast_ep_valid = false;
     sock->ip_membership.mcast_ep.interface = htonl(INADDR_ANY);
     sock->ip_membership.mcast_ep.multiaddr = htonl(INADDR_ANY);
+
+    sock->bypass_state =
+        (getenv("EXASOCK_DEFAULT_DISABLE") != NULL) ? EXA_BYPASS_INACTIVE : EXA_BYPASS_AVAIL;
 }
 
 static void
@@ -187,7 +190,7 @@ void
 exa_socket_update_timestamping(struct exa_socket * restrict sock)
 {
     assert(exa_write_locked(&sock->lock));
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
 
     sock->rx_sw_timestamp = (sock->so_timestamp || sock->so_timestampns ||
             (sock->so_timestamping & SOF_TIMESTAMPING_RX_SOFTWARE) != 0);
@@ -374,7 +377,7 @@ exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock)
 {
     struct exa_tcp_state * restrict tcp;
 
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
     assert(sock->domain == AF_INET);
     assert(sock->type == SOCK_STREAM);
 
@@ -402,7 +405,7 @@ exa_socket_tcp_init(struct exa_socket * restrict sock)
     struct exa_tcp_state * restrict tcp;
     int val;
 
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
     assert(sock->domain == AF_INET);
     assert(sock->type == SOCK_STREAM);
 
@@ -454,7 +457,7 @@ exa_socket_enable_bypass(struct exa_socket * restrict sock)
 
     /* Socket is not in bypass mode */
     assert(exa_write_locked(&sock->lock));
-    assert(!sock->bypass);
+    assert(sock->bypass_state != EXA_BYPASS_ACTIVE);
 
     tmpfd = exa_sys_exasock_open(fd);
     if (tmpfd == -1)
@@ -482,7 +485,7 @@ exa_socket_enable_bypass(struct exa_socket * restrict sock)
      * the socket lock (if bypass found set, then exasock blocks on the lock
      * so that processing continues no sooner than fd switching is completed).
      */
-    sock->bypass = true;
+    sock->bypass_state = EXA_BYPASS_ACTIVE;
 
     if (exa_sys_replace_fd(fd, tmpfd) == -1)
         goto err_sys_replace_fd;
@@ -522,7 +525,7 @@ err_proto_enable_bypass:
     /* Can't revert to previous state, so just close the fd */
     tmpfd = fd;
 err_sys_replace_fd:
-    sock->bypass = false;
+    sock->bypass_state = EXA_BYPASS_AVAIL;
     exa_unlock(&sock->state->rx_lock);
     exa_unlock(&sock->state->tx_lock);
     /* FIXME: The original epoll memberships are lost */
@@ -724,7 +727,7 @@ exa_socket_udp_close(struct exa_socket * restrict sock)
     exanic_udp_free(sock);
 
     sock->bound = false;
-    sock->bypass = false;
+    sock->bypass_state = EXA_BYPASS_DISABLED;
 
     exa_sys_buffer_munmap(fd, &sock->state, &sock->rx_buffer, &sock->tx_buffer);
 }
@@ -946,7 +949,7 @@ exa_socket_tcp_close(struct exa_socket * restrict sock)
     exanic_tcp_free(sock);
 
     sock->bound = false;
-    sock->bypass = false;
+    sock->bypass_state = EXA_BYPASS_DISABLED;
 
     exa_sys_buffer_munmap(fd, &sock->state, &sock->rx_buffer, &sock->tx_buffer);
 }

@@ -56,7 +56,7 @@ sendto_bypass_udp(struct exa_socket * restrict sock, int sockfd,
     bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t ret;
 
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
     assert(sock->domain == AF_INET);
     assert(sock->type == SOCK_DGRAM);
     assert(exa_read_locked(&sock->lock));
@@ -109,7 +109,7 @@ sendto_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
     bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t nwritten, ret;
 
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
     assert(sock->domain == AF_INET);
     assert(sock->type == SOCK_STREAM);
     assert(exa_read_locked(&sock->lock));
@@ -170,7 +170,7 @@ sendto_bypass(struct exa_socket * restrict sock, int sockfd,
               const struct sockaddr *dest_addr, socklen_t addrlen)
 {
     assert(exa_read_locked(&sock->lock));
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
 
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
         return sendto_bypass_udp(sock, sockfd, buf, len, flags,
@@ -215,7 +215,7 @@ send(int sockfd, const void *buf, size_t len, int flags)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             if (flags & MSG_EXA_WARM)
@@ -254,14 +254,14 @@ auto_bind(struct exa_socket * restrict sock, int sockfd,
 
     assert(exa_write_locked(&sock->lock));
 
-    if (sock->bypass)
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         /* Someone beat us to it - this is possible because we test
          * sock->bypass before acquiring the lock */
         return 0;
     }
 
-    if (sock->disable_bypass)
+    if (sock->bypass_state <= EXA_BYPASS_INACTIVE)
         return 0; /* falls through to native */
 
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
@@ -328,7 +328,7 @@ sendto(int sockfd, const void *buf, size_t len, int flags,
     }
     else
     {
-        if (!sock->bypass && dest_addr != NULL)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE && dest_addr != NULL)
         {
             exa_write_lock(&sock->lock);
 
@@ -349,7 +349,7 @@ sendto(int sockfd, const void *buf, size_t len, int flags,
 
         assert(exa_read_locked(&sock->lock));
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
 
@@ -382,7 +382,7 @@ sendmsg_bypass_udp(struct exa_socket * restrict sock, int sockfd,
     bool warm = !!(flags & MSG_EXA_WARM);
     ssize_t ret;
 
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
     assert(sock->domain == AF_INET);
     assert(sock->type == SOCK_DGRAM);
 
@@ -447,7 +447,7 @@ sendmsg_bypass_tcp(struct exa_socket * restrict sock, int sockfd,
     ssize_t nwritten, ret;
     size_t count;
 
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
     assert(sock->domain == AF_INET);
     assert(sock->type == SOCK_STREAM);
     assert(exa_read_locked(&sock->lock));
@@ -511,7 +511,7 @@ sendmsg_bypass(struct exa_socket * restrict sock, int sockfd,
                const struct msghdr *msg, int flags)
 {
     assert(exa_read_locked(&sock->lock));
-    assert(sock->bypass);
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
 
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
         return sendmsg_bypass_udp(sock, sockfd, msg, flags);
@@ -551,7 +551,7 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
     }
     else
     {
-        if (!sock->bypass && msg->msg_name != NULL)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE && msg->msg_name != NULL)
         {
             exa_write_lock(&sock->lock);
 
@@ -571,7 +571,7 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
 
         assert(exa_read_locked(&sock->lock));
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             if (flags & MSG_EXA_WARM)
@@ -705,7 +705,7 @@ write(int fd, const void *buf, size_t count)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             ret = LIBC(write, fd, buf, count);
@@ -841,7 +841,7 @@ writev(int fd, const struct iovec *iov, int iovcnt)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             ret = LIBC(writev, fd, iov, iovcnt);

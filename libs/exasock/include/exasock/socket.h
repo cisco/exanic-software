@@ -25,6 +25,10 @@
  * has been disabled on the socket, it can no longer be re-enabled. If any of
  * above rules is not followed setsocketopt() fails with EPERM error.
  *
+ * Using a zero value for this socket option will enable acceleration
+ * when global acceleration is disabled. Note that even in this case,
+ * manually disabling acceleration on the socket is permanent (as above).
+ *
  * This is Exasock private socket level option (the level argument of
  * setsockopt()/getsockopt() needs to be specified as SOL_EXASOCK).
  * This option takes an int value. This is a Boolean option.

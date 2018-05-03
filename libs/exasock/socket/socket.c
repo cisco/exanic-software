@@ -139,7 +139,7 @@ close(int fd)
 
         exa_write_lock(&sock->lock);
 
-        if (sock->bypass)
+        if (sock->bypass_state == EXA_BYPASS_ACTIVE)
         {
             if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
             {
@@ -229,7 +229,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     exa_write_lock(&sock->lock);
 
-    if (!sock->bypass && !sock->disable_bypass)
+    if (sock->bypass_state == EXA_BYPASS_AVAIL)
     {
         /* Put into bypass mode if address is an ExaNIC interface or INADDR_ANY */
         if (sock->domain == AF_INET && in_addr->sin_family == AF_INET)
@@ -249,7 +249,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
                 exa_unlock(&sock->state->rx_lock);
                 exa_unlock(&sock->state->tx_lock);
 
-                assert(sock->bypass);
+                assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
             }
             else if (IN_MULTICAST(ntohl(in_addr->sin_addr.s_addr)))
             {
@@ -258,7 +258,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         }
     }
 
-    if (sock->bypass)
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         /* Bind to ExaNIC interface */
         if (sock->domain == AF_INET && in_addr->sin_family == AF_INET)
@@ -303,9 +303,9 @@ bind_to_device(struct exa_socket * restrict sock, const char *ifnamein,
     memcpy(ifname, ifnamein, ifnamelen);
     ifname[ifnamelen] = 0;
 
-    if (exanic_ip_find_by_interface(ifname, &address) && !sock->disable_bypass)
+    if (exanic_ip_find_by_interface(ifname, &address) && sock->bypass_state >= EXA_BYPASS_AVAIL)
     {
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             /* This is an ExaNIC interface, enable bypass */
             /* On successful return we hold rx_lock and tx_lock */
@@ -319,7 +319,7 @@ bind_to_device(struct exa_socket * restrict sock, const char *ifnamein,
             exa_unlock(&sock->state->rx_lock);
             exa_unlock(&sock->state->tx_lock);
 
-            assert(sock->bypass);
+            assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
         }
 
         sock->bound_to_device = false;
@@ -328,7 +328,7 @@ bind_to_device(struct exa_socket * restrict sock, const char *ifnamein,
     }
     else
     {
-        sock->disable_bypass = true;
+        sock->bypass_state = EXA_BYPASS_DISABLED;
         /* note: if socket is already in bypass mode, there is
          * currently no way to undo that */
     }
@@ -348,7 +348,7 @@ listen(int sockfd, int backlog)
     TRACE_LAST_ARG(INT, backlog);
     TRACE_FLUSH();
 
-    if (sock == NULL || !sock->bypass)
+    if (sock == NULL || sock->bypass_state != EXA_BYPASS_ACTIVE)
     {
         ret = LIBC(listen, sockfd, backlog);
         TRACE_RETURN(INT, ret);
@@ -503,7 +503,7 @@ accept_native_init(int fd, struct exa_socket * restrict ls_sock, int flags)
         {
             exa_socket_init(sock, ls_sock->domain, ls_sock->type & 0xF,
                             ls_sock->protocol);
-            sock->disable_bypass = ls_sock->disable_bypass;
+            sock->bypass_state = ls_sock->bypass_state;
         }
 
         sock->flags = flags;
@@ -528,7 +528,7 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             native = true;
@@ -578,7 +578,7 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             exa_read_unlock(&sock->lock);
             native = true;
@@ -763,7 +763,7 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
         exa_write_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             struct sockaddr_in sa;
             socklen_t sl;
@@ -779,7 +779,7 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
             }
 
             sl = sizeof(sa);
-            if (!sock->disable_bypass &&
+            if (sock->bypass_state >= EXA_BYPASS_AVAIL &&
                 LIBC(getsockname, sockfd, (struct sockaddr *)&sa, &sl) == 0 &&
                 sa.sin_family == AF_INET &&
                 exanic_ip_find(sa.sin_addr.s_addr))
@@ -833,12 +833,12 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
         exa_write_lock(&sock->lock);
 
-        if (sock->bypass)
+        if (sock->bypass_state == EXA_BYPASS_ACTIVE)
         {
             exa_lock(&sock->state->rx_lock);
             exa_lock(&sock->state->tx_lock);
         }
-        else if (!sock->disable_bypass)
+        else if (sock->bypass_state >= EXA_BYPASS_AVAIL)
         {
             /* If the route is via an ExaNIC interface, put the socket into
              * bypass mode */
@@ -854,13 +854,13 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
                     return ret;
                 }
 
-                assert(sock->bypass);
+                assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
                 assert(sock->state->rx_lock);
                 assert(sock->state->tx_lock);
             }
         }
 
-        if (sock->bypass)
+        if (sock->bypass_state == EXA_BYPASS_ACTIVE)
         {
             /* This will release rx_lock, tx_lock and socket lock */
             ret = connect_tcp(sock, sockfd, in_addr->sin_addr.s_addr,
@@ -905,7 +905,7 @@ shutdown(int sockfd, int how)
 
     exa_write_lock(&sock->lock);
 
-    if (sock->bypass)
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
         {
@@ -1073,7 +1073,7 @@ ioctl(int fd, unsigned long int request, ...)
     TRACE_FLUSH();
 
     sock = exa_socket_get(fd);
-    if (sock != NULL && sock->bypass)
+    if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         int tempsock = LIBC(socket, sock->domain, sock->type, sock->protocol);
         va_start(ap, request);
@@ -1131,7 +1131,7 @@ getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     TRACE_ARG(INT, sockfd);
     TRACE_FLUSH();
 
-    if (sock != NULL && sock->bypass)
+    if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         exa_read_lock(&sock->lock);
 
@@ -1176,7 +1176,7 @@ getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     TRACE_ARG(INT, sockfd);
     TRACE_FLUSH();
 
-    if (sock != NULL && sock->bypass)
+    if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         exa_read_lock(&sock->lock);
 
@@ -1225,7 +1225,7 @@ getsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 
     exa_read_lock(&sock->lock);
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         ret = LIBC(getsockopt, sockfd, IPPROTO_IP, optname, optval, optlen);
     else
     {
@@ -1271,7 +1271,7 @@ getsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
 
     exa_read_lock(&sock->lock);
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         ret = LIBC(getsockopt,sockfd, IPPROTO_TCP, optname, optval, optlen);
     else
     {
@@ -1330,7 +1330,7 @@ getsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
 
     exa_read_lock(&sock->lock);
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         ret = LIBC(getsockopt, sockfd, SOL_SOCKET, optname, optval, optlen);
     else
     {
@@ -1446,7 +1446,7 @@ getsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
     switch (optname)
     {
     case SO_EXA_NO_ACCEL:
-        val = sock->disable_bypass;
+        val = sock->bypass_state <= EXA_BYPASS_INACTIVE;
         out_int = true;
         ret = 0;
         break;
@@ -1580,7 +1580,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     {
     case IP_MULTICAST_LOOP:
         /* Loopback is unsupported, return error if user tries to enable it */
-        if (sock->bypass && val)
+        if (sock->bypass_state == EXA_BYPASS_ACTIVE && val)
         {
             errno = EINVAL;
             goto err_exit;
@@ -1595,7 +1595,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                 goto err_exit;
 
             if (!is_exanic && (mcast_ep.interface != htonl(INADDR_ANY)) &&
-                sock->bypass)
+                sock->bypass_state == EXA_BYPASS_ACTIVE)
             {
                 /* Unable to join multicast on an accelerated socket with
                  * non-exanic interface
@@ -1604,7 +1604,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                 goto err_exit;
             }
 
-            if (is_exanic && !sock->disable_bypass)
+            if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
             {
                 /* Joining multicast groups with mixed (exanic and
                  * non-exanic) interfaces on the same socket is not
@@ -1637,9 +1637,10 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
             if (ret == -1)
                 goto err_exit;
 
-            if (is_exanic && !sock->disable_bypass)
+            if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
             {
-                if (!sock->bypass || !sock->ip_membership.mcast_ep_valid ||
+                if (sock->bypass_state != EXA_BYPASS_ACTIVE
+                    || !sock->ip_membership.mcast_ep_valid ||
                     (sock->ip_membership.mcast_ep.interface !=
                             mcast_ep.interface) ||
                     (sock->ip_membership.mcast_ep.multiaddr !=
@@ -1661,7 +1662,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
         break;
     }
 
-    if (sock->bypass)
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
         ret = exa_sys_setsockopt(sockfd, IPPROTO_IP, optname, optval, optlen);
     else
         ret = LIBC(setsockopt, sockfd, IPPROTO_IP, optname, optval, optlen);
@@ -1675,9 +1676,9 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     switch (optname)
     {
     case IP_ADD_MEMBERSHIP:
-        if (is_exanic && !sock->disable_bypass)
+        if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
         {
-            if (!sock->bypass)
+            if (sock->bypass_state != EXA_BYPASS_ACTIVE)
             {
                 /* Put socket into bypass mode.
                  * On successful return we hold rx_lock and tx_lock.
@@ -1691,7 +1692,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                 }
                 exa_unlock(&sock->state->rx_lock);
                 exa_unlock(&sock->state->tx_lock);
-                assert(sock->bypass);
+                assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
             }
 
             if (sock->bound)
@@ -1711,7 +1712,7 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
         break;
 
     case IP_DROP_MEMBERSHIP:
-        if (is_exanic && !sock->disable_bypass)
+        if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
         {
             if (sock->bound)
             {
@@ -1787,14 +1788,14 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
     case TCP_NODELAY:
         /* TODO: We do not currently implement Nagle, so prevent
            any attempt to disable it */
-        if (sock->bypass && !val)
+        if (sock->bypass_state == EXA_BYPASS_ACTIVE && !val)
         {
             errno = EINVAL;
             goto err_exit;
         }
     }
 
-    if (sock->bypass)
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
         ret = exa_sys_setsockopt(sockfd, IPPROTO_TCP, optname, optval, optlen);
     else
         ret = LIBC(setsockopt, sockfd, IPPROTO_TCP, optname, optval, optlen);
@@ -1810,24 +1811,27 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
         {
         case TCP_KEEPCNT:
             sock->tcp_keepcnt = val;
-            if (sock->bypass && sock->domain == AF_INET &&
-                sock->type == SOCK_STREAM)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE
+                && sock->domain == AF_INET
+                && sock->type == SOCK_STREAM)
             {
                 exa_socket_tcp_update_keepalive(sock);
             }
             break;
         case TCP_KEEPIDLE:
             sock->tcp_keepidle = val;
-            if (sock->bypass && sock->domain == AF_INET &&
-                sock->type == SOCK_STREAM)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE
+                && sock->domain == AF_INET
+                && sock->type == SOCK_STREAM)
             {
                 exa_socket_tcp_update_keepalive(sock);
             }
             break;
         case TCP_KEEPINTVL:
             sock->tcp_keepintvl = val;
-            if (sock->bypass && sock->domain == AF_INET &&
-                sock->type == SOCK_STREAM)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE
+                && sock->domain == AF_INET
+                && sock->type == SOCK_STREAM)
             {
                 exa_socket_tcp_update_keepalive(sock);
             }
@@ -1868,7 +1872,7 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
 
     exa_write_lock(&sock->lock);
 
-    if (sock->bypass)
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         /* Some options don't work on the dummy socket.
          * Don't call exa_sys_setsockopt() for those options */
@@ -1911,18 +1915,18 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
         case SO_TIMESTAMP:
             sock->so_timestamp = (val != 0);
             sock->so_timestampns = false;
-            if (sock->bypass)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE)
                 exa_socket_update_timestamping(sock);
             break;
         case SO_TIMESTAMPNS:
             sock->so_timestamp = false;
             sock->so_timestampns = (val != 0);
-            if (sock->bypass)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE)
                 exa_socket_update_timestamping(sock);
             break;
         case SO_TIMESTAMPING:
             sock->so_timestamping = val;
-            if (sock->bypass)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE)
                 exa_socket_update_timestamping(sock);
             break;
         case SO_SNDTIMEO:
@@ -1949,22 +1953,23 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             break;
         case SO_SNDBUF:
             /* Not supported with bypass enabled */
-            if (sock->bypass)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE)
                 WARNING_SOCKOPT("SO_SNDBUF");
             else
                 sock->warn.so_sndbuf = true;
             break;
         case SO_RCVBUF:
             /* Not supported with bypass enabled */
-            if (sock->bypass)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE)
                 WARNING_SOCKOPT("SO_RCVBUF");
             else
                 sock->warn.so_rcvbuf = true;
             break;
         case SO_KEEPALIVE:
             sock->so_keepalive = (val != 0);
-            if (sock->bypass && sock->domain == AF_INET &&
-                sock->type == SOCK_STREAM)
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE
+                && sock->domain == AF_INET
+                && sock->type == SOCK_STREAM)
             {
                 exa_socket_tcp_update_keepalive(sock);
             }
@@ -2017,19 +2022,20 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
     switch (optname)
     {
     case SO_EXA_NO_ACCEL:
-        if ((val && sock->bypass) || (val == 0 && sock->disable_bypass))
+        if ((val && sock->bypass_state == EXA_BYPASS_ACTIVE)
+            || (val == 0 && sock->bypass_state == EXA_BYPASS_DISABLED))
         {
             errno = EPERM;
             goto err_exit;
         }
         else
         {
-            sock->disable_bypass = (val != 0);
+            sock->bypass_state = (val != 0) ? EXA_BYPASS_DISABLED : EXA_BYPASS_AVAIL;
         }
         break;
 
     case SO_EXA_MCAST_LISTEN:
-        if ((sock->type != SOCK_DGRAM) || (sock->disable_bypass))
+        if ((sock->type != SOCK_DGRAM) || (sock->bypass_state <= EXA_BYPASS_INACTIVE))
         {
             errno = EPERM;
             goto err_exit;
@@ -2069,7 +2075,7 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
             goto err_exit;
         }
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             /* Put socket into bypass mode.
              * On successful return we hold rx_lock and tx_lock.
@@ -2079,7 +2085,7 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
                 goto err_exit;
             exa_unlock(&sock->state->rx_lock);
             exa_unlock(&sock->state->tx_lock);
-            assert(sock->bypass);
+            assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
         }
 
         if (sock->bound)

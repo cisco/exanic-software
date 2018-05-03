@@ -1,6 +1,29 @@
 #ifndef EXASOCK_STRUCTS_H
 #define EXASOCK_STRUCTS_H
 
+/*
+ * Be careful adding/removing/reordering entries. There are some parts of
+ * the code that rely on this enum going (approximately) from least
+ * available to most available.
+ */
+enum exa_bypass_state
+{
+    /* permanently disabled - cannot leave this state */
+    EXA_BYPASS_DISABLED,
+
+    /* disabled, but not permanently (e.g. user can enable). The main use
+     * case for this is "global default disable" in exasock.
+     */
+    EXA_BYPASS_INACTIVE,
+
+    /* available, but not yet active */
+    EXA_BYPASS_AVAIL,
+
+    /* This socket is currently being used for bypass. This state is
+       (currently) only left when closing a socket. */
+    EXA_BYPASS_ACTIVE
+};
+
 struct exa_endpoint_ipaddr
 {
     in_addr_t local;
@@ -73,14 +96,11 @@ struct exa_socket
     int protocol;
     int flags;
 
-    /* Bypass socket state */
-    bool valid;
-    bool bypass;
+    /* Bypass/bound state */
+    enum exa_bypass_state bypass_state;
     bool bound;
     bool connected;
-
-    /* Disable entering bypass mode on this socket */
-    bool disable_bypass;
+    bool valid;
 
     /* Bound to specific device with SO_BINDTODEVICE */
     bool bound_to_device;

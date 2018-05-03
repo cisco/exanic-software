@@ -152,7 +152,7 @@ epoll_ctl_add(struct exa_notify * restrict no, int epfd,
     assert(sock != NULL);
     assert(exa_write_locked(&sock->lock));
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
     {
         /* Check that we have space to record the epoll membership */
         if (sock->num_epoll_fd > MAX_NUM_EPOLL)
@@ -193,7 +193,7 @@ epoll_ctl_mod(struct exa_notify * restrict no, int epfd,
     assert(sock != NULL);
     assert(exa_write_locked(&sock->lock));
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
     {
         /* Update kernel epoll */
         if (LIBC(epoll_ctl, epfd, EPOLL_CTL_MOD, fd, event) == -1)
@@ -224,7 +224,7 @@ epoll_ctl_del(struct exa_notify * restrict no, int epfd,
     assert(sock != NULL);
     assert(exa_write_locked(&sock->lock));
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
     {
         /* Remove from kernel epoll */
         LIBC(epoll_ctl, epfd, EPOLL_CTL_DEL, fd, NULL);
@@ -318,7 +318,7 @@ epoll_pwait_spin_test_fd(struct exa_notify * restrict no, int fd,
 
     exa_read_lock(&sock->lock);
 
-    if (!sock->bypass)
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
     {
         exa_read_unlock(&sock->lock);
         return false;

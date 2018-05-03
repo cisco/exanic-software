@@ -341,7 +341,7 @@ recv(int sockfd, void *buf, size_t len, int flags)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
@@ -382,7 +382,7 @@ __recv_chk(int sockfd, void *buf, size_t len, size_t buflen, int flags)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
@@ -422,7 +422,7 @@ recvfrom(int sockfd, void *buf, size_t len, int flags,
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
@@ -467,7 +467,7 @@ __recvfrom_chk(int sockfd, void *buf, size_t len, size_t buflen,
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
@@ -721,7 +721,7 @@ recvmsg(int sockfd, struct msghdr *msg, int flags)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, sockfd);
             exa_read_unlock(&sock->lock);
@@ -841,7 +841,7 @@ read(int fd, void *buf, size_t count)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, fd);
             exa_read_unlock(&sock->lock);
@@ -881,7 +881,7 @@ __read_chk(int fd, void *buf, size_t nbytes, size_t buflen)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, fd);
             exa_read_unlock(&sock->lock);
@@ -992,7 +992,7 @@ readv(int fd, const struct iovec *iov, int iovcnt)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->bypass)
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
         {
             print_warning(sock, fd);
             exa_read_unlock(&sock->lock);

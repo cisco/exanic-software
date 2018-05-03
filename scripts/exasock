@@ -1,13 +1,14 @@
 #!/bin/sh
 
 show_usage() {
-    echo "Usage:"                                     >&2
-    echo "  $0 [options] <command>"                   >&2
-    echo                                              >&2
-    echo "Options:"                                   >&2
-    echo "  --debug       Use debug version"          >&2
-    echo "  --trace       Trace library calls"        >&2
-    echo "  --no-warn     Turn off warning messages"  >&2
+    echo "Usage:"                                         >&2
+    echo "  $0 [options] <command>"                       >&2
+    echo                                                  >&2
+    echo "Options:"                                       >&2
+    echo "  --debug    Use debug version"          >&2
+    echo "  --trace    Trace library calls"        >&2
+    echo "  --no-warn  Turn off warning messages"  >&2
+    echo "  --no-auto  Disable acceleration by default" >&2
     exit 1
 }
 
@@ -69,6 +70,10 @@ do
     --no-warn)
         EXASOCK_NOWARN=1
         export EXASOCK_NOWARN
+        ;;
+    --no-auto)
+        EXASOCK_DEFAULT_DISABLE=1
+        export EXASOCK_DEFAULT_DISABLE
         ;;
     -*)
         show_usage
