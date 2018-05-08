@@ -105,6 +105,9 @@ struct exasock_tcp
     uint32_t                        last_send_seq;
     uint32_t                        last_send_ack;
 
+    /* Number of times the last seen ACK hasn't changed */
+    uint32_t                        last_ack_counter;
+
     /* Last advertised window */
     struct
     {
@@ -1943,6 +1946,8 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
     if (tcp->retransmit_countdown > 0)
         tcp->retransmit_countdown--;
 
+    tcp->last_ack_counter++;
+
     if (tcp_state == EXA_TCP_CLOSED || tcp_state == EXA_TCP_LISTEN)
     {
         /* No retransmissions in these states */
@@ -1966,11 +1971,25 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
         {
             tcp->retransmit_countdown = RETRANSMIT_TIMEOUT;
         }
+
+        /* By getting into this if clause, we have outstanding un-ACKed
+         * data. So, if tcp->last_send_ack == send_ack, then we haven't seen
+         * ACK progress despite having data. We've already moved the "last ack
+         * counter" forward, so check that the timeout has been reached. */
+        if (state->p.tcp.user_timeout_ms != 0
+            && tcp->last_send_ack == send_ack
+            && (tcp->last_ack_counter * 1000 / TCP_TIMER_PER_SEC
+                >= state->p.tcp.user_timeout_ms))
+        {
+            state->error = ETIMEDOUT;
+            state->p.tcp.state = EXA_TCP_CLOSED;
+        }
     }
     else
     {
-        /* No ACKs pending, disable timeout */
+        /* No ACKs pending, disable timeouts */
         tcp->retransmit_countdown = -1;
+        tcp->last_ack_counter = 0;
     }
 
     if (tcp->retransmit_countdown == 0)

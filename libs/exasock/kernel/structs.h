@@ -158,10 +158,21 @@ struct exa_tcp_state
         uint32_t intvl;
         uint32_t probes;
     } keepalive;
+    /* Timeout permissible on sending a TCP segment, in milliseconds. This
+     * is set using the "TCP_USER_TIMEOUT" socket option, at the option
+     * level IPPROTO_TCP. Zero is treated as "unset".
+     *
+     * If a connection times out due to this option, any current or future
+     * syscalls on this socket will fail, and errno will be set to ETIMEDOUT.
+     *
+     * It is checked and enforced in the TCP connection worker only when there
+     * is outstanding (un-ACKed) data.
+     */
+    uint32_t user_timeout_ms;
     /* Slow start after idle? */
     uint8_t ss_after_idle;
 
-    uint8_t __reserved3[47];
+    uint8_t __reserved3[43];
 
     /* 256 */
     /* user read-mostly, kernel read-write */

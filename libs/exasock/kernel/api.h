@@ -2,7 +2,7 @@
 #define EXASOCK_KERNEL_API_H
 
 #define EXASOCK_DEVICE "/dev/exasock"
-#define EXASOCK_API_VERSION 17
+#define EXASOCK_API_VERSION 18
 
 #define EXASOCK_IOCTL_TYPE          'x'
 #define EXASOCK_IOCTL_SOCKET        _IOW(EXASOCK_IOCTL_TYPE, 0x50, int)

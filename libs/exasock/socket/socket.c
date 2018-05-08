@@ -1298,6 +1298,14 @@ getsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
             val = exa_socket_get_tcp_keepintvl(sock);
             out_int = true;
             break;
+
+#ifdef TCP_USER_TIMEOUT
+        case TCP_USER_TIMEOUT:
+            val = sock->state->p.tcp.user_timeout_ms;
+            out_int = true;
+            break;
+#endif
+
         }
     }
 
@@ -1767,6 +1775,9 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
     if (optname == TCP_NODELAY ||
         optname == TCP_KEEPCNT ||
         optname == TCP_KEEPIDLE ||
+#ifdef TCP_USER_TIMEOUT
+        optname == TCP_USER_TIMEOUT ||
+#endif
         optname == TCP_KEEPINTVL)
     {
         if (optlen >= sizeof(int))
@@ -1836,6 +1847,13 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
                 exa_socket_tcp_update_keepalive(sock);
             }
             break;
+
+#ifdef TCP_USER_TIMEOUT
+        case TCP_USER_TIMEOUT:
+            sock->state->p.tcp.user_timeout_ms = (unsigned)val;
+            break;
+#endif
+
         }
     }
 
