@@ -2300,22 +2300,22 @@ int main(int argc, char *argv[])
 usage_error:
     fprintf(stderr, "exanic-config version 2.1.1-git\n");
     fprintf(stderr, "Detailed network interface configuration and status:\n");
-    fprintf(stderr, "   %s <device> [-v]\n", argv[0]);
-    fprintf(stderr, "   %s <device> sfp status\n", argv[0]);
-    fprintf(stderr, "   %s <device> { up | down }\n", argv[0]);
-    fprintf(stderr, "   %s <device> counters reset\n", argv[0]);
+    fprintf(stderr, "   %s [<device>] [-v]\n", argv[0]);
+    fprintf(stderr, "   %s <interface> sfp status\n", argv[0]);
+    fprintf(stderr, "   %s <interface> { up | down }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> counters reset\n", argv[0]);
     fprintf(stderr, "   %s <device> bridging { on | off }\n", argv[0]);
-    fprintf(stderr, "   %s <device> mirror-rx { on | off }\n", argv[0]);
-    fprintf(stderr, "   %s <device> mirror-tx { on | off }\n", argv[0]);
-    fprintf(stderr, "   %s <device> local-loopback { on | off }\n", argv[0]);
-    fprintf(stderr, "   %s <device> bypass-only { on | off }\n", argv[0]);
-    fprintf(stderr, "   %s <device> promisc { on | off }\n", argv[0]);
-    fprintf(stderr, "   %s <device> speed <speed>\n", argv[0]);
+    fprintf(stderr, "   %s <interface> mirror-rx { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> mirror-tx { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> local-loopback { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> bypass-only { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> promisc { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> speed <speed>\n", argv[0]);
     fprintf(stderr, "   %s <device> pps-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> 10m-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> ptp <command>\n", argv[0]);
-    fprintf(stderr, "      <device> can be a Linux interface name, ExaNIC device (e.g. exanic0)\n");
-    fprintf(stderr, "      or ExaNIC device:port (e.g. exanic0:0)\n");
+    fprintf(stderr, "      <device> is an ExaNIC device (e.g. exanic0)\n");
+    fprintf(stderr, "      <interface> can be a Linux interface name or ExaNIC device:port (e.g. exanic0:0)\n");
     fprintf(stderr, "      <speed> is in Mbit/s (e.g. 100 | 1000 | 10000 | 40000)\n");
     return 1;
 }
