@@ -161,7 +161,12 @@ static int exanic_map_devkit_mem(struct exanic *exanic, struct vm_area_struct *v
     /* Do the mapping */
     err = remap_pfn_range(vma, vma->vm_start,
             exanic->devkit_mem_phys >> PAGE_SHIFT, map_size,
-            pgprot_noncached(vma->vm_page_prot));
+  #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29)
+            pgprot_writecombine(vma->vm_page_prot)
+  #else
+            pgprot_noncached(vma->vm_page_prot)
+  #endif
+          );
     if (err)
     {
         dev_err(dev, DRV_NAME
