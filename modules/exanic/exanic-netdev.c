@@ -1005,13 +1005,19 @@ int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
 }
 
 static struct net_device_ops exanic_ndos = {
-    .ndo_open               = exanic_netdev_open,
-    .ndo_stop               = exanic_netdev_stop,
-    .ndo_start_xmit         = exanic_netdev_xmit,
-    .ndo_set_rx_mode        = exanic_netdev_set_rx_mode,
-    .ndo_set_mac_address    = exanic_netdev_set_mac_addr,
-    .ndo_change_mtu         = exanic_netdev_change_mtu,
-    .ndo_do_ioctl           = exanic_netdev_ioctl,
+    .ndo_open                = exanic_netdev_open,
+    .ndo_stop                = exanic_netdev_stop,
+    .ndo_start_xmit          = exanic_netdev_xmit,
+    .ndo_set_rx_mode         = exanic_netdev_set_rx_mode,
+    .ndo_set_mac_address     = exanic_netdev_set_mac_addr,
+    .ndo_do_ioctl            = exanic_netdev_ioctl,
+
+#if __USE_RH_NETDEV_CHANGE_MTU
+    .ndo_change_mtu_rh74     = exanic_netdev_change_mtu,
+#else
+    .ndo_change_mtu          = exanic_netdev_change_mtu,
+#endif
+
 };
 
 static int exanic_netdev_get_settings(struct net_device *ndev,

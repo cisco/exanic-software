@@ -6,6 +6,9 @@ exanic-objs := exanic-main.o exanic-filter.o exanic-ctx.o exanic-dev.o exanic-ne
 HAS_NETDEVICE_DEV_PORT := ${shell grep -c 'dev_port' $(srctree)/include/linux/netdevice.h}
 ccflags-y := -D__HAS_NETDEVICE_DEV_PORT=$(HAS_NETDEVICE_DEV_PORT)
 
+USE_RH_NETDEV_CHANGE_MTU := ${shell grep -c 'RH_KABI_RENAME.*ndo_change_mtu' $(srctree)/include/linux/netdevice.h}
+ccflags-y := -D__USE_RH_NETDEV_CHANGE_MTU=$(USE_RH_NETDEV_CHANGE_MTU)
+
 else # normal part makefile
 
 KDIR ?= /lib/modules/`uname -r`/build
