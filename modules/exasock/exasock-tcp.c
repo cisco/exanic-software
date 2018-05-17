@@ -1361,7 +1361,8 @@ static int exasock_tcp_process_data(struct sk_buff *skb,
     /* FIXME: When we do graceful shutdown instead of closing with RST,
      *        the condition for processing RST should be updated.
      *        A reset is valid if its sequence number is in the window. */
-    if (th->rst && before_eq(seg_seq, recv_seq))
+    /* NOTE: after a FIN, the RST we receive will have seq=recv_seq + 1 */
+    if (th->rst && before_eq(seg_seq, recv_seq + 1))
     {
         /* Connection reset, move to CLOSED state */
         state->error = ECONNRESET;
