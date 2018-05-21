@@ -1,5 +1,5 @@
 Name:           exanic
-Version:        2.1.0-git
+Version:        2.1.1-git
 Release:        1%{?dist}
 
 Summary:        ExaNIC drivers and software

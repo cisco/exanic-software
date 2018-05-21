@@ -1,3 +1,6 @@
+2.1.1 [2018-05-21]
+* exasock: improve interoperability of TCP reset handling after FIN receipt
+
 2.1.0 [2018-02-20]
 * Support for ExaNIC V5P
 * exasock: support for policy-based routing

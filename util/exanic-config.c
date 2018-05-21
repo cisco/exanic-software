@@ -2043,7 +2043,7 @@ int ptp_command(const char *progname, const char *device,
     }
 
 usage_error:
-    fprintf(stderr, "exanic-config version 2.1.0-git\n");
+    fprintf(stderr, "exanic-config version 2.1.1-git\n");
     fprintf(stderr, "Detailed PTP grandmaster configuration and status:\n");
     fprintf(stderr, "   %s <device> ptp status\n", progname);
     fprintf(stderr, "   %s <device> ptp { enable | disable }\n", progname);
@@ -2267,7 +2267,7 @@ int main(int argc, char *argv[])
     }
 
 usage_error:
-    fprintf(stderr, "exanic-config version 2.1.0-git\n");
+    fprintf(stderr, "exanic-config version 2.1.1-git\n");
     fprintf(stderr, "Detailed network interface configuration and status:\n");
     fprintf(stderr, "   %s <device> [-v]\n", argv[0]);
     fprintf(stderr, "   %s <device> sfp status\n", argv[0]);
