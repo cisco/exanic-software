@@ -67,6 +67,8 @@ int (*__libc_epoll_ctl)(int, int, int, struct epoll_event *);
 int (*__libc_epoll_wait)(int, struct epoll_event *, int, int);
 int (*__libc_epoll_pwait)(int, struct epoll_event *, int, int,
                           const sigset_t *);
+int (*__libc_recvmmsg)(int, struct mmsghdr *, unsigned int, int,
+                       const struct timespec *);
 
 bool __thread override_disabled = false;
 bool __override_initialized = false;
@@ -116,6 +118,7 @@ __exasock_override_init()
         __libc_epoll_ctl = dlsym(RTLD_NEXT, "epoll_ctl");
         __libc_epoll_wait = dlsym(RTLD_NEXT, "epoll_wait");
         __libc_epoll_pwait = dlsym(RTLD_NEXT, "epoll_pwait");
+        __libc_recvmmsg = dlsym(RTLD_NEXT, "recvmmsg");
 
         __override_initialized = true;
     }

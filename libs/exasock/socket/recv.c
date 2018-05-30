@@ -1011,3 +1011,107 @@ readv(int fd, const struct iovec *iov, int iovcnt)
 
     return ret;
 }
+
+__attribute__((visibility("default")))
+int
+recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+         int flags, const struct timespec *timeout)
+{
+    struct exa_socket *restrict sock = exa_socket_get(sockfd);
+    struct timespec t_max, t_now;
+    int ret = 0;
+    unsigned int i = 0;
+
+    TRACE_CALL("recvmmsg");
+    TRACE_ARG(INT, sockfd);
+    TRACE_FLUSH();
+
+    if (sock == NULL)
+    {
+        ret = LIBC(recvmmsg, sockfd, msgvec, vlen, flags, timeout);
+        goto out;
+    }
+
+    if (timeout != NULL)
+    {
+        if (!ts_vld(timeout))
+        {
+            errno = EINVAL;
+            ret = -1;
+            goto out;
+        }
+
+        /* configure timeout */
+        if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_max) == -1)
+        {
+            errno = EAGAIN;
+            ret = -1;
+            goto out;
+        }
+        ts_add(&t_max, timeout);
+    }
+
+    if (sock->bypass_state != EXA_BYPASS_ACTIVE)
+    {
+        print_warning(sock, sockfd);
+        ret = LIBC(recvmmsg, sockfd, msgvec, vlen, flags, timeout);
+        goto out;
+    }
+
+    exa_read_lock(&sock->lock);
+    for (i = 0; i < vlen; i++)
+    {
+        ret = recvmsg_bypass(sock, sockfd, &msgvec[i].msg_hdr,
+                             flags & ~MSG_WAITFORONE);
+        if (ret == -1)
+        {
+            /* no more data, and user wants non-blocking behaviour */
+            if (errno == EAGAIN
+                && (flags & MSG_WAITFORONE)
+                && (i > 0))
+                ret = i;
+            goto out;
+        }
+
+        msgvec[i].msg_len = ret;
+        ret = i + 1;
+
+        /* check timeout */
+        if (timeout != NULL)
+        {
+            if (clock_gettime(CLOCK_MONOTONIC_COARSE, &t_now) == -1)
+            {
+                errno = EAGAIN;
+                ret = -1;
+                goto out;
+            }
+
+            /*
+             * Stripping the const-ness of this timespec is a little nasty, but
+             * Linux does not define it as const (see net/socket.c), and changes the
+             * pointee (by setting it to how far away you were from the timeout).
+             *
+             * This is fine so far, but glibc versions before 2.24 define the
+             * timespec as const - so, to maintain compatibility, we declare it as
+             * const and cast it away here.
+             */
+            ts_sub(&t_max, &t_now, (struct timespec*)timeout);
+
+            if (ts_after_eq(&t_now, &t_max))
+                goto out;
+        }
+
+        if (flags & MSG_WAITFORONE)
+            flags |= MSG_DONTWAIT;
+    }
+    exa_read_unlock(&sock->lock);
+
+ out:
+    TRACE_ARG(MMSG_PTR, msgvec, ret);
+    TRACE_ARG(UNSIGNED, vlen);
+    TRACE_ARG(BITS, flags, msg_flags);
+    TRACE_LAST_ARG(TIMESPEC_PTR, timeout);
+    TRACE_RETURN(INT, ret);
+
+    return ret;
+}

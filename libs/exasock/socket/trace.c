@@ -382,6 +382,37 @@ __trace_print_msghdr(const struct msghdr *msg, ssize_t len)
 }
 
 void
+__trace_print_mmsghdr(const struct mmsghdr *msgs, ssize_t len)
+{
+    unsigned int i = 0;
+
+    if (msgs == NULL)
+        __trace_printf("NULL");
+    else if (len < 0)
+        __trace_printf("%p", msgs);
+    else
+    {
+        __trace_printf("{");
+        for (i = 0; i < len; i++)
+        {
+            __trace_printf("{msg_name(%d)=", msgs[i].msg_hdr.msg_namelen);
+            __trace_print_sockaddr(msgs[i].msg_hdr.msg_name);
+            __trace_printf(", msg_iov(%ld)=", msgs[i].msg_hdr.msg_iovlen);
+            __trace_print_iovec(msgs[i].msg_hdr.msg_iov, msgs[i].msg_hdr.msg_iovlen, msgs[i].msg_len);
+            __trace_printf(", msg_control(%ld)=", msgs[i].msg_hdr.msg_controllen);
+            if (msgs[i].msg_hdr.msg_control == NULL)
+                __trace_printf("NULL");
+            else
+                __trace_printf("%p", msgs[i].msg_hdr.msg_control);
+            __trace_printf(", msg_flags=");
+            __trace_print_bits(msgs[i].msg_hdr.msg_flags, __trace_bits_msg_flags);
+            __trace_printf(i == len - 1 ? "}" : "}, ");
+        }
+        __trace_printf("}");
+    }
+}
+
+void
 __trace_print_iovec(const struct iovec *iov, size_t iovcnt, ssize_t len)
 {
     if (len >= 0)

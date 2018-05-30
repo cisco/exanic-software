@@ -38,6 +38,7 @@ void __trace_print_sockaddr(const struct sockaddr *addr);
 void __trace_print_sockopt(const void *optval, socklen_t optlen);
 void __trace_print_buf(const void *buf, ssize_t len);
 void __trace_print_msghdr(const struct msghdr *msg, ssize_t len);
+void __trace_print_mmsghdr(const struct mmsghdr *msg, ssize_t len);
 void __trace_print_iovec(const struct iovec *iov, size_t iovcnt, ssize_t len);
 void __trace_print_fdset(const fd_set *fds, int nfds);
 void __trace_print_select_result(const fd_set *readfds, const fd_set *writefds,
@@ -54,6 +55,7 @@ void __trace_print_epoll_events(const struct epoll_event *e, int n);
 #define __TRACE_ENUM(n, t) __trace_print_enum(n, __trace_enum_##t)
 #define __TRACE_BITS(n, t) __trace_print_bits(n, __trace_bits_##t)
 #define __TRACE_INT(n) __trace_printf("%d", (n))
+#define __TRACE_UNSIGNED(n) __trace_printf("%u", (n))
 #define __TRACE_LONG(n) __trace_printf("%ld", (n))
 #define __TRACE_INT_PTR(p)                                              \
     do {                                                                \
@@ -70,6 +72,7 @@ void __trace_print_epoll_events(const struct epoll_event *e, int n);
 #define __TRACE_SOCKOPT_PTR(p, l) __trace_print_sockopt((p), (l))
 #define __TRACE_BUF(p, l) __trace_print_buf((p), (l))
 #define __TRACE_MSG_PTR(m, l) __trace_print_msghdr((m), (l))
+#define __TRACE_MMSG_PTR(m, l) __trace_print_mmsghdr((m), (l))
 #define __TRACE_IOVEC_ARRAY(v, n, l) __trace_print_iovec((v), (n), (l))
 #define __TRACE_FDSET_PTR(s, n) __trace_print_fdset((s), (n))
 #define __TRACE_TIMEVAL_PTR(t) __trace_print_timeval(t)

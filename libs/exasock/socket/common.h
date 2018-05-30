@@ -1,6 +1,18 @@
 #ifndef EXASOCK_SOCKET_COMMON_H
 #define EXASOCK_SOCKET_COMMON_H
 
+static inline bool
+ts_vld(const struct timespec *ts)
+{
+    if (ts->tv_sec < 0)
+        return false;
+
+    if ((unsigned long)ts->tv_nsec >= 1000000000) // nanos per second
+        return false;
+
+    return true;
+}
+
 /* d = a - b */
 static inline void
 ts_sub(const struct timespec *a, const struct timespec *b, struct timespec *d)

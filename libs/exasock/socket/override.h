@@ -48,6 +48,8 @@ extern int (*__libc_epoll_ctl)(int, int, int, struct epoll_event *);
 extern int (*__libc_epoll_wait)(int, struct epoll_event *, int, int);
 extern int (*__libc_epoll_pwait)(int, struct epoll_event *, int, int,
                                  const sigset_t *);
+extern int (*__libc_recvmmsg)(int, struct mmsghdr *, unsigned int, int,
+                              const struct timespec *);
 
 void __exasock_override_init(void);
 
