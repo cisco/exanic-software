@@ -126,6 +126,8 @@ struct exanic
     enum per_out_mode per_out_mode;
     ktime_t per_out_start;
 #endif
+
+    bool unsupported;
 };
 
 /* Each context holds a reference to buffers it

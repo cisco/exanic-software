@@ -1153,6 +1153,7 @@ static int exanic_probe(struct pci_dev *pdev,
         /* Register device (misc_dev.minor already initialized) */
         exanic->misc_dev.name = exanic->name;
         exanic->misc_dev.fops = &exanic_fops;
+        exanic->unsupported = true;
         err = misc_register(&exanic->misc_dev);
         if (err)
         {
@@ -1694,12 +1695,12 @@ static void exanic_remove(struct pci_dev *pdev)
         for (j = 0; j < exanic->port[i].max_ip_filter_slots; j++)
         {
             exanic_remove_ip_filter(exanic, i, j);
-        } 
+        }
 
         for (j = 0; j < exanic->port[i].max_mac_filter_slots; j++)
         {
             exanic_remove_mac_filter(exanic, i, j);
-        } 
+        }
 
         if(exanic->port[i].mac_filter_slots != NULL)
             kfree(exanic->port[i].mac_filter_slots);
@@ -1715,7 +1716,8 @@ static void exanic_remove(struct pci_dev *pdev)
     for (i = 0; i < exanic->num_ports; ++i)
         exanic_free_rx_dma(exanic, i);
 
-    if (exanic->caps & EXANIC_CAP_RX_MSI)
+    if (!exanic->unsupported
+        && (exanic->caps & EXANIC_CAP_RX_MSI))
     {
         free_irq(pdev->irq, exanic);
         pci_disable_msi(pdev);
@@ -1726,11 +1728,14 @@ static void exanic_remove(struct pci_dev *pdev)
 
     if (exanic->tx_feedback_virt != NULL)
         dma_free_coherent(&exanic->pci_dev->dev,
-                EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
-                exanic->tx_feedback_virt, exanic->tx_feedback_dma);
+                          EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
+                          exanic->tx_feedback_virt, exanic->tx_feedback_dma);
     if (exanic->tx_region_virt != NULL)
         iounmap(exanic->tx_region_virt);
-    iounmap(exanic->regs_virt);
+
+    if (exanic->regs_virt != NULL)
+        iounmap(exanic->regs_virt);
+
 #if defined(CONFIG_PCIEAER)
     pci_disable_pcie_error_reporting(pdev);
 #endif
