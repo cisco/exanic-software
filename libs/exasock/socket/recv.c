@@ -1012,10 +1012,15 @@ readv(int fd, const struct iovec *iov, int iovcnt)
     return ret;
 }
 
+#ifdef HAVE_RECVMMSG
 __attribute__((visibility("default")))
 int
 recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
-         int flags, const struct timespec *timeout)
+         int flags,
+#if RECVMMSG_HAS_CONST_TIMESPEC
+         const
+#endif
+         struct timespec *timeout)
 {
     struct exa_socket *restrict sock = exa_socket_get(sockfd);
     struct timespec t_max, t_now;
@@ -1115,3 +1120,4 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
 
     return ret;
 }
+#endif

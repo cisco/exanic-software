@@ -38,7 +38,9 @@ void __trace_print_sockaddr(const struct sockaddr *addr);
 void __trace_print_sockopt(const void *optval, socklen_t optlen);
 void __trace_print_buf(const void *buf, ssize_t len);
 void __trace_print_msghdr(const struct msghdr *msg, ssize_t len);
+#ifdef MSG_WAITFORONE
 void __trace_print_mmsghdr(const struct mmsghdr *msg, ssize_t len);
+#endif
 void __trace_print_iovec(const struct iovec *iov, size_t iovcnt, ssize_t len);
 void __trace_print_fdset(const fd_set *fds, int nfds);
 void __trace_print_select_result(const fd_set *readfds, const fd_set *writefds,

@@ -171,6 +171,9 @@ struct __trace_enum_table __trace_bits_msg_flags[] =
     {MSG_WAITALL, "MSG_WAITALL"},
     {MSG_ERRQUEUE, "MSG_ERRQUEUE"},
     {MSG_NOSIGNAL, "MSG_NOSIGNAL"},
+#ifdef MSG_WAITFORONE
+    {MSG_WAITFORONE, "MSG_WAITFORONE"},
+#endif
     {0, NULL}
 };
 
@@ -381,6 +384,7 @@ __trace_print_msghdr(const struct msghdr *msg, ssize_t len)
     }
 }
 
+#ifdef MSG_WAITFORONE
 void
 __trace_print_mmsghdr(const struct mmsghdr *msgs, ssize_t len)
 {
@@ -411,6 +415,7 @@ __trace_print_mmsghdr(const struct mmsghdr *msgs, ssize_t len)
         __trace_printf("}");
     }
 }
+#endif
 
 void
 __trace_print_iovec(const struct iovec *iov, size_t iovcnt, ssize_t len)

@@ -39,7 +39,8 @@ EXT_STUB_LIB_LINKNAME=libexasock_ext.so
 EXT_STUB_LIB_LDFLAGS=-Wl,-soname,$(EXT_STUB_LIB_SONAME)
 
 HAVE_NET_TSTAMP_H:=${shell $(CC) $(CFLAGS) -include linux/net_tstamp.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}
-CONFIG_CFLAGS=-DHAVE_NET_TSTAMP_H=$(HAVE_NET_TSTAMP_H)
+RECVMMSG_HAS_CONST_TIMESPEC:=${shell echo 'int recvmmsg(int fd, struct mmsghdr *m, unsigned int l, int f, const struct timespec *t);' | $(CC) $(CFLAGS) -D_GNU_SOURCE -include sys/socket.h -c -o /dev/null -x c - >/dev/null 2>&1 && echo 1 || echo 0}
+CONFIG_CFLAGS=-DHAVE_NET_TSTAMP_H=$(HAVE_NET_TSTAMP_H) -DRECVMMSG_HAS_CONST_TIMESPEC=$(RECVMMSG_HAS_CONST_TIMESPEC)
 
 .PHONY: debug release all clean
 
