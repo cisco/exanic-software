@@ -616,6 +616,7 @@ static const struct ptp_clock_info exanic_ptp_clock_info = {
 void exanic_ptp_init(struct exanic *exanic)
 {
     struct device *dev = &exanic->pci_dev->dev;
+    uint32_t reg;
     uint64_t time_ticks;
 
     exanic->tick_hz =
@@ -666,9 +667,23 @@ void exanic_ptp_init(struct exanic *exanic)
 
     if (EXANIC_SUPPORTS_PER_OUT(exanic))
     {
-        /* Disable periodic output */
-        writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
-        writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
+        if ((exanic)->hw_id == EXANIC_HW_X10_GM)
+        {
+            /* Read persisted values from ExaNIC GM  */
+            reg = readl(exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
+            if (reg & EXANIC_HW_PER_OUT_CONFIG_PPS)
+                exanic->per_out_mode = PER_OUT_1PPS;
+            else if (reg & EXANIC_HW_PER_OUT_CONFIG_10M)
+                exanic->per_out_mode = PER_OUT_10M;
+            else
+                exanic->per_out_mode = PER_OUT_NONE;
+        }
+        else
+        {
+            /* Disable periodic output */
+            writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_WIDTH));
+            writel(0, exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
+        }
     }
 
     if (exanic_ptp_adj_allowed(exanic))

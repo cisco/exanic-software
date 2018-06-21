@@ -100,6 +100,16 @@ int parse_on_off(const char *str)
         return -1;
 }
 
+int parse_rising_falling(const char *str)
+{
+    if (strcmp(str, "rising") == 0)
+        return 1;
+    else if (strcmp(str, "falling") == 0)
+        return 0;
+    else
+        return -1;
+}
+
 int parse_device_port(const char *str, char *device, int *port_number)
 {
     char *p, *q;
@@ -427,10 +437,13 @@ void show_device_info(const char *device, int port_number, int verbose)
             printf("  PPS port: ");
             if (pps_out)
             {
-                printf("output, %s\n",
-                           (config & EXANIC_HW_PER_OUT_CONFIG_PPS) ? "1Hz"
-                           : (config & EXANIC_HW_PER_OUT_CONFIG_10M) ? "10Mhz"
-                           : "disabled");
+                if (config & EXANIC_HW_PER_OUT_CONFIG_PPS)
+                    printf( "1PPS output, on %s edge\n",
+                            (flags & EXANIC_HW_SERIAL_PPS_OUT_VAL) ? "rising" : "falling");
+                else if (config & EXANIC_HW_PER_OUT_CONFIG_10M)
+                    printf( "10MHz output\n");
+                else
+                    printf( "disabled\n");
             }
             else
             {
@@ -1055,6 +1068,22 @@ void set_per_out(const char *device, int pps_10m, int enable)
 
     printf("%s: %s output %s\n", device, pps_10m ? "PPS" : "10M",
             enable ? "enabled" : "disabled");
+}
+
+void set_per_out_edge_sel(const char *device, int rising)
+{
+    exanic_t *exanic;
+    exanic = acquire_handle(device);
+
+    uint32_t flags;
+    flags = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS));
+    if (rising)
+        flags = flags | EXANIC_HW_SERIAL_PPS_OUT_VAL;
+    else
+        flags = flags & (~EXANIC_HW_SERIAL_PPS_OUT_VAL);
+    exanic_register_write(exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), flags);
+    printf("%s: Periodic output configured to generate %s edge\n", device, rising ? "rising" : "falling");
+    release_handle(exanic);
 }
 
 void set_firewall_state(const char *device, exanic_firewall_state_t state)
@@ -2279,6 +2308,14 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
         set_per_out(device, 0, mode);
         return 0;
     }
+    else if (argc == 4 && strcmp(argv[2], "pps-out-edge-select") == 0 &&
+            port_number == -1)
+    {
+        if ((mode = parse_rising_falling(argv[3])) == -1)
+            return 1;
+        set_per_out_edge_sel(device, mode);
+        return 0;
+    }
     else if ((argc == 3 || argc == 4) &&
              (strncmp(argv[2], "rx-", 3) == 0 ||
               strncmp(argv[2], "tx-", 3) == 0) && port_number != -1)
@@ -2435,6 +2472,7 @@ usage_error:
     fprintf(stderr, "   %s <interface> speed <speed>\n", argv[0]);
     fprintf(stderr, "   %s <device> pps-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> 10m-out { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <device> pps-out-edge-select { rising | falling }\n", argv[0]);
     fprintf(stderr, "   %s <device> ptp <command>\n", argv[0]);
     fprintf(stderr, "      <interface> can be a Linux interface name or ExaNIC device:port (e.g. exanic0:0)\n");
     fprintf(stderr, "      <device> is an ExaNIC device (e.g. exanic0).\n");
