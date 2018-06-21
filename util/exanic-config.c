@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -102,6 +103,14 @@ int parse_on_off(const char *str)
 int parse_device_port(const char *str, char *device, int *port_number)
 {
     char *p, *q;
+
+    /* Don't match wildcards */
+    p = strchr(str, '*');
+    if (p != NULL)
+        return -1;
+    p = strchr(str, '[');
+    if (p != NULL)
+        return -1;
 
     /* Ignore "/dev/" prefix on device name */
     if (strncmp(str, "/dev/", 5) == 0)
@@ -715,7 +724,7 @@ void reset_port_counters(const char *device, int port_number)
     release_handle(exanic);
 }
 
-void show_sfp_status(const char *device, int port_number)
+int show_sfp_status(const char *device, int port_number)
 {
     int port_status;
     int channel;
@@ -735,7 +744,7 @@ void show_sfp_status(const char *device, int port_number)
     {
         fprintf(stderr, "%s:%d: SFP not present\n", device, port_number);
         release_handle(exanic);
-        exit(1);
+        return 1;
     }
 
     if (hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_V5P)
@@ -812,6 +821,7 @@ void show_sfp_status(const char *device, int port_number)
     }
 
     release_handle(exanic);
+    return 0;
 }
 
 void get_interface_name(const char *device, int port_number,
@@ -2004,7 +2014,7 @@ int ptp_command(const char *progname, const char *device,
     else if ((argc == 2) && strcmp(argv[0], "ip-address") == 0)
     {
         if (inet_aton(argv[1], &ipaddr) == 0)
-            goto usage_error;
+            goto ptp_usage_error;
         ptp_set_ip_address(device, &ipaddr);
         return 0;
     }
@@ -2022,7 +2032,7 @@ int ptp_command(const char *progname, const char *device,
         else if (strcmp(argv[1], "none") == 0)
             val = NO_PROFILE;
         else
-            goto usage_error;
+            goto ptp_usage_error;
         ptp_set_profile(device, val);
         return 0;
     }
@@ -2045,12 +2055,12 @@ int ptp_command(const char *progname, const char *device,
                 if (ptp_options[i].type == CONF_TYPE_BOOLEAN)
                 {
                     if ((val = parse_on_off(argv[1])) == -1)
-                        goto usage_error;
+                        goto ptp_usage_error;
                 }
                 else
                 {
                     if (parse_signed_number(argv[1], &val) == -1)
-                        goto usage_error;
+                        goto ptp_usage_error;
                     if (val < ptp_options[i].min ||
                             val > ptp_options[i].max)
                     {
@@ -2072,7 +2082,7 @@ int ptp_command(const char *progname, const char *device,
         }
     }
 
-usage_error:
+ptp_usage_error:
     fprintf(stderr, "exanic-config version 2.1.1-git\n");
     fprintf(stderr, "Detailed PTP grandmaster configuration and status:\n");
     fprintf(stderr, "   %s <device> ptp status\n", progname);
@@ -2090,29 +2100,72 @@ usage_error:
     return 1;
 }
 
-int main(int argc, char *argv[])
+/*
+ * Glob can be:
+ * '*': matches any unsigned integer
+ * '[X-Y]': matches unsigned integers X to Y inclusive
+ */
+int unsigned_integer_matches_glob(uint32_t i, const char* glob)
 {
-    char device[16];
-    int port_number;
+    uint32_t upper, lower, count;
+
+    if (!strcmp(glob, "*"))
+        return true;
+
+    if (sscanf(glob, "[%u-%u]%n", &lower, &upper, &count) == 2 && count == strlen(glob))
+        return i >= lower && i <= upper;
+
+    if (sscanf(glob, "%u%n", &lower, &count) == 1 && count == strlen(glob))
+        return i == lower;
+
+    return false;
+}
+
+/*
+ * nic is expected to be of the form "exanic0"
+ * glob is expected to be of the form "exanic*:[4-7]", etc.
+ */
+int exanic_port_matches_glob(const char* nic, int port, const char* glob)
+{
+    uint32_t nic_id;
+    char glob1[16], glob2[16];
+    size_t glob1len, glob2len;
+
+    if (strncmp(glob, "exanic", 6) != 0)
+        return false;
+    glob += 6;
+
+    char* split = strchr(glob, ':');
+    if (split == NULL)
+        return false;
+
+    glob1len = split - glob;
+    if (glob1len >= 16)
+        return false;
+    memcpy(glob1, glob, glob1len);
+    glob1[glob1len] = 0;
+
+    glob2len = strlen(split+1);
+    if (glob2len >= 16)
+        return false;
+    memcpy(glob2, split+1, glob2len);
+    glob2[glob2len] = 0;
+
+    if (strncmp(nic, "exanic", 6) != 0)
+        return false;
+    nic += 6;
+
+    nic_id = strtoul(nic, &split, 10);
+    if (split == nic)
+        return false;
+
+    return unsigned_integer_matches_glob(nic_id, glob1)
+        && unsigned_integer_matches_glob(port, glob2);
+}
+
+int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
+{
     int mode;
-
-    if (argc < 2)
-    {
-        show_all_devices(0);
-        return 0;
-    }
-    else if (argc == 2 && strcmp(argv[1], "-v") == 0)
-    {
-        show_all_devices(1);
-        return 0;
-    }
-
-    if (argv[1][0] == '-')
-        goto usage_error;
-
-    if (exanic_find_port_by_interface_name(argv[1], device, 16, &port_number)
-            != 0 && parse_device_port(argv[1], device, &port_number) != 0)
-        goto usage_error;
 
     if (argc == 2)
     {
@@ -2127,8 +2180,7 @@ int main(int argc, char *argv[])
     else if (argc == 4 && strcmp(argv[2], "sfp") == 0
             && strcmp(argv[3], "status") == 0 && port_number != -1)
     {
-        show_sfp_status(device, port_number);
-        return 0;
+        return show_sfp_status(device, port_number);
     }
     else if (argc == 4 && strcmp(argv[2], "counters") == 0
             && strcmp(argv[3], "reset") == 0 && port_number != -1)
@@ -2153,7 +2205,7 @@ int main(int argc, char *argv[])
     else if (argc == 4 && strcmp(argv[2], "bridging") == 0 && port_number == -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
         set_ethtool_priv_flags(device, 0, "bridging", mode);
         printf("%s: bridging %s\n", device,
                 mode ? "on (ports 0 and 1)" : "off");
@@ -2163,7 +2215,7 @@ int main(int argc, char *argv[])
             port_number != -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
         set_ethtool_priv_flags(device, port_number, "mirror_rx", mode);
         printf("%s:%d: RX mirroring %s\n", device, port_number,
                 mode ? "on" : "off");
@@ -2173,7 +2225,7 @@ int main(int argc, char *argv[])
             port_number != -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
         set_ethtool_priv_flags(device, port_number, "mirror_tx", mode);
         printf("%s:%d: TX mirroring %s\n", device, port_number,
                 mode ? "on" : "off");
@@ -2183,7 +2235,7 @@ int main(int argc, char *argv[])
             port_number != -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
         set_ethtool_priv_flags(device, port_number, "bypass_only", mode);
         printf("%s:%d: bypass-only mode %s, kernel RX and TX %s\n",
                 device, port_number, mode ? "on" : "off",
@@ -2194,7 +2246,7 @@ int main(int argc, char *argv[])
             port_number != -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
 
         set_promiscuous_mode(device, port_number, mode);
         return 0;
@@ -2204,7 +2256,7 @@ int main(int argc, char *argv[])
     {
         int speed = parse_number(argv[3]);
         if (speed == -1)
-            goto usage_error;
+            return 1;
 
         set_speed(device, port_number, speed);
         return 0;
@@ -2213,7 +2265,7 @@ int main(int argc, char *argv[])
             port_number == -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
 
         set_per_out(device, 1, mode);
         return 0;
@@ -2222,7 +2274,7 @@ int main(int argc, char *argv[])
             port_number == -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
 
         set_per_out(device, 0, mode);
         return 0;
@@ -2244,7 +2296,7 @@ int main(int argc, char *argv[])
                 port_number != -1)
     {
         if ((mode = parse_on_off(argv[3])) == -1)
-            goto usage_error;
+            return 1;
         return set_local_loopback(device, port_number, mode);
     }
     /* below commands for firewall firmware only */
@@ -2258,7 +2310,7 @@ int main(int argc, char *argv[])
         else if (strcmp(argv[3], "transparent") == 0)
             set_firewall_state(device, EXANIC_FIREWALL_TRANSPARENT);
         else
-            goto usage_error;
+            return 1;
         return 0;
     }
     else if (argc == 6 && strcmp(argv[2], "filter") == 0
@@ -2266,7 +2318,7 @@ int main(int argc, char *argv[])
     {
         int slot = parse_number(argv[4]);
         if (slot == -1)
-            goto usage_error;
+            return 1;
         set_firewall_filter(device, slot, argv[5]);
         return 0;
     }
@@ -2279,7 +2331,7 @@ int main(int argc, char *argv[])
         {
             int slot = parse_number(argv[4]);
             if (slot == -1)
-                goto usage_error;
+                return 1;
             clear_firewall_filter(device, slot);
         }
         return 0;
@@ -2295,6 +2347,76 @@ int main(int argc, char *argv[])
     {
         show_firewall_dump(device);
         return 0;
+    }
+
+    return 1;
+}
+
+int parse_device_glob(char* glob, char devices[][16], int max_devices, int* nmatches)
+{
+    exanic_port_info_t* info = malloc(sizeof(exanic_port_info_t) * max_devices);
+    ssize_t parsed = exanic_get_all_ports(info, max_devices * sizeof(exanic_port_info_t));
+    ssize_t i;
+
+    if (parsed < 0)
+    {
+        free(info);
+        return false;
+    }
+
+    *nmatches = 0;
+    for (i = 0; i < parsed && i < max_devices; i++)
+        if (exanic_port_matches_glob(info[i].device, info[i].port_number, glob))
+            sprintf(devices[(*nmatches)++], "%s:%d", info[i].device, info[i].port_number);
+
+    free(info);
+    return true;
+}
+
+int main(int argc, char *argv[])
+{
+    int max_devices = 64;
+    char devices[max_devices][16]; /* 16B per device name */
+    int ndevices = -1;
+    int port_number;
+    int i, ret = 0;
+
+    if (argc < 2)
+    {
+        show_all_devices(0);
+        return 0;
+    }
+    else if (argc == 2 && strcmp(argv[1], "-v") == 0)
+    {
+        show_all_devices(1);
+        return 0;
+    }
+
+    if (argv[1][0] == '-')
+        goto usage_error;
+
+    if (exanic_find_port_by_interface_name(argv[1], devices[0], 16, &port_number) == 0
+        || parse_device_port(argv[1], devices[0], &port_number) == 0)
+    {
+        if (handle_options_on_nic(devices[0], port_number, argc, argv) != 0)
+            goto usage_error;
+
+        return 0;
+    }
+    else if (parse_device_glob(argv[1], devices, max_devices, &ndevices))
+    {
+        if (ndevices == 0)
+            return 1;
+
+        for (i = 0; i < ndevices; i++)
+        {
+            if (parse_device_port(devices[i], devices[i], &port_number) != 0)
+                goto usage_error;
+
+            ret |= handle_options_on_nic(devices[i], port_number, argc, argv);
+        }
+
+        return ret;
     }
 
 usage_error:
@@ -2314,8 +2436,11 @@ usage_error:
     fprintf(stderr, "   %s <device> pps-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> 10m-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> ptp <command>\n", argv[0]);
-    fprintf(stderr, "      <device> is an ExaNIC device (e.g. exanic0)\n");
     fprintf(stderr, "      <interface> can be a Linux interface name or ExaNIC device:port (e.g. exanic0:0)\n");
+    fprintf(stderr, "      <device> is an ExaNIC device (e.g. exanic0).\n");
+    fprintf(stderr, "      Wildcards are accepted for devices and device:ports in the form '*',\n");
+    fprintf(stderr, "      which matches anything, or '[X-Y]', which matches numbers X through Y\n");
+    fprintf(stderr, "      inclusive, for example \"exanic*:[0-3]\".\n");
     fprintf(stderr, "      <speed> is in Mbit/s (e.g. 100 | 1000 | 10000 | 40000)\n");
-    return 1;
+    return 2;
 }
