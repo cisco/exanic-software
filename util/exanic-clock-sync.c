@@ -267,7 +267,7 @@ static int parse_cmdline(int argc, char *argv[])
                 goto usage_error;
 
             snprintf(s[n].name, sizeof(s[n].name), "%s", sync_target);
-            snprintf(s[n].name_src, sizeof(s[n].name_src), "%s", sync_src);
+            snprintf(s[n].name_src, sizeof(s[n].name_src), "%.*s", (int)(sizeof(s[n].name_src)-1), sync_src);
 
             s[n].sync_type = SYNC_INVALID;
             s[n].pps_type = PPS_SINGLE_ENDED;
@@ -382,7 +382,7 @@ static int parse_config(char *filename)
                 goto cleanup;
             }
 
-            snprintf(s[n].name, NAME_LEN, "%s", section);
+            snprintf(s[n].name, NAME_LEN, "%.*s", NAME_LEN-1, section);
             memset(s[n].name_src, 0, NAME_LEN);
 
             s[n].sync_type = SYNC_INVALID;
@@ -413,7 +413,7 @@ static int parse_config(char *filename)
         {
             if (strcmp(key, "source") == 0)
             {
-                snprintf(s[c].name_src, sizeof(s[c].name_src), "%s", value);
+                snprintf(s[c].name_src, sizeof(s[c].name_src), "%.*s", (int)(sizeof(s[c].name_src)-1), value);
             }
             else if (strcmp(key, "pps_termination") == 0 ||
                     strcmp(key, "pps_term") == 0)

@@ -324,6 +324,7 @@ exanic_ip_get_real_device(const char *ifname_in, char *ifname_out,
                           size_t ifname_out_len, uint16_t *vlan_id)
 {
     struct vlan_ioctl_args args;
+    size_t device2_len;
     int fd;
 
     assert(exasock_override_is_off());
@@ -343,8 +344,11 @@ exanic_ip_get_real_device(const char *ifname_in, char *ifname_out,
         return;
     }
 
-    strncpy(ifname_out, args.u.device2, ifname_out_len-1);
-    ifname_out[ifname_out_len-1] = 0;
+    device2_len = strlen(args.u.device2);
+    if (device2_len >= ifname_out_len)
+       device2_len = ifname_out_len-1;
+    memcpy(ifname_out, args.u.device2, device2_len);
+    ifname_out[device2_len] = 0;
 
     args.cmd = GET_VLAN_VID_CMD;
     ioctl(fd, SIOCGIFVLAN, &args); /* ignore failure, VID should be 0 */

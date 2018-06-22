@@ -177,9 +177,16 @@ void release_handle(exanic_t *exanic)
 int ethtool_ioctl(int fd, char *ifname, void *data)
 {
     struct ifreq ifr;
+    size_t ifnamelen = strlen(ifname);
+
+    if (ifnamelen >= IFNAMSIZ)
+    {
+       errno = ENAMETOOLONG;
+       return -1;
+    }
 
     memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+    memcpy(ifr.ifr_name, ifname, ifnamelen);
     ifr.ifr_data = data;
 
     return ioctl(fd, SIOCETHTOOL, &ifr);
