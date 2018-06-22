@@ -1,3 +1,20 @@
+2.2.0 [2018-06-22]
+* exasock: support SO_KEEPALIVE
+* exasock: add MSG_EXA_WARM flag for keeping cache warm
+* exasock: add --no-auto flag to disable acceleration by default
+  (in this case, user can enable per socket with SO_EXA_NO_ACCEL=0)
+* exasock: support recvmmsg
+* exasock: support TCP_USER_TIMEOUT
+* exasock: support TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL
+* exasock: fix parsing of VLAN ID (ignore traffic class bits)
+* exanic-config: support wildcards in device/port
+* exanic-config: allow changing PPS output edge (rising/falling)
+* exanic-config: support two-step mode on GM (requires new firmware)
+* exanic-clock-sync: fix calculations for PPS offset ns
+* exanic-clock-sync: set PPS termination for HPT and V5P
+* exanic-fwupdate: improve hot reload handling, retry if required
+* compile fixes for Linux 4.17 and RHEL 7.5
+
 2.1.1 [2018-05-21]
 * exasock: improve interoperability of TCP reset handling after FIN receipt
 

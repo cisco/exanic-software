@@ -788,7 +788,7 @@ static void print_usage(char *name)
 
 static void print_help(char *name)
 {
-    fprintf(stderr, "\nexasock-stat (ExaSock version 2.1.1-git)\n");
+    fprintf(stderr, "\nexasock-stat (ExaSock version 2.2.0-git)\n");
     fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n\n");
     print_usage(name);
     fprintf(stderr, "Output:\n");
@@ -909,7 +909,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "netlink initialization failed: %s\n", strerror(-err));
         if (err == -EADDRNOTAVAIL)
             fprintf(stderr,
-                    "Please make sure that exasock kernel module (ver. 2.1.1-git or newer) is loaded.\n");
+                    "Please make sure that exasock kernel module (ver. 2.2.0-git or newer) is loaded.\n");
         return EXIT_FAILURE;
     }
 
