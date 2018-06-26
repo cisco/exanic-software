@@ -186,7 +186,7 @@ int main(int argc, char *argv[])
             goto error;
         report_phase_done();
 
-        report_phase("Loading and verifying update");
+        report_phase("Loading and checking update");
         data = read_firmware(filename, flash->partition_size,
                              &data_size, &firmware_id);
         if (!data)
@@ -196,7 +196,11 @@ int main(int argc, char *argv[])
         if (!check_target_hardware(firmware_id, exanic_get_hw_type(exanic)))
             goto error;
 
-        if (!verify_only)
+        if (verify_only)
+        {
+            printf("WARNING: invoked with -V (verify only), not writing new firmware\n");
+        }
+        else
         {
             report_phase("Erasing");
             if (!flash_erase(flash, data_size, report_progress))
