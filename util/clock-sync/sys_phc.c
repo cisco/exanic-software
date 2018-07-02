@@ -410,14 +410,14 @@ enum sync_status poll_sys_phc_sync(struct sys_phc_sync_state *state)
     /* Warn if the drift component of the adjustment is too high */
     if (fabs(drift) > MAX_FREQ_ADJ)
     {
-        log_printf(LOG_ERR, "%s: Clock drift too large: %.3f ppm",
+        log_printf(LOG_ERR, "%s: System clock drift too large: %.3f ppm",
                 state->name, drift * 1000000);
     }
 
     if (set_sys_adj(adj) == -1)
     {
         if (!state->error_mode)
-            log_printf(LOG_ERR, "%s: Error adjusting clock: %s",
+            log_printf(LOG_ERR, "%s: Error adjusting system clock: %s",
                     state->name, strerror(errno));
         goto clock_error;
     }
