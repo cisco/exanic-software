@@ -105,7 +105,9 @@ static int set_sys_adj(double adj)
 {
     struct timex tx;
 
-    if (!(LONG_MIN / 65536000000.0 < adj && adj < LONG_MAX / 65536000000.0))
+    /* Linux clamps the frequency offset to the range -500ppm to 500ppm
+     * Return an error if it is outside of this range */
+    if (!(-0.0005 < adj && adj < 0.0005))
     {
         /* adj is out of range or is NaN */
         errno = ERANGE;
