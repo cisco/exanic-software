@@ -34,7 +34,15 @@ such as the X10/X40.
 exanic-tx-preload.c
 -------------------
 
- This is an example showing how to arbitrarily divide up the ExaNIC TX buffer,
- then load a number of frames into each slot and choose one to send later. The
- idea is to remove the overhead of transferring the packet to the card from the
+This is an example showing how to arbitrarily divide up the ExaNIC TX buffer,
+then load a number of frames into each slot and choose one to send later. The
+idea is to remove the overhead of transferring the packet to the card from the
  critical path.
+
+
+exanic-rx-chunk-inplace.c
+-------------------------
+
+This is a demonstration of the exanic_receive_chunk_inplace() function. This
+demo tests the ability of the host to receive chunks/frames and reports the
+speed at which they are received.
