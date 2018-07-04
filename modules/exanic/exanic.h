@@ -22,6 +22,11 @@
 #define PCI_DEVICE_ID_EXANIC_V5P        0x0008
 #define PCI_DEVICE_ID_EXANIC_X25        0x0009
 
+#define SFP_EEPROM_SIZE                  256
+#define SFP_DIAG_SIZE                   256
+#define SFP_DIAG_OFFSET                 SFP_EEPROM_SIZE
+#define SFP_ETHTOOL_SIZE                (SFP_DIAG_SIZE + SFP_EEPROM_SIZE)
+
 /* Interface to exanic_(get|set)_feature_cfg */
 enum exanic_feature
 {
@@ -131,6 +136,12 @@ int exanic_x4_x2_save_autoneg(struct exanic *exanic, unsigned port_number,
                               bool autoneg);
 int exanic_x4_x2_set_speed(struct exanic *exanic, unsigned port_number,
                            unsigned old_speed, unsigned speed);
+
+int exanic_sfp_eeprom_read(struct exanic *exanic, int port_number,
+                           uint8_t regaddr, char *buffer, size_t size);
+int exanic_sfp_diag_read(struct exanic *exanic, int port_number,
+                           uint8_t regaddr, char *buffer, size_t size);
+int exanic_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_diag);
 
 /* exanic-z10.c */
 int exanic_z10_poweron_port(struct exanic *exanic, unsigned port_num);

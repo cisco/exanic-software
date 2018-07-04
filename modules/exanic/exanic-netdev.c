@@ -1310,6 +1310,72 @@ static int exanic_netdev_get_ts_info(struct net_device *ndev,
 }
 #endif
 
+#ifdef ETHTOOL_GMODULEINFO
+
+static int exanic_get_module_info(struct net_device *ndev,
+                                   struct ethtool_modinfo *minfo)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    bool has_diag = false;
+    exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
+
+    minfo->type = has_diag ? ETH_MODULE_SFF_8472 : ETH_MODULE_SFF_8079;
+    minfo->eeprom_len = has_diag ? SFP_ETHTOOL_SIZE : SFP_EEPROM_SIZE;
+    return 0;
+}
+
+static int exanic_get_module_eeprom(struct net_device *ndev,
+                                     struct ethtool_eeprom *eeep, u8 *data)
+{
+    int err;
+    size_t eeprom_size;
+    int eeprom_bytes, diag_bytes;
+    size_t diag_offset;
+    size_t last_byte;
+
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    char stackbuff[SFP_ETHTOOL_SIZE] = {0}, *stackptr = &stackbuff[0];
+    bool has_diag = false;
+
+    /* determine whether the diagnostics page at A2h exists */
+    exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
+    eeprom_size = SFP_EEPROM_SIZE + (has_diag ? SFP_DIAG_SIZE : 0);
+
+    last_byte = (size_t)eeep->offset - 1 + eeep->len;
+
+    if (last_byte >= eeprom_size)
+    {
+        return -EINVAL;
+    }
+
+    /* read A0 */
+    eeprom_bytes = SFP_EEPROM_SIZE - eeep->offset;
+    if (eeprom_bytes > 0)
+    {
+        err = exanic_sfp_eeprom_read(priv->exanic, priv->port, (uint8_t)eeep->offset,
+                                                   stackptr, (size_t)eeprom_bytes);
+        if (err)
+            return err;
+
+        stackptr += eeprom_bytes;
+    }
+
+    /* read A2 */
+    diag_bytes = eeep->len - eeprom_bytes;
+    diag_offset = eeep->offset < SFP_EEPROM_SIZE ? 0: eeep->offset;
+    if (diag_bytes > 0)
+    {
+        err = exanic_sfp_diag_read(priv->exanic, priv->port, (uint8_t)diag_offset,
+                                                  stackptr, (size_t)diag_bytes);
+        if (err)
+            return err;
+    }
+    memcpy(data, stackbuff, (size_t)eeep->len);
+    return 0;
+}
+
+#endif /* ETHTOOL_GMODULEINFO */
+
 static struct ethtool_ops exanic_ethtool_ops = {
     .get_settings           = exanic_netdev_get_settings,
     .set_settings           = exanic_netdev_set_settings,
@@ -1321,16 +1387,27 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_sset_count         = exanic_netdev_get_sset_count,
     .get_coalesce           = exanic_netdev_get_coalesce,
     .set_coalesce           = exanic_netdev_set_coalesce,
+#if defined(ETHTOOL_GMODULEINFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+    .get_module_info        = exanic_get_module_info,
+    .get_module_eeprom      = exanic_get_module_eeprom,
+#endif
 #if defined(ETHTOOL_GET_TS_INFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .get_ts_info            = exanic_netdev_get_ts_info,
 #endif
 };
 
-#if defined(ETHTOOL_GET_TS_INFO) && LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+#if (defined(ETHTOOL_GET_TS_INFO) || defined(ETHTOOL_GMODULEINFO)) \
+     && LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
 /* RedHat 2.6.x backports place get_ts_info in ethtool_ops_ext */
 static struct ethtool_ops_ext exanic_ethtool_ops_ext = {
     .size                   = sizeof(struct ethtool_ops_ext),
-    .get_ts_info            = exanic_netdev_get_ts_info
+#ifdef ETHTOOL_GET_TS_INFO
+    .get_ts_info            = exanic_netdev_get_ts_info,
+#endif
+#ifdef ETHTOOL_GMODULEINFO
+    .get_module_info        = exanic_get_module_info,
+    .get_module_eeprom      = exanic_get_module_eeprom,
+#endif
 };
 #define SET_ETHTOOL_OPS_EXT(ndev, ops) set_ethtool_ops_ext(ndev, ops)
 #else
@@ -1554,7 +1631,7 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     err = register_netdev(ndev);
     if (err)
         goto err_register;
-
+    
     netdev_info(ndev, "ExaNIC ethernet interface %s:%d, hwaddr %pM\n",
             exanic->name, port, mac_addr);
 

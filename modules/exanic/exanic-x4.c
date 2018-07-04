@@ -65,6 +65,12 @@ static struct {
 
 #define PORT_CFG_AUTONEG    0x01
 
+#define SFP_DIAG_ADDR       0xA2
+#define SFP_EEPROM_ADDR      0xA0
+
+#define SFP_DIAG_MON_BYTE   92
+#define SFP_DIAG_MON_BIT   6
+
 static void setsda(struct exanic *exanic, int bus_number, int val)
 {
     volatile uint32_t *registers = exanic_registers(exanic);
@@ -362,6 +368,41 @@ static int sfp_write(struct exanic *exanic, int port_number,
     else
         bus_number = port_number;
     return i2c_write(exanic, bus_number, devaddr, regaddr, buffer, size);
+}
+
+int exanic_sfp_eeprom_read(struct exanic *exanic, int port_number,
+                           uint8_t regaddr, char *buffer, size_t size)
+{
+    return sfp_read(exanic, port_number, SFP_EEPROM_ADDR, regaddr, buffer, size);
+}
+
+int exanic_sfp_diag_read(struct exanic *exanic, int port_number,
+                           uint8_t regaddr, char *buffer, size_t size)
+{
+    return sfp_read(exanic, port_number, SFP_DIAG_ADDR, regaddr, buffer, size);
+}
+
+int exanic_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_diag)
+{
+    char diag_mon_type;
+    int ret = 0;
+    bool bitset = true;
+
+    if ((ret = exanic_sfp_eeprom_read(exanic, port_number, 
+                                     SFP_DIAG_MON_BYTE, &diag_mon_type, 1)))
+    {
+        return ret; 
+    }  
+
+    if ((diag_mon_type & (1 << SFP_DIAG_MON_BIT)) == 0)
+    {
+        bitset = false;
+    }
+
+    if (has_diag)
+        *has_diag = bitset;
+
+    return 0;
 }
 
 static int exanic_x4_x2_optimize_phy_parameters(struct exanic *exanic, unsigned int port_number)
