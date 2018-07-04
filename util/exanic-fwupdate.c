@@ -86,6 +86,9 @@ static bool check_target_hardware(const char *firmware_id, exanic_hardware_id_t 
         case EXANIC_HW_V5P:
             ret = has_prefix(firmware_id, "exanic_v5p");
             break;
+        case EXANIC_HW_X25:
+            ret = has_prefix(firmware_id, "exanic_x25");
+            break;
         default:
             fprintf(stderr, "ERROR: card hardware unsupported by this software version\n");
             return false;

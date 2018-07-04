@@ -278,7 +278,8 @@ static int exanic_x4_x2_i2c_eeprom_read(struct exanic *exanic, uint8_t regaddr,
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
                 exanic->hw_id == EXANIC_HW_X10_HPT ||
-                exanic->hw_id == EXANIC_HW_V5P)
+                exanic->hw_id == EXANIC_HW_V5P ||
+                exanic->hw_id == EXANIC_HW_X25)
         return i2c_read(exanic, X10_EEPROM_I2C_BUS, X10_EEPROM_I2C_ADDR, regaddr,
                 buffer, size);
     else
@@ -305,7 +306,8 @@ static int exanic_x4_x2_i2c_eeprom_write(struct exanic *exanic, uint8_t regaddr,
     else if (exanic->hw_id == EXANIC_HW_X10 || 
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_V5P)
+                exanic->hw_id == EXANIC_HW_V5P ||
+                exanic->hw_id == EXANIC_HW_X25)
     {
         bus = X10_EEPROM_I2C_BUS;
         devaddr = X10_EEPROM_I2C_ADDR;

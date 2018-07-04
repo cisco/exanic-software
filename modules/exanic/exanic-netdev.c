@@ -1078,7 +1078,8 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
                         priv->exanic->hw_id == EXANIC_HW_X10 ||
                             priv->exanic->hw_id == EXANIC_HW_X10_GM ||
                             priv->exanic->hw_id == EXANIC_HW_X40 ||
-                            priv->exanic->hw_id == EXANIC_HW_V5P)
+                            priv->exanic->hw_id == EXANIC_HW_V5P ||
+                            priv->exanic->hw_id == EXANIC_HW_X25)
             {
                 if (exanic_x4_x2_set_speed(priv->exanic, priv->port, reg, speed))
                     return -EINVAL;
@@ -1108,7 +1109,8 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
                 priv->exanic->hw_id == EXANIC_HW_X10 ||
                     priv->exanic->hw_id == EXANIC_HW_X10_GM ||
                     priv->exanic->hw_id == EXANIC_HW_X40 ||
-                    priv->exanic->hw_id == EXANIC_HW_V5P)
+                    priv->exanic->hw_id == EXANIC_HW_V5P ||
+                    priv->exanic->hw_id == EXANIC_HW_X25)
         exanic_x4_x2_save_autoneg(priv->exanic, priv->port,
                                   cmd->autoneg == AUTONEG_ENABLE);
 

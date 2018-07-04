@@ -60,6 +60,7 @@ int exanic_i2c_eeprom_read( exanic_t *exanic, uint8_t regaddr, char *buffer,
         case EXANIC_HW_X10:
         case EXANIC_HW_X10_GM:
         case EXANIC_HW_X10_HPT:
+        case EXANIC_HW_X25:
         case EXANIC_HW_X40:
         case EXANIC_HW_V5P:
             return exanic_x2_i2c_eeprom_read(exanic, regaddr, buffer, size );
@@ -372,7 +373,7 @@ void show_device_info(const char *device, int port_number, int verbose)
             vccint_real = vccint * 3.0 / 4096.0;
             vccaux_real = vccaux * 3.0 / 4096.0;
         }
-        else if (hw_type == EXANIC_HW_V5P)
+        else if (hw_type == EXANIC_HW_V5P || hw_type == EXANIC_HW_X25)
         {
             temp_real = temp * (509.314 / 4096.0) - 280.231;
             vccint_real = vccint * 3.0 / 4096.0;
@@ -593,7 +594,7 @@ void show_device_info(const char *device, int port_number, int verbose)
             if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
                     hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
                     hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT ||
-                    hw_type == EXANIC_HW_V5P)
+                    hw_type == EXANIC_HW_V5P || hw_type == EXANIC_HW_X25)
             {
                 if (verbose)
                 {

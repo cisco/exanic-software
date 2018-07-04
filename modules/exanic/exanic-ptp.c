@@ -50,8 +50,9 @@ typedef struct timespec ptp_timespec_t;
     ((exanic)->hw_id == EXANIC_HW_X10 || \
      (exanic)->hw_id == EXANIC_HW_X40 || \
      (exanic)->hw_id == EXANIC_HW_X10_GM || \
-     (exanic)->hw_id == EXANIC_HW_X10_HPT) || \
-     (exanic)->hw_id == EXANIC_HW_V5P
+     (exanic)->hw_id == EXANIC_HW_X10_HPT || \
+     (exanic)->hw_id == EXANIC_HW_V5P || \
+     (exanic)->hw_id == EXANIC_HW_X25)
 
 #define EXANIC_SUPPORTS_PER_OUT_10M(exanic) \
     ((exanic)->hw_id == EXANIC_HW_X10_GM || \
@@ -637,7 +638,7 @@ void exanic_ptp_init(struct exanic *exanic)
         exanic->ptp_clock_info.max_adj = 1953124;
     else
         exanic->ptp_clock_info.max_adj = 100000000;
-    /* Periodic output is only available on X10/X40/X10-GM/X10-HPT */
+    /* Periodic output is only available on X10/X40/X10-GM/X10-HPT/V5P/X25 */
     if (EXANIC_SUPPORTS_PER_OUT(exanic))
         exanic->ptp_clock_info.n_per_out = 1;
     else
