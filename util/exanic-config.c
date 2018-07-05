@@ -51,6 +51,8 @@ enum conf_option_types {
 #define CLOCKFD 3
 #define FD_TO_CLOCKID(fd) ((~(clockid_t)(fd) << 3) | CLOCKFD)
 
+#define EXANIC_DRIVER_SYSFS_ENTRY "/sys/bus/pci/drivers/exanic"
+
 int exanic_i2c_eeprom_read( exanic_t *exanic, uint8_t regaddr, char *buffer,
         size_t size )
 {
@@ -697,7 +699,7 @@ void show_device_info(const char *device, int port_number, int verbose)
     release_handle(exanic);
 }
 
-void show_all_devices(int verbose)
+void show_all_devices(int verbose, int* ndevices)
 {
     DIR *d;
     struct dirent *dir;
@@ -705,6 +707,7 @@ void show_all_devices(int verbose)
     int exanic_num;
     int prev_num = -1;
     int num;
+    int nnics = 0;
 
     do
     {
@@ -729,9 +732,12 @@ void show_all_devices(int verbose)
         {
             show_device_info(exanic_file, -1, verbose);
             prev_num = exanic_num;
+            ++nnics;
         }
     }
     while (exanic_num < INT_MAX);
+    if (ndevices)
+        *ndevices = nnics;
 }
 
 void reset_port_counters(const char *device, int port_number)
@@ -2418,6 +2424,17 @@ int parse_device_glob(char* glob, char devices[][16], int max_devices, int* nmat
     return true;
 }
 
+int is_driver_loaded(void) 
+{
+    DIR* handle = opendir(EXANIC_DRIVER_SYSFS_ENTRY);
+    if (handle)
+    {
+        closedir(handle);
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     int max_devices = 64;
@@ -2426,14 +2443,22 @@ int main(int argc, char *argv[])
     int port_number;
     int i, ret = 0;
 
-    if (argc < 2)
+    if (!is_driver_loaded())
     {
-        show_all_devices(0);
-        return 0;
+        fprintf(stderr, "Please load the exanic driver before using this tool\n");    
+        return 1; 
     }
-    else if (argc == 2 && strcmp(argv[1], "-v") == 0)
+    
+    if (argc < 2 || (argc == 2 && (strcmp(argv[1], "-v") == 0)))
     {
-        show_all_devices(1);
+        int verbose = (argc == 2)? 1:0; 
+        int nnics;
+        show_all_devices(verbose, &nnics);
+        if (nnics == 0)
+        {
+            fprintf(stderr, "No ExaNICs detected!\n");
+            return 1;
+        }
         return 0;
     }
 
@@ -2451,7 +2476,11 @@ int main(int argc, char *argv[])
     else if (parse_device_glob(argv[1], devices, max_devices, &ndevices))
     {
         if (ndevices == 0)
+        {
+            fprintf(stderr, "Found no match for pattern \"%s\". "
+                            "Please ensure that this device is plugged in\n", argv[1]);
             return 1;
+        }
 
         for (i = 0; i < ndevices; i++)
         {
