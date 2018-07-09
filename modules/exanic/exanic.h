@@ -52,6 +52,8 @@ int exanic_free_rx_dma(struct exanic *exanic, unsigned port_num);
 int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
                        unsigned buffer_num);
 bool exanic_rx_in_use(struct exanic *exanic, unsigned port_num);
+int exanic_count_tx_feedback_users(struct exanic *exanic);
+int exanic_count_rx_users(struct exanic *exanic);
 int exanic_enable_port(struct exanic *exanic, unsigned port_num);
 int exanic_disable_port(struct exanic *exanic, unsigned port_num);
 int exanic_get_mac_addr_regs(struct exanic *exanic, unsigned port_num,

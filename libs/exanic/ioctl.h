@@ -89,6 +89,10 @@ struct exaioc_ifinfo
 /** \brief Retrieve information about an ExaNIC devkit */
 #define EXANICCTL_DEVKIT_INFO               _IOR(EXANICCTL_TYPE, 0xed, \
                                          struct exanicctl_devkit_info)
+/** \brief Retrieve usage information about an Exanic */
+#define EXANICCTL_DEVICE_USAGE              _IOR(EXANICCTL_TYPE, 0xee, \
+                                         struct exanicctl_usage_info)
+
 /**
  * \brief Arguments for EXANICCTL_INFO
  */
@@ -244,6 +248,14 @@ struct exanicctl_devkit_info
 {
     unsigned regs_size;     /* output */
     unsigned mem_size;      /* output */
+};
+
+/**
+ * \brief Arguments for EXANICCTL_DEVICE_USAGE
+ */
+struct exanicctl_usage_info
+{
+    int users;              /* output */
 };
 
 /**

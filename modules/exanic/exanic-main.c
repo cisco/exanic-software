@@ -154,6 +154,47 @@ bool exanic_rx_in_use(struct exanic *exanic, unsigned port_num)
 }
 
 /**
+ * Return the number of users of a TX feedback region
+ */
+int exanic_count_tx_feedback_users(struct exanic *exanic)
+{
+    int i, count = 0;
+
+    /* Check if the region is mapped */
+    if (exanic->tx_feedback_virt)
+    {
+        for (i = 0; i < EXANIC_TX_FEEDBACK_NUM_PAGES; i++)
+            /* subtract 1 since we have a mapping */
+            count += page_count(virt_to_page(exanic->tx_feedback_virt + i * PAGE_SIZE)) - 1;
+
+        return count;
+    }
+
+    return 0;
+}
+
+/**
+ * Return the number of users of an RX region
+ */
+int exanic_count_rx_users(struct exanic *exanic)
+{
+    unsigned buf;
+    int i, count = 0;
+
+    for (i = 0; i < exanic->num_ports; i++)
+    {
+        if (exanic->port[i].rx_region_virt)
+            /* subtract 1 since we have a mapping */
+            count += page_count(virt_to_page(exanic->port[i].rx_region_virt)) - 1;
+
+        for (buf = 0; buf < exanic->max_filter_buffers; buf++)
+            count += exanic->port[i].filter_buffers[buf].refcount;
+    }
+
+    return count;
+}
+
+/**
  * IRQ handler for exanic RX.
  *
  * Passed a pointer to the exanic structure for the device.

@@ -9,9 +9,11 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <exanic/exanic.h>
+#include <exanic/ioctl.h>
 #include <exanic/register.h>
 #include <exanic/config.h>
 #include <exanic/util.h>
@@ -45,7 +47,8 @@ bool check_firmware_can_hot_reload(exanic_t *exanic, bool silent)
 
 /*
  * Check that the currently loaded firmware has support for hot reloading,
- * and that the user has permission to rescan the PCI bus
+ * the user has permission to rescan the PCI bus, and that nothing is using
+ * the driver
  */
 bool check_can_hot_reload(exanic_t *exanic, bool silent)
 {
@@ -57,6 +60,22 @@ bool check_can_hot_reload(exanic_t *exanic, bool silent)
         return false;
     }
     fclose(fp);
+
+    struct exanicctl_usage_info usage;
+    if (ioctl(exanic->fd, EXANICCTL_DEVICE_USAGE, &usage) == -1)
+    {
+        if (!silent)
+            fprintf(stderr, "ERROR: could not obtain usage information from driver\n");
+        return false;
+    }
+
+    /* we have a mapping to the TX feedback region, so allow one user */
+    if (usage.users > 1)
+    {
+        if (!silent)
+            fprintf(stderr, "ERROR: driver still in use\n");
+        return false;
+    }
 
     return check_firmware_can_hot_reload(exanic, silent);
 }

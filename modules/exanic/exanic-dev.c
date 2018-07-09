@@ -978,6 +978,22 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
                 return 0;
             }
+        case EXANICCTL_DEVICE_USAGE:
+            {
+                struct exanicctl_usage_info ctl = {
+                    .users = 0,
+                };
+
+                mutex_lock(&exanic->mutex);
+                ctl.users = exanic_count_tx_feedback_users(exanic)
+                            + exanic_count_rx_users(exanic);
+                mutex_unlock(&exanic->mutex);
+
+                if (copy_to_user((void *)arg, &ctl, sizeof(ctl)) != 0)
+                    return -EFAULT;
+
+                return 0;
+            }
 
         default:
             return -ENOTTY;
