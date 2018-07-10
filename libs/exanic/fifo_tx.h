@@ -15,6 +15,12 @@ extern "C" {
 #endif
 
 /**
+ * \brief Flags that can be passed to \ref exanic_transmit_frame_ex
+ */
+
+#define EXA_FRAME_WARM          (1 << 0)
+
+/**
  * \brief A handle to a ExaNIC TX FIFO
  */
 typedef struct exanic_tx
@@ -36,6 +42,12 @@ typedef struct exanic_tx
 
     struct tx_chunk     *prepared_chunk;
     size_t              prepared_chunk_size;
+
+    /*
+     * whether the chunk returned by \ref exanic_prepare_tx_chunk
+     * should request feedback when sent.
+     */
+    bool                need_feedback;
 } exanic_tx_t;
 
 /**
@@ -87,6 +99,23 @@ size_t exanic_get_tx_mtu(exanic_tx_t *tx);
  */
 int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
                           size_t frame_size);
+
+/**
+ * \brief version of exanic_transmit_frame that takes an addition flag input
+ *
+ * \param[in]   tx
+ *      A valid TX handle.
+ * \param[in]   frame
+ *      Pointer to the user provided buffer.
+ * \param[in]   frame_size
+ *      Size of the frame to transmit.
+ * \param[in]   flags
+ *      Flags to control function behaviour
+ *
+ * \return 0 on success, or -1 on error.
+ */
+int exanic_transmit_frame_ex(exanic_tx_t *tx, const char *frame,
+                             size_t frame_size, uint32_t flags);
 
 /**
  * \brief Allocate space in the TX buffer to start a new frame

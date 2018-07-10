@@ -15,6 +15,8 @@
 
 #define CACHE_ALIGN(x) (((x) + 63) & ~63)
 
+#define FLAG_SET(x,y)    (!!((x) & (y)))
+
 enum
 {
     DEFAULT_TX_BUFFER_SIZE = 0x1000,
@@ -238,6 +240,8 @@ static struct tx_chunk * exanic_prepare_tx_chunk(exanic_tx_t *tx,
                                                  size_t chunk_size)
 {
     size_t aligned_size = CACHE_ALIGN(chunk_size);
+    size_t request_offset =
+        tx->feedback_offsets[tx->request_seq & (tx->queue_len - 1)];
 
     while ((uint16_t)(tx->next_seq - tx->feedback_seq) >= tx->queue_len)
     {
@@ -279,7 +283,31 @@ static struct tx_chunk * exanic_prepare_tx_chunk(exanic_tx_t *tx,
             return NULL;
     }
 
+    /* We request feedback if the last request was too long ago, by sequence
+     * number or by amount of data sent */
+    if ((uint16_t)(tx->next_seq - tx->request_seq) > tx->queue_len / 2)
+        /* Need more sequence numbers */
+        tx->need_feedback = 1;
+    else if ((uint16_t)(tx->next_seq - tx->request_seq) >
+            (uint16_t)(tx->next_seq - tx->rollover_seq))
+        /* Wrapped around since last feedback request */
+        tx->need_feedback = 1;
+    else if (tx->next_offset + aligned_size - request_offset >
+             FEEDBACK_INTERVAL)
+        /* Too many bytes since last feedback request */
+        tx->need_feedback = 1;
+
     return (struct tx_chunk *)(tx->buffer + tx->next_offset);
+}
+
+/*
+ * attempt to write pcie version registers [RO]
+ * to wake up pcie hardware without side effect
+ */
+static void exanic_dummy_reg_write(exanic_tx_t *tx)
+{
+    tx->exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_PCIE_IF_VER)] =
+        0xdeadbeef;
 }
 
 static void exanic_send_tx_chunk(exanic_tx_t *tx, size_t chunk_size)
@@ -287,29 +315,13 @@ static void exanic_send_tx_chunk(exanic_tx_t *tx, size_t chunk_size)
     size_t aligned_size = CACHE_ALIGN(chunk_size);
     struct tx_chunk *chunk = (struct tx_chunk *)(tx->buffer + tx->next_offset);
     size_t offset = tx->next_offset;
-    size_t request_offset =
-        tx->feedback_offsets[tx->request_seq & (tx->queue_len - 1)];
-    int need_feedback = 0;
 
     tx->next_offset += aligned_size;
-
-    /* We request feedback if the last request was too long ago, by sequence
-     * number or by amount of data sent */
-    if ((uint16_t)(tx->next_seq - tx->request_seq) > tx->queue_len / 2)
-        /* Need more sequence numbers */
-        need_feedback = 1;
-    else if ((uint16_t)(tx->next_seq - tx->request_seq) >
-            (uint16_t)(tx->next_seq - tx->rollover_seq))
-        /* Wrapped around since last feedback request */
-        need_feedback = 1;
-    else if (tx->next_offset - request_offset > FEEDBACK_INTERVAL)
-        /* Too many bytes since last feedback request */
-        need_feedback = 1;
 
     /* Fill out feedback info in tx_chunk header */
     chunk->feedback_id = tx->next_seq;
     chunk->feedback_slot_index = tx->feedback_slot |
-        (need_feedback ? 0 : 0x8000);
+        (tx->need_feedback ? 0 : 0x8000);
 
     /* Send transmit command */
     iowb();
@@ -319,7 +331,7 @@ static void exanic_send_tx_chunk(exanic_tx_t *tx, size_t chunk_size)
     /* Update state */
     tx->feedback_offsets[tx->next_seq & (tx->queue_len - 1)]
         = tx->next_offset;
-    if (need_feedback)
+    if (tx->need_feedback)
         tx->request_seq = tx->next_seq;
     tx->next_seq++;
 }
@@ -332,12 +344,14 @@ size_t exanic_get_tx_mtu(exanic_tx_t *tx)
     return max_chunk_size - padding - sizeof(struct tx_chunk);
 }
 
-int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
-                          size_t frame_size)
+static inline int __attribute__((always_inline))
+exanic_transmit_frame_common(exanic_tx_t *tx, const char *frame,
+                             size_t frame_size, uint32_t flags)
 {
     size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
     size_t chunk_size = frame_size + padding + sizeof(struct tx_chunk);
     struct tx_chunk *chunk;
+    long warm = FLAG_SET(flags, EXA_FRAME_WARM) ? 1 : 0;
 
     if (tx->prepared_chunk != NULL)
     {
@@ -349,15 +363,36 @@ int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
     if (chunk == NULL)
         return -1;
 
+    if (__builtin_expect(warm, 0))
+    {
+        exanic_dummy_reg_write(tx);
+        return 0;
+    }
+
+    /*
+     * code below is skipped when the warm flag is set
+     * it can make performance worse when the frame
+     * is large
+     */
     chunk->length = frame_size + padding;
     chunk->type = EXANIC_TX_TYPE_RAW;
     chunk->flags = 0;
     memset(chunk->payload, 0, padding);
     memcpy(chunk->payload + padding, frame, frame_size);
-
     exanic_send_tx_chunk(tx, chunk_size);
-
     return 0;
+}
+
+int exanic_transmit_frame_ex(exanic_tx_t *tx, const char *frame,
+                             size_t frame_size, uint32_t flags)
+{
+    return exanic_transmit_frame_common(tx, frame, frame_size, flags);
+}
+
+int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
+                          size_t frame_size)
+{
+    return exanic_transmit_frame_common(tx, frame, frame_size, 0);
 }
 
 char * exanic_begin_transmit_frame(exanic_tx_t *tx, size_t frame_size)
