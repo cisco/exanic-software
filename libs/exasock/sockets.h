@@ -11,6 +11,7 @@ int exa_socket_get_tcp_keepintvl(struct exa_socket * restrict sock);
 int exa_socket_get_tcp_keepcnt(struct exa_socket * restrict sock);
 int exa_socket_get_tcp_keepidle(struct exa_socket * restrict sock);
 void exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock);
+void exa_socket_tcp_update_user_timeout(struct exa_socket * restrict sock);
 int exa_socket_enable_bypass(struct exa_socket * restrict sock);
 int exa_socket_del_mcast(struct exa_socket * restrict sock,
                          struct exa_mcast_endpoint * restrict mc_ep);

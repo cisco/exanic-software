@@ -1850,7 +1850,13 @@ setsockopt_tcp(struct exa_socket * restrict sock, int sockfd, int optname,
 
 #ifdef TCP_USER_TIMEOUT
         case TCP_USER_TIMEOUT:
-            sock->state->p.tcp.user_timeout_ms = (unsigned)val;
+            sock->tcp_user_timeout = (unsigned)val;
+            if (sock->bypass_state == EXA_BYPASS_ACTIVE
+                && sock->domain == AF_INET
+                && sock->type == SOCK_STREAM)
+            {
+                exa_socket_tcp_update_user_timeout(sock);
+            }
             break;
 #endif
 

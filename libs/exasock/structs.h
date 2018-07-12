@@ -163,6 +163,7 @@ struct exa_socket
     struct exa_timeo so_sndtimeo;
     struct exa_timeo so_rcvtimeo;
     bool so_keepalive;
+    unsigned tcp_user_timeout;
     int tcp_keepcnt;
     int tcp_keepidle;
     int tcp_keepintvl;

@@ -399,6 +399,16 @@ exa_socket_tcp_update_keepalive(struct exa_socket * restrict sock)
     }
 }
 
+void
+exa_socket_tcp_update_user_timeout(struct exa_socket * restrict sock)
+{
+    assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
+    assert(sock->domain == AF_INET);
+    assert(sock->type == SOCK_STREAM);
+
+    sock->state->p.tcp.user_timeout_ms = sock->tcp_user_timeout;
+}
+
 static void
 exa_socket_tcp_init(struct exa_socket * restrict sock)
 {
@@ -417,8 +427,9 @@ exa_socket_tcp_init(struct exa_socket * restrict sock)
     else
         tcp->ss_after_idle = (val == 0) ? 0 : 1;
 
-    /* Initialize keep-alive settings */
+    /* Initialize settings */
     exa_socket_tcp_update_keepalive(sock);
+    exa_socket_tcp_update_user_timeout(sock);
 }
 
 static int
