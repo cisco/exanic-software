@@ -1511,7 +1511,10 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
 
     /* Clear ack_pending flag because an ACK is about to be sent */
     if (EXPECT_TRUE(!warm))
+    {
         exa_tcp_clear_ack_pending(&ctx->tcp);
+        sock->state->p.tcp.tx_consistent = 0;
+    }
 
     /* Build TCP header */
     exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq,

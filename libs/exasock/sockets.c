@@ -787,6 +787,7 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
 {
     int fd = exa_socket_fd(sock);
     struct exa_endpoint endpoint;
+    int saved_errno = 0;
 
     /* rx_lock, tx_lock, socket lock are held */
     assert(exa_write_locked(&sock->lock));
@@ -817,11 +818,18 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
     }
 
     /* initialize TCP state */
-    exa_tcp_state_init_conn(sock->state);
+    if (exa_tcp_state_init_conn(fd, sock->state))
+    {
+        saved_errno = errno;
+        goto err_sys_update;
+    }
 
     /* Update kernel about the connection endpoint */
     if (exa_sys_update(fd, &endpoint) == -1)
+    {
+        saved_errno = errno;
         goto err_sys_update;
+    }
 
     exanic_tcp_connect(sock, &endpoint);
 
@@ -843,6 +851,8 @@ err_update_interfaces:
 err_dst_lookup:
     if (exa_socket_holds_interfaces(sock))
         exa_tcp_insert(fd);
+    if (saved_errno)
+        errno = saved_errno;
     return -1;
 }
 

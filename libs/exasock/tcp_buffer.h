@@ -458,6 +458,7 @@ exa_tcp_tx_buffer_write(struct exa_socket * restrict sock,
 
     tcp->adv_wnd_end = tcp->wnd_end_pending;
     tcp->send_seq = send_seq + send_len;
+    tcp->tx_consistent = 1;
 }
 
 /* Get data from the tx buffer as an iovec */

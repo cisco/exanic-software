@@ -484,3 +484,12 @@ exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd,
 
     return ret;
 }
+
+int exa_sys_get_isn(int fd, uint32_t *isn)
+{
+    int ret;
+    exasock_override_off();
+    ret = ioctl(fd, EXASOCK_IOCTL_ISN_ALLOC, isn);
+    exasock_override_on();
+    return ret;
+}

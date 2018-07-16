@@ -2,7 +2,7 @@
 #define EXASOCK_KERNEL_API_H
 
 #define EXASOCK_DEVICE "/dev/exasock"
-#define EXASOCK_API_VERSION 18
+#define EXASOCK_API_VERSION 19
 
 #define EXASOCK_IOCTL_TYPE          'x'
 #define EXASOCK_IOCTL_SOCKET        _IOW(EXASOCK_IOCTL_TYPE, 0x50, int)
@@ -21,6 +21,7 @@
 #define EXASOCK_IOCTL_EPOLL_CREATE  _IO(EXASOCK_IOCTL_TYPE, 0x5e)
 #define EXASOCK_IOCTL_EPOLL_CTL     _IOW(EXASOCK_IOCTL_TYPE, 0x5f, \
                                           struct exasock_epoll_ctl_request)
+#define EXASOCK_IOCTL_ISN_ALLOC     _IOR(EXASOCK_IOCTL_TYPE, 0x60, uint32_t)
 
 /* Arguments for EXASOCK_IOCTL_BIND, EXASOCK_IOCTL_CONNECT
  * and EXASOCK_IOCTL_UPDATE

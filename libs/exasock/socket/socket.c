@@ -123,7 +123,7 @@ int
 close(int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
-    int linger_ret = 0;
+    int linger_ret = 0, linger_errno = 0;
     int ret;
 
     if (override_disabled)
@@ -153,6 +153,7 @@ close(int fd)
                     /* Convert to read lock before blocking operation */
                     exa_rwlock_downgrade(&sock->lock);
                     linger_ret = linger_tcp(sock);
+                    linger_errno = errno;
                     if ((linger_ret == -1) && (errno != EWOULDBLOCK))
                     {
                         exa_read_unlock(&sock->lock);
@@ -171,15 +172,15 @@ close(int fd)
                         TRACE_RETURN(INT, -1);
                         return -1;
                     }
-                }
 
-                /* Reset the connection if it's not already closed */
-                /* FIXME: as soon as we are able to perform graceful closing
-                 *        in background, exanic_tcp_reset() should be called
-                 *        only if linger_tcp() returns with EWOULDBLOCK */
-                exa_lock(&sock->state->tx_lock);
-                exanic_tcp_reset(sock);
-                exa_unlock(&sock->state->tx_lock);
+                    /* Reset the connection if it's not already closed */
+                    if (linger_errno == EWOULDBLOCK)
+                    {
+                        exa_lock(&sock->state->tx_lock);
+                        exanic_tcp_reset(sock);
+                        exa_unlock(&sock->state->tx_lock);
+                    }
+                }
             }
 
             if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)

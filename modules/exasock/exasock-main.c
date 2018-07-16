@@ -23,6 +23,8 @@
 #include "exasock.h"
 #include "exasock-stats.h"
 
+bool module_removed;
+
 static struct exasock_kernel_info *exasock_info_page;
 
 static int exasock_net_event(struct notifier_block *notifier,
@@ -128,7 +130,7 @@ static void exasock_socket_free(struct exasock_hdr *common)
     }
     else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
     {
-        exasock_tcp_free((struct exasock_tcp *)common);
+        exasock_tcp_close((struct exasock_tcp *)common);
         return;
     }
 
@@ -413,13 +415,11 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             socket = &priv->socket;
             if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
-                exasock_tcp_update((struct exasock_tcp *)priv,
-                                   req.local_addr, req.local_port,
-                                   req.peer_addr, req.peer_port);
+                return exasock_tcp_update((struct exasock_tcp *)priv,
+                                           req.local_addr, req.local_port,
+                                           req.peer_addr, req.peer_port);
             else
                 return -EINVAL;
-
-            return 0;
         }
 
     case EXASOCK_IOCTL_SETSOCKOPT:
@@ -532,6 +532,28 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
                                     req.local_addr, req.local_port, req.fd);
         }
 
+    case EXASOCK_IOCTL_ISN_ALLOC:
+        {
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
+            uint32_t isn;
+
+            if (!priv)
+                return -EINVAL;
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain != AF_INET || socket->type != SOCK_STREAM)
+                return -EINVAL;
+
+            isn = exasock_tcp_get_isn((struct exasock_tcp *)priv);
+            if (copy_to_user((void*)arg, &isn, sizeof(isn)))
+                return -EFAULT;
+
+            return 0;
+        }
     default:
         return -ENOTTY;
     }
@@ -559,7 +581,6 @@ static struct file_operations exasock_fops = {
 static int __init exasock_init(void)
 {
     int err;
-
     /* Allocate destination table */
     err = exasock_dst_init();
     if (err)
@@ -628,13 +649,15 @@ module_init(exasock_init);
  */
 static void __exit exasock_exit(void)
 {
+    module_removed = true;
     unregister_netevent_notifier(&exasock_net_notifier);
     unregister_inetaddr_notifier(&exasock_inetaddr_notifier);
     misc_deregister(&exasock_dev);
     exasock_stats_exit();
+    /* tcp exit might still send data */
+    exasock_tcp_exit();
     exasock_dst_exit();
     exasock_udp_exit();
-    exasock_tcp_exit();
     vfree(exasock_info_page);
 
     pr_info("ExaSock kernel support unloaded.\n");

@@ -105,32 +105,30 @@ exa_tcp_listening(struct exa_tcp_conn * restrict ctx)
 }
 
 /* Generate initial sequence number for a new connection */
-static inline uint32_t
-exa_tcp_init_seq(void)
+int exa_sys_get_isn(int fd, uint32_t *isn);
+
+static inline int
+exa_tcp_init_seq(int fd, uint32_t *isn)
 {
-    struct timespec tv;
-    uint32_t seq;
-
-    /* Use the current time as the initial sequence number */
-    clock_gettime(CLOCK_MONOTONIC_COARSE, &tv);
-    seq = tv.tv_sec * 1000000000ULL + tv.tv_nsec;
-
-    /* TODO: Randomise the sequence number in a secure way */
-
-    return seq;
+    return exa_sys_get_isn(fd, isn);
 }
 
-static inline void
-exa_tcp_state_init_conn(struct exa_socket_state * restrict state)
+static inline int
+exa_tcp_state_init_conn(int fd, struct exa_socket_state * restrict state)
 {
     struct exa_tcp_state * restrict tcp = &state->p.tcp;
+    uint32_t isn = 0;
+    int ret = 0;
+    if ((ret = exa_tcp_init_seq(fd, &isn)))
+        return ret;
 
     /* Generate initial sequence number */
-    tcp->send_ack = tcp->send_seq = exa_tcp_init_seq();
+    tcp->send_ack = tcp->send_seq = isn;
     tcp->rwnd_end = tcp->send_ack;
 
     /* Initialize stats */
     tcp->stats.init_send_seq = tcp->send_seq;
+    return 0;
 }
 
 static inline void
@@ -385,7 +383,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
 
     case EXA_TCP_CLOSING:
         /* Send ACK for remote FIN */
-        h->th_seq = htonl(state->send_seq);
+        h->th_seq = htonl(state->send_seq + 1);
         h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
         break;
@@ -695,6 +693,7 @@ exa_tcp_update_conn_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
                           uint32_t data_seq, size_t len)
 {
     volatile struct exa_tcp_state *state = &ctx->state->p.tcp;
+    bool fw1_fin = false, fw1_ack = false;
 
 update_state:
     switch (state->state)
@@ -739,8 +738,22 @@ update_state:
         break;
 
     case EXA_TCP_FIN_WAIT_1:
-        if ((flags & TH_FIN) &&
-            seq_compare(data_seq + len, state->recv_seq) <= 0)
+
+        fw1_fin = ((flags & TH_FIN) &&
+                  seq_compare(data_seq + len, state->recv_seq) <= 0);
+        fw1_ack = ((flags & TH_ACK) &&
+                  seq_compare(state->send_seq, state->send_ack) < 0);
+
+        if (fw1_fin && fw1_ack)
+        {
+            /* Received ACK for our FIN, remote peer is also closed */
+            if (!__sync_bool_compare_and_swap(&state->state,
+                                              EXA_TCP_FIN_WAIT_1,
+                                              EXA_TCP_TIME_WAIT))
+                goto update_state;
+            state->ack_pending = true;
+        }
+        else if (fw1_fin)
         {
             /* Simultaneous close */
             if (!__sync_bool_compare_and_swap(&state->state,
@@ -749,8 +762,7 @@ update_state:
                 goto update_state;
             state->ack_pending = true;
         }
-        else if ((flags & TH_ACK) &&
-                 seq_compare(state->send_seq, state->send_ack) < 0)
+        else if (fw1_ack)
         {
             /* Received ACK for our FIN, but remote peer is not closed */
             if (!__sync_bool_compare_and_swap(&state->state,

@@ -98,11 +98,18 @@ exasock_tcp_build_header(int fd, void *buf, size_t len, size_t offset,
             /* Generate all headers */
             exa_lock(&sock->state->tx_lock);
             ret = exanic_tcp_build_hdr(sock, buf, len);
-            exa_unlock(&sock->state->tx_lock);
 
             /* Error indicates that the neighbour lookup is not yet complete */
             if (ret == -1)
                 errno = EAGAIN;
+            /* set the flag this early because this is the only
+             * extension API function before send_advance, which
+             * sets the tx_consistent flag, that takes the file
+             * descriptor */
+            else
+                sock->state->p.tcp.tx_consistent = 0;
+
+            exa_unlock(&sock->state->tx_lock);
         }
 
         exa_read_unlock(&sock->lock);

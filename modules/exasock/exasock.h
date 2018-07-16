@@ -8,6 +8,8 @@
 
 #include <net/neighbour.h>
 
+extern bool module_removed;
+
 enum exasock_type
 {
     EXASOCK_TYPE_SOCKET,
@@ -95,10 +97,12 @@ void exasock_tcp_exit(void);
 struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd);
 int exasock_tcp_bind(struct exasock_tcp *tcp, uint32_t local_addr,
                      uint16_t *local_port);
-void exasock_tcp_update(struct exasock_tcp *tcp,
-                        uint32_t local_addr, uint16_t local_port,
-                        uint32_t peer_addr, uint16_t peer_port);
-void exasock_tcp_free(struct exasock_tcp *tcp);
+int exasock_tcp_update(struct exasock_tcp *tcp,
+                       uint32_t local_addr, uint16_t local_port,
+                       uint32_t peer_addr, uint16_t peer_port);
+
+void exasock_tcp_close(struct exasock_tcp *tcp); /* perform graceful close */
+
 int exasock_tcp_rx_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
 int exasock_tcp_tx_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
 int exasock_tcp_state_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
@@ -110,6 +114,7 @@ int exasock_tcp_notify_add(uint32_t local_addr, uint16_t local_port,
                            struct exasock_epoll_notify *notify);
 int exasock_tcp_notify_del(uint32_t local_addr, uint16_t local_port,
                            struct exasock_epoll_notify **notify);
+uint32_t exasock_tcp_get_isn(struct exasock_tcp *tcp);
 
 /* exasock-epoll.c */
 struct exasock_epoll *exasock_epoll_alloc(void);

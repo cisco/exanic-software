@@ -85,7 +85,14 @@ struct exa_tcp_state
      * Valid only when equal to recv_seq. */
     uint32_t dup_acks_seq;
 
-    uint8_t __reserved0[48];
+    /* if the app is killed in the middle of send(),
+     * the driver can see inconsistent states,
+     * e.g. packets made it to the wire but send_seq
+     * is never updated. use this flag to indicate to
+     * the kernel whether to trust our program state */
+    uint8_t tx_consistent;
+
+    uint8_t __reserved0[47];
 
     /* 64 */
     /* user read-write, kernel not interested */
