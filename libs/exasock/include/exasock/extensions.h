@@ -6,6 +6,10 @@
 #define EXASOCK_API_EXTENSIONS_H
 
 #include <stdlib.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#define EXASOCK_VERSION(maj,min,rev) (((maj) << 16) + ((min) << 8) + (rev))
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,6 +21,20 @@ extern "C" {
  * \return 1 if loaded, 0 if not
  */
 int exasock_loaded(void);
+
+/**
+ * \brief Determine the version of Exasock the current application is running with
+ *
+ * \return Version code
+ */
+uint32_t exasock_version_code(void);
+
+/**
+ * \brief Returns the version of Exasock library in string form
+ *
+ * \return Version string
+ */
+const char *exasock_version_text(void);
 
 /**
  * \brief Look up the ExaNIC device name and port used by an Exasock TCP socket

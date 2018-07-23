@@ -11,6 +11,20 @@ exasock_loaded(void)
 }
 
 __attribute__((visibility("default")))
+uint32_t
+exasock_version_code(void)
+{
+    return 0;
+}
+
+__attribute__((visibility("default")))
+const char *
+exasock_version_text(void)
+{
+    return NULL;
+}
+
+__attribute__((visibility("default")))
 int
 exasock_tcp_get_device(int fd, char *dev, size_t dev_len, int *port_num)
 {

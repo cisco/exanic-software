@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 
 #include <exasock/exasock-genl.h>
+#include "../include/exanic_version.h"
 
 #define EXASOCK_STAT_BUF_SIZE 24
 
@@ -788,7 +789,7 @@ static void print_usage(char *name)
 
 static void print_help(char *name)
 {
-    fprintf(stderr, "\nexasock-stat (ExaSock version 2.2.0-git)\n");
+    fprintf(stderr, "\nexasock-stat (ExaSock version %s)\n", EXANIC_VERSION_TEXT);
     fprintf(stderr, "Display ExaNIC Sockets accelerated connections\n\n");
     print_usage(name);
     fprintf(stderr, "Output:\n");
@@ -909,7 +910,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "netlink initialization failed: %s\n", strerror(-err));
         if (err == -EADDRNOTAVAIL)
             fprintf(stderr,
-                    "Please make sure that exasock kernel module (ver. 2.2.0-git or newer) is loaded.\n");
+                    "Please make sure that exasock kernel module (ver. "EXANIC_VERSION_TEXT" or newer) is loaded.\n");
         return EXIT_FAILURE;
     }
 

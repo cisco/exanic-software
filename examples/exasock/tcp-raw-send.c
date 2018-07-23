@@ -21,6 +21,7 @@ int main(int argc, char *argv[])
     ssize_t len, hdrlen;
     exanic_t *exanic;
     exanic_tx_t *tx;
+    const char *verstring;
 
     /* Parse command line arguments */
 
@@ -41,6 +42,21 @@ int main(int argc, char *argv[])
         fprintf(stderr, "This program should be run with exasock.\n");
         return EXIT_FAILURE;
     }
+
+    verstring = exasock_version_text();
+    if (verstring == NULL)
+    {
+        fprintf (stderr, "Failed to obtain Exasock version text.\n");
+        return EXIT_FAILURE;
+    }
+
+    /* Will not happen, only to demonstrate usage */
+    if (exasock_version_code() < EXASOCK_VERSION(2,2,0))
+    {
+        fprintf(stderr, "Please install Exasock library 2.2.0 or newer.\n");
+        return EXIT_FAILURE;
+    }
+    printf("Exasock release %s\n", verstring);
 
     /* Listen for connection */
 

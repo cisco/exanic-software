@@ -6,7 +6,9 @@
 #ifndef _EXANIC_H_
 #define _EXANIC_H_
 
-#define DRV_VERSION "2.2.0-git"
+#include "../../include/exanic_version.h"
+
+#define DRV_VERSION EXANIC_VERSION_TEXT
 #define DRV_NAME    "exanic"
 
 #define PCI_DEVICE_ID_EXANIC_OLD        0x2B00

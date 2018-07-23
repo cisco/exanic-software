@@ -12,7 +12,7 @@ LDLIBS=-ldl -lrt -lexanic -L../exanic
 
 CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c warn.c
 SOCK_SRCS=socket/override.c socket/trace.c socket/socket.c socket/recv.c socket/send.c socket/select.c socket/signal.c socket/epoll.c
-EXT_SRCS=extensions/tcp.c
+EXT_SRCS=extensions/tcp.c extensions/misc.c
 
 PRELOAD_SRCS=$(CORE_SRCS) $(SOCK_SRCS) $(EXT_SRCS)
 
@@ -48,6 +48,7 @@ all: debug release
 
 debug: $(DEBUG_PRELOAD_LIB) $(EXT_STUB_LIB)
 release: $(RELEASE_PRELOAD_LIB) $(EXT_STUB_LIB)
+
 clean:
 	rm -rf build
 

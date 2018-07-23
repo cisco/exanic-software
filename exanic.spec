@@ -60,10 +60,13 @@ test "%{buildroot}" != "/" && rm -rf %{buildroot}
 make install-bin BINDIR=%{buildroot}%{_bindir} LIBDIR=%{buildroot}%{_libdir} INCDIR=%{buildroot}%{_includedir}
 
 # Package up required files to build modules
-mkdir -p %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
+mkdir -p %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel \
+         %{buildroot}/usr/src/%{name}-%{version}-%{release}/include
 cp -r modules %{buildroot}/usr/src/%{name}-%{version}-%{release}/
 cp libs/exanic/{ioctl.h,pcie_if.h,fifo_if.h,const.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic
 cp libs/exasock/kernel/{api.h,structs.h,consts.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
+cp include/exanic_version.h %{buildroot}/usr/src/%{name}-%{version}-%{release}/include
+
 
 # Create a dkms.conf
 cat >%{buildroot}/usr/src/%{name}-%{version}-%{release}/dkms.conf <<EOF

@@ -31,13 +31,6 @@
 
 __attribute__((visibility("default")))
 int
-exasock_loaded(void)
-{
-    return 1;
-}
-
-__attribute__((visibility("default")))
-int
 exasock_tcp_get_device(int fd, char *dev, size_t dev_len, int *port_num)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);

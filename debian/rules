@@ -37,10 +37,12 @@ install: build
 	dh_testdir
 	dh_prep
 	make install-bin PREFIX=/usr DESTDIR=$(CURDIR)/debian/exanic-utils INCDIR=$(CURDIR)/debian/exanic-dev/usr/include DEVLIBDIR=$(CURDIR)/debian/exanic-dev/usr/lib
-	mkdir -p $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exanic $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exasock/kernel
+	mkdir -p $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exanic $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exasock/kernel \
+			 $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/include 
 	cp -r modules $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)
 	cp libs/exanic/ioctl.h libs/exanic/pcie_if.h libs/exanic/fifo_if.h libs/exanic/const.h $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exanic
 	cp libs/exasock/kernel/api.h libs/exasock/kernel/structs.h libs/exasock/kernel/consts.h $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/libs/exasock/kernel
+	cp include/exanic_version.h $(CURDIR)/debian/exanic-dkms/usr/src/exanic-$(VERSION)/include
 	dh_install
 
 # Build architecture-independent files here. 
