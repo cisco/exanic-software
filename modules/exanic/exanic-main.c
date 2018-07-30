@@ -1730,7 +1730,8 @@ static void exanic_remove(struct pci_dev *pdev)
     list_del(&exanic->node);
     spin_unlock(&exanic_devices_lock);
 
-    del_timer_sync(&exanic->link_timer);
+    if (!exanic->unsupported)
+        del_timer_sync(&exanic->link_timer);
 
 #if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     exanic_ptp_remove(exanic);
