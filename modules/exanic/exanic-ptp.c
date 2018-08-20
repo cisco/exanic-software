@@ -267,7 +267,11 @@ static enum hrtimer_restart exanic_ptp_pps_hrtimer_callback(
     hw_time_ts = ktime_to_timespec(hw_time);
 
     /* Get the system time at the last second boundary */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
+    pps_sub_ts(&event.pps_times, ns_to_timespec64(hw_time_ts.tv_nsec));
+#else
     pps_sub_ts(&event.pps_times, ns_to_timespec(hw_time_ts.tv_nsec));
+#endif
 
     /* Set next expiry to be just after the next second boundary */
     expiry = NSEC_PER_SEC - hw_time_ts.tv_nsec + PPS_DELAY_NS;
