@@ -10,17 +10,17 @@ seq_compare(uint32_t a, uint32_t b)
 }
 
 static inline bool
-proc_seq_update(uint32_t *proc_seq, uint32_t *old, uint32_t new)
+proc_seq_update(uint32_t *proc_seq, uint32_t *old_seq, uint32_t new_seq)
 {
     uint32_t prev;
 
     do
     {
-        prev = __sync_val_compare_and_swap(proc_seq, *old, new);
-        if (prev == *old)
+        prev = __sync_val_compare_and_swap(proc_seq, *old_seq, new_seq);
+        if (prev == *old_seq)
             return true;
-        *old = prev;
-    } while (seq_compare(new, *old) > 0);
+        *old_seq = prev;
+    } while (seq_compare(new_seq, *old_seq) > 0);
 
     return false;
 }
