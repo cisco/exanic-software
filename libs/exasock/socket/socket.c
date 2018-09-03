@@ -139,6 +139,10 @@ close(int fd)
 
         exa_write_lock(&sock->lock);
 
+        /* Remove any exa_notify memberships
+         * This must be done before the bypass flag is cleared */
+        exa_notify_remove_sock_all(sock);
+
         if (sock->bypass_state == EXA_BYPASS_ACTIVE)
         {
             if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
@@ -183,9 +187,6 @@ close(int fd)
             else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
                 exa_socket_tcp_close(sock);
         }
-
-        /* Remove any exa_notify memberships */
-        exa_notify_remove_sock_all(sock);
 
         /* Free exa_notify struct for epoll sockets */
         if (sock->notify)
