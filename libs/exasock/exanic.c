@@ -542,22 +542,17 @@ exanic_ip_release(struct exanic_ip *ctx)
     exa_unlock(&exanic_ip_ctx_lock);
 }
 
+/* This function is called from exanic_poll() */
 static void
 exanic_ip_cleanup(void)
 {
     struct exanic_ip *ctx, *i;
 
+    assert(exasock_poll_lock);
+
     exa_lock(&exanic_ip_ctx_lock);
 
     if (exanic_ctx_all_refcount > 0)
-    {
-        exa_unlock(&exanic_ip_ctx_lock);
-        return;
-    }
-
-    /* Grab exasock_poll_lock to make sure exanic_poll() is not currently
-     * iterating over the list */
-    if (!exa_trylock(&exasock_poll_lock))
     {
         exa_unlock(&exanic_ip_ctx_lock);
         return;
@@ -586,7 +581,6 @@ exanic_ip_cleanup(void)
 
     exanic_ctx_need_cleanup = false;
 
-    exa_unlock(&exasock_poll_lock);
     exa_unlock(&exanic_ip_ctx_lock);
     return;
 }
