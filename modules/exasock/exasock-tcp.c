@@ -176,8 +176,7 @@ struct exasock_tcp
     struct hlist_node               hash_node;
     bool                            dead_node;
 
-    struct exasock_epoll_notify *   notify;
-    spinlock_t                      notify_lock;
+    struct exasock_epoll_notify     notify;
 
     struct kref                     refcount;
     /* Semaphore stays down until refcount goes to 0 */
@@ -707,7 +706,7 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
 
     kref_init(&tcp->refcount);
     sema_init(&tcp->dead_sema, 0);
-    spin_lock_init(&tcp->notify_lock);
+    spin_lock_init(&tcp->notify.lock);
 
     INIT_DELAYED_WORK(&tcp->work, exasock_tcp_conn_worker);
     queue_delayed_work(tcp_workqueue, &tcp->work, TCP_TIMER_JIFFIES);
@@ -1032,55 +1031,6 @@ int exasock_tcp_state_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma)
 {
     return remap_vmalloc_range(vma, tcp->user_page,
             vma->vm_pgoff - (EXASOCK_OFFSET_SOCKET_STATE / PAGE_SIZE));
-}
-
-/* Looks up exasock_tcp struct for a listening socket in hashtable.
- * RCU read lock must be held. */
-static struct exasock_tcp *exasock_tcp_listen_lookup(uint32_t local_addr,
-                                              uint16_t local_port)
-{
-    struct exasock_tcp *tcp;
-#ifdef __HAS_OLD_HLIST_ITERATOR
-    struct hlist_node *n;
-#endif
-    unsigned hash;
-
-    /* Try to match (local_addr, local_port) */
-    hash = exasock_tcp_hash(local_addr, htonl(INADDR_ANY), local_port, 0);
-    hlist_for_each_entry_rcu(tcp,
-#ifdef __HAS_OLD_HLIST_ITERATOR
-                             n,
-#endif
-                             &tcp_buckets[hash], hash_node)
-    {
-        if (tcp->local_addr == local_addr &&
-            tcp->peer_addr == htonl(INADDR_ANY) &&
-            tcp->local_port == local_port &&
-            tcp->peer_port == 0)
-        {
-            return tcp;
-        }
-    }
-
-    /* Try to match local_port only */
-    hash = exasock_tcp_hash(htonl(INADDR_ANY), htonl(INADDR_ANY), local_port,
-                            0);
-    hlist_for_each_entry_rcu(tcp,
-#ifdef __HAS_OLD_HLIST_ITERATOR
-                             n,
-#endif
-                             &tcp_buckets[hash], hash_node)
-    {
-        if (tcp->local_addr == htonl(INADDR_ANY) &&
-            tcp->peer_addr == htonl(INADDR_ANY) &&
-            tcp->local_port == local_port &&
-            tcp->peer_port == 0)
-        {
-            return tcp;
-        }
-    }
-
-    return NULL;
 }
 
 /* Looks up exasock_tcp struct in hashtable.
@@ -1783,7 +1733,10 @@ proc_check:
     exasock_tcp_rx_seg_write(rx_seg, recv_seq, data, seg_len, seg_seq, elem);
 
     if (copy_len)
+    {
         exasock_tcp_rx_buffer_write(tcp_st, rx_seg, buf1, buf1_len, buf2, buf2_len);
+        *new_data = true;
+    }
 
     exasock_tcp_update_state(tcp_st, tcp, seg_seq, seg_len, th_ack, th_fin);
     /* make special case to get rid of spurious dup ack */
@@ -1916,7 +1869,7 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
 
     err = exasock_tcp_process_data(skb, state, tcp, tcp->rx_buffer, tcp->rx_seg,
                                    data, datalen, th, &out_of_order, &new_data);
-    if (err)
+    if (err < 0)
         return -1; /* Segment locked, retry later */
 
     /* Send ACK if needed */
@@ -1941,6 +1894,9 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
         tcp->win_work_on = WIN_WORK_TIMEOUT;
         queue_delayed_work(tcp_workqueue, &tcp->win_work, 1);
     }
+
+    if (new_data)
+        exasock_epoll_update(&tcp->notify);
 
     return 0;
 }
@@ -2136,10 +2092,7 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
 
         exasock_unlock(&state->rx_lock);
 
-        spin_lock(&tcp->notify_lock);
-        if (tcp->notify)
-            exasock_epoll_update(tcp->notify);
-        spin_unlock(&tcp->notify_lock);
+        exasock_epoll_update(&tcp->notify);
 
         /* Remove from incomplete connections */
         hlist_del(&req->hash_node);
@@ -2845,72 +2798,15 @@ static void exasock_tcp_send_probe(struct exasock_tcp *tcp)
     exasock_tcp_send_segment(tcp, state->p.tcp.send_ack - 1, 0, false);
 }
 
-int exasock_tcp_notify_add(uint32_t local_addr, uint16_t local_port,
-                           struct exasock_epoll_notify *notify)
+int exasock_tcp_epoll_add(struct exasock_tcp *tcp, struct exasock_epoll *epoll,
+                          int fd)
 {
-    struct exasock_tcp *tcp;
-    int ret = 0;
-
-    /* Look up socket */
-    rcu_read_lock();
-    tcp = exasock_tcp_listen_lookup(local_addr, local_port);
-    if (tcp == NULL)
-    {
-        rcu_read_unlock();
-        return -ENOENT;
-    }
-    kref_get(&tcp->refcount);
-    rcu_read_unlock();
-
-    spin_lock(&tcp->notify_lock);
-
-    if (tcp->notify != NULL)
-    {
-        /* This socket is already a member of an epoll */
-        ret = -EINVAL;
-        goto exit;
-    }
-    tcp->notify = notify;
-
-exit:
-    spin_unlock(&tcp->notify_lock);
-    kref_put(&tcp->refcount, exasock_tcp_dead);
-    return ret;
+    return exasock_epoll_notify_add(epoll, &tcp->notify, fd);
 }
 
-int exasock_tcp_notify_del(uint32_t local_addr, uint16_t local_port,
-                           struct exasock_epoll_notify **notify)
+int exasock_tcp_epoll_del(struct exasock_tcp *tcp, struct exasock_epoll *epoll)
 {
-    struct exasock_tcp *tcp;
-    int ret = 0;
-
-    /* Look up socket */
-    rcu_read_lock();
-    tcp = exasock_tcp_listen_lookup(local_addr, local_port);
-    if (tcp == NULL)
-    {
-        *notify = NULL;
-        rcu_read_unlock();
-        return -ENOENT;
-    }
-    kref_get(&tcp->refcount);
-    rcu_read_unlock();
-
-    spin_lock(&tcp->notify_lock);
-
-    *notify = tcp->notify;
-    if (tcp->notify == NULL)
-    {
-        spin_unlock(&tcp->notify_lock);
-        ret = -EINVAL;
-        goto exit;
-    }
-    tcp->notify = NULL;
-
-exit:
-    spin_unlock(&tcp->notify_lock);
-    kref_put(&tcp->refcount, exasock_tcp_dead);
-    return ret;
+    return exasock_epoll_notify_del_check(epoll, &tcp->notify);
 }
 
 int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,

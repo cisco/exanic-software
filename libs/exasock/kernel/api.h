@@ -2,7 +2,7 @@
 #define EXASOCK_KERNEL_API_H
 
 #define EXASOCK_DEVICE "/dev/exasock"
-#define EXASOCK_API_VERSION 19
+#define EXASOCK_API_VERSION 20
 
 #define EXASOCK_IOCTL_TYPE          'x'
 #define EXASOCK_IOCTL_SOCKET        _IOW(EXASOCK_IOCTL_TYPE, 0x50, int)
@@ -62,8 +62,6 @@ enum exasock_epoll_ctl_op
 struct exasock_epoll_ctl_request
 {
     enum exasock_epoll_ctl_op op;
-    uint32_t local_addr;
-    uint16_t local_port;
     int fd;
 };
 

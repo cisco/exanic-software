@@ -32,11 +32,15 @@ struct exasock_epoll
 {
     enum exasock_type type;
     struct exasock_epoll_state *user_page;
+
+    spinlock_t fd_list_lock;
+    struct list_head fd_list;
     struct list_head fd_ready_backlog_list;
 };
 
 struct exasock_epoll_notify
 {
+    spinlock_t lock;
     struct exasock_epoll *epoll;
     int fd;
     struct list_head node;
@@ -110,16 +114,18 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int optlen);
 int exasock_tcp_getsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int *optlen);
-int exasock_tcp_notify_add(uint32_t local_addr, uint16_t local_port,
-                           struct exasock_epoll_notify *notify);
-int exasock_tcp_notify_del(uint32_t local_addr, uint16_t local_port,
-                           struct exasock_epoll_notify **notify);
+int exasock_tcp_epoll_add(struct exasock_tcp *tcp, struct exasock_epoll *epoll,
+                          int fd);
+int exasock_tcp_epoll_del(struct exasock_tcp *tcp, struct exasock_epoll *epoll);
 uint32_t exasock_tcp_get_isn(struct exasock_tcp *tcp);
 
 /* exasock-epoll.c */
 struct exasock_epoll *exasock_epoll_alloc(void);
-int exasock_epoll_ctl(struct exasock_epoll *epoll, bool add,
-                      uint32_t local_addr, uint16_t local_port, int fd);
+int exasock_epoll_notify_add(struct exasock_epoll *epoll,
+                             struct exasock_epoll_notify *notify, int fd);
+int exasock_epoll_notify_del_check(struct exasock_epoll *epoll,
+                                   struct exasock_epoll_notify *notify);
+void exasock_epoll_notify_del(struct exasock_epoll_notify *notify);
 void exasock_epoll_free(struct exasock_epoll *epoll);
 int exasock_epoll_state_mmap(struct exasock_epoll *epoll,
                              struct vm_area_struct *vma);

@@ -36,6 +36,9 @@ struct exasock_epoll *exasock_epoll_alloc(void)
 
     epoll->type = EXASOCK_TYPE_EPOLL;
     epoll->user_page = user_page;
+
+    spin_lock_init(&epoll->fd_list_lock);
+    INIT_LIST_HEAD(&epoll->fd_list);
     INIT_LIST_HEAD(&epoll->fd_ready_backlog_list);
 
     /* Initialize user page */
@@ -50,48 +53,109 @@ err_alloc:
     return ERR_PTR(err);
 }
 
-int exasock_epoll_ctl(struct exasock_epoll *epoll, bool add,
-                      uint32_t local_addr, uint16_t local_port, int fd)
+int exasock_epoll_notify_add(struct exasock_epoll *epoll,
+                             struct exasock_epoll_notify *notify, int fd)
 {
-    struct exasock_epoll_notify *notify;
-    int err;
-
-    if (add)
+restart:
+    spin_lock(&notify->lock);
+    if (notify->epoll != NULL)
     {
-        /* Add the socket to epoll */
-        notify = kzalloc(sizeof(struct exasock_epoll_notify), GFP_KERNEL);
-        if (notify == NULL)
-            return -ENOMEM;
-        notify->epoll = epoll;
-        notify->fd = fd;
-        err = exasock_tcp_notify_add(local_addr, local_port, notify);
-        if (err)
-        {
-            kfree(notify);
-            return err;
-        }
-    }
-    else
-    {
-        /* Remove the socket from epoll */
-        err = exasock_tcp_notify_del(local_addr, local_port, &notify);
-        if (err)
-            return err;
-        if (notify->epoll != epoll || notify->fd != fd)
-        {
-            /* Arguments mismatch. Revert the operation and return with error */
-            exasock_tcp_notify_add(local_addr, local_port, notify);
-            return -EINVAL;
-        }
-        kfree(notify);
+        spin_unlock(&notify->lock);
+        return -EINVAL;
     }
 
+    if (!spin_trylock(&epoll->fd_list_lock))
+    {
+        spin_unlock(&notify->lock);
+        goto restart;
+    }
+
+    notify->epoll = epoll;
+    notify->fd = fd;
+    list_add(&notify->node, &epoll->fd_list);
+
+    spin_unlock(&epoll->fd_list_lock);
+    spin_unlock(&notify->lock);
     return 0;
+}
+
+int exasock_epoll_notify_del_check(struct exasock_epoll *epoll,
+                                   struct exasock_epoll_notify *notify)
+{
+restart:
+    spin_lock(&notify->lock);
+    if (notify->epoll != epoll)
+    {
+        spin_unlock(&notify->lock);
+        return -EINVAL;
+    }
+
+    if (!spin_trylock(&epoll->fd_list_lock))
+    {
+        spin_unlock(&notify->lock);
+        goto restart;
+    }
+
+    notify->epoll = NULL;
+    list_del(&notify->node);
+
+    spin_unlock(&epoll->fd_list_lock);
+    spin_unlock(&notify->lock);
+    return 0;
+}
+
+void exasock_epoll_notify_del(struct exasock_epoll_notify *notify)
+{
+    struct exasock_epoll *epoll;
+
+restart:
+    spin_lock(&notify->lock);
+    epoll = notify->epoll;
+
+    if (epoll == NULL)
+    {
+        spin_unlock(&notify->lock);
+        return;
+    }
+
+    if (!spin_trylock(&epoll->fd_list_lock))
+    {
+        spin_unlock(&notify->lock);
+        goto restart;
+    }
+
+    notify->epoll = NULL;
+    list_del(&notify->node);
+
+    spin_unlock(&epoll->fd_list_lock);
+    spin_unlock(&notify->lock);
 }
 
 void exasock_epoll_free(struct exasock_epoll *epoll)
 {
+    struct exasock_epoll_notify *no, *_no;
+
     BUG_ON(epoll->type != EXASOCK_TYPE_EPOLL);
+
+    spin_lock(&epoll->fd_list_lock);
+
+    list_for_each_entry_safe(no, _no, &epoll->fd_list, node)
+    {
+        spin_lock(&no->lock);
+        no->epoll = NULL;
+        list_del(&no->node);
+        spin_unlock(&no->lock);
+    }
+
+    list_for_each_entry_safe(no, _no, &epoll->fd_ready_backlog_list, node)
+    {
+        spin_lock(&no->lock);
+        no->epoll = NULL;
+        list_del(&no->node);
+        spin_unlock(&no->lock);
+    }
+
+    spin_unlock(&epoll->fd_list_lock);
 
     vfree(epoll->user_page);
     kfree(epoll);
@@ -112,14 +176,27 @@ int exasock_epoll_state_mmap(struct exasock_epoll *epoll,
 
 void exasock_epoll_update(struct exasock_epoll_notify *notify)
 {
-    struct exasock_epoll *epoll = notify->epoll;
-    volatile struct exasock_epoll_state *state = epoll->user_page;
+    struct exasock_epoll *epoll;
+    volatile struct exasock_epoll_state *state;
     int next_wr;
 
-    /* No need for a lock protection of struct exasock_epoll since it gets
-     * accessed in a single worker thread only
-     */
+restart:
+    spin_lock(&notify->lock);
+    epoll = notify->epoll;
 
+    if (epoll == NULL)
+    {
+        spin_unlock(&notify->lock);
+        return;
+    }
+
+    if (!spin_trylock(&epoll->fd_list_lock))
+    {
+        spin_unlock(&notify->lock);
+        goto restart;
+    }
+
+    state = epoll->user_page;
     next_wr = state->next_write;
 
     /* First check if there is anything to move from backlog to fd_ready
@@ -136,7 +213,7 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify)
 
             state->fd_ready[next_wr] = no->fd;
             EXASOCK_EPOLL_FD_READY_IDX_INC(next_wr);
-            list_del(&no->node);
+            list_move(&no->node, &epoll->fd_list);
         }
         wmb();
         state->next_write = next_wr;
@@ -145,10 +222,11 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify)
     /* In case fd_ready ring is full we store the socket in a backlog list
      * and leave.
      */
-    if (unlikely(EXASOCK_EPOLL_FD_READY_RING_FULL(state->next_read,
-                                                  next_wr)))
+    if (unlikely(EXASOCK_EPOLL_FD_READY_RING_FULL(state->next_read, next_wr)))
     {
-        list_add(&notify->node, &epoll->fd_ready_backlog_list);
+        list_move(&notify->node, &epoll->fd_ready_backlog_list);
+        spin_unlock(&epoll->fd_list_lock);
+        spin_unlock(&notify->lock);
         return;
     }
 
@@ -157,4 +235,7 @@ void exasock_epoll_update(struct exasock_epoll_notify *notify)
     EXASOCK_EPOLL_FD_READY_IDX_INC(next_wr);
     wmb();
     state->next_write = next_wr;
+
+    spin_unlock(&epoll->fd_list_lock);
+    spin_unlock(&notify->lock);
 }

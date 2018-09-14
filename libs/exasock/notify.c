@@ -43,8 +43,7 @@ exa_notify_kern_epoll_add(struct exa_notify * restrict no,
     }
     exa_unlock(&no->ep.lock);
 
-    return exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_ADD, fd,
-                             &sock->bind.ip);
+    return exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_ADD, fd);
 
 err_mmap:
     exa_sys_epoll_close(no->ep.fd);
@@ -60,8 +59,7 @@ exa_notify_kern_epoll_del(struct exa_notify * restrict no,
 {
     int ret;
 
-    ret = exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_DEL, fd,
-                            &sock->bind.ip);
+    ret = exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_DEL, fd);
     if (ret != 0)
         return ret;
 
@@ -199,8 +197,7 @@ exa_notify_insert_sock(struct exa_notify * restrict no,
      * and/or updated */
     if (sock->bypass_state == EXA_BYPASS_ACTIVE
         && sock->domain == AF_INET
-        && sock->type == SOCK_STREAM
-        && exanic_tcp_listening(sock))
+        && sock->type == SOCK_STREAM)
     {
         int ret = exa_notify_kern_epoll_add(no, sock);
         if (ret != 0)
@@ -303,6 +300,16 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
         return -1;
     }
 
+    /* Check if exasock kernel epoll instance needs to be updated/closed */
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE
+        && sock->domain == AF_INET
+        && sock->type == SOCK_STREAM)
+    {
+        int ret = exa_notify_kern_epoll_del(no, sock, fd);
+        if (ret != 0)
+            return ret;
+    }
+
     sock->notify_parent = NULL;
     no->fd_table[fd].events = 0;
     no->fd_table[fd].present = false;
@@ -328,13 +335,6 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
 
     /* Remove the socket from the maybe-ready queue */
     exa_notify_queue_remove(no, fd);
-
-    /* Check if exasock kernel epoll instance needs to be updated/closed */
-    if (sock->bypass_state == EXA_BYPASS_ACTIVE
-        && sock->domain == AF_INET
-        && sock->type == SOCK_STREAM
-        && exanic_tcp_listening(sock))
-        return exa_notify_kern_epoll_del(no, sock, fd);
 
     exa_lock(&no->fd_cnt.lock);
     if (sock->bypass_state == EXA_BYPASS_ACTIVE)

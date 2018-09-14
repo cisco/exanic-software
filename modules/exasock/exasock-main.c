@@ -26,6 +26,7 @@
 bool module_removed;
 
 static struct exasock_kernel_info *exasock_info_page;
+static struct file_operations exasock_fops;
 
 static int exasock_net_event(struct notifier_block *notifier,
                              unsigned long event, void *ptr)
@@ -514,8 +515,10 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
     case EXASOCK_IOCTL_EPOLL_CTL:
         {
             struct exasock_epoll_ctl_request req;
-            void *priv = filp->private_data;
-            enum exasock_type type;
+            struct exasock_epoll *priv = filp->private_data;
+            struct file *sock_filp;
+            struct exasock_hdr *sock_priv;
+            int err;
 
             if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
                 return -EFAULT;
@@ -523,13 +526,42 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             if (priv == NULL)
                 return -EINVAL;
 
-            type = *((enum exasock_type *)priv);
-            if (type != EXASOCK_TYPE_EPOLL)
+            if (priv->type != EXASOCK_TYPE_EPOLL)
                 return -EINVAL;
 
-            return exasock_epoll_ctl((struct exasock_epoll *)priv,
-                                    (req.op == EXASOCK_EPOLL_CTL_ADD),
-                                    req.local_addr, req.local_port, req.fd);
+            sock_filp = fget(req.fd);
+            if (sock_filp == NULL)
+                return -EINVAL;
+
+            sock_priv = sock_filp->private_data;
+
+            if (sock_filp->f_op != &exasock_fops || sock_priv == NULL ||
+                sock_priv->type != EXASOCK_TYPE_SOCKET)
+            {
+                fput(sock_filp);
+                return -EINVAL;
+            }
+
+            if (sock_priv->socket.domain == AF_INET &&
+                sock_priv->socket.type == SOCK_STREAM)
+            {
+                if (req.op == EXASOCK_EPOLL_CTL_ADD)
+                    err = exasock_tcp_epoll_add((struct exasock_tcp *)sock_priv,
+                                                priv, req.fd);
+                else if (req.op == EXASOCK_EPOLL_CTL_DEL)
+                    err = exasock_tcp_epoll_del((struct exasock_tcp *)sock_priv,
+                                                priv);
+                else
+                    err = -EINVAL;
+
+                fput(sock_filp);
+                return err;
+            }
+            else
+            {
+                fput(sock_filp);
+                return -EINVAL;
+            }
         }
 
     case EXASOCK_IOCTL_ISN_ALLOC:

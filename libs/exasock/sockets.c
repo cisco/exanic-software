@@ -836,6 +836,11 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
     /* The kernel writes to the rx buffer, so we need to poll for updates */
     sock->need_rx_ready_poll = true;
 
+    /* If already a member of exa_notify, the socket needs to be added to
+     * exasock kernel epoll instance */
+    if (sock->notify_parent)
+        return exa_notify_kern_epoll_add(sock->notify_parent, sock);
+
     sock->bind.ip = endpoint;
     if (exa_socket_holds_interfaces(sock))
         exa_tcp_insert(fd);

@@ -466,8 +466,7 @@ exa_sys_epoll_munmap(int fd, struct exasock_epoll_state **state)
 }
 
 int
-exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd,
-                  struct exa_endpoint * restrict endpoint)
+exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd)
 {
     struct exasock_epoll_ctl_request req;
     int ret;
@@ -475,8 +474,6 @@ exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd,
     memset(&req, 0, sizeof(req));
     req.op = op;
     req.fd = fd;
-    req.local_addr = endpoint->addr.local;
-    req.local_port = endpoint->port.local;
 
     exasock_override_off();
     ret = ioctl(epfd, EXASOCK_IOCTL_EPOLL_CTL, &req);
