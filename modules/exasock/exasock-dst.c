@@ -179,8 +179,12 @@ static void __free_dst_entry(struct exasock_dst_entry *de)
         kfree(qe);
     }
 
-    exasock_dst_neigh_release(de->neigh);
-    ip_rt_put(de->rt);
+    if (de->neigh)
+        exasock_dst_neigh_release(de->neigh);
+
+    if (de->rt)
+        ip_rt_put(de->rt);
+
     kfree(de);
 }
 
@@ -327,6 +331,7 @@ static void dst_expiry_timer_handler(unsigned long data)
 
         /* Release old neigbour and route cache entry */
         exasock_dst_neigh_release(de->neigh);
+        de->neigh = NULL;
         ip_rt_put(de->rt);
 
         /* Get new route from routing table */
@@ -334,13 +339,15 @@ static void dst_expiry_timer_handler(unsigned long data)
         de->rt = __ip_route_output_key(&init_net, &fl4);
         if (IS_ERR(de->rt))
 #else
-        de->rt = NULL;
         if (__ip_route_output_key(&init_net, &de->rt, &fl) != 0)
 #endif
+        {
+            de->rt = NULL;
             goto remove_entry;
-
+        }
 
         new_neigh = exasock_dst_neigh_lookup(&rtable_dst(de->rt), &fl4.daddr);
+        de->neigh = new_neigh;
         hash = hash_ptr(new_neigh, NEIGH_HASH_BITS);
         list_del(&de->neigh_hash);
         list_add_tail(&de->neigh_hash, &dst_neigh_hash[hash]);
