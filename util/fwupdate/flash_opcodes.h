@@ -37,6 +37,7 @@
 #define MT28_READ_ARRAY              0xF0
 /* AMD/MT28 status register masks */
 #define MT28_STATUS_TOGGLE_MASK      0x40
-#define MT28_STATUS_ERROR_MASK       0x22
+#define MT28_STATUS_ERASE_ERROR_MASK 0x20
+#define MT28_STATUS_PROGRAM_ERROR_MASK 0x22
 
 #endif /* _EXANIC_FWUPDATE_FLASH_OPCODES_H */

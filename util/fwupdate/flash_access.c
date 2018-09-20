@@ -187,25 +187,32 @@ static void mt28_release(struct flash_device *flash)
     flash_write(flash, 0, MT28_READ_ARRAY);
 }
 
-static bool mt28_check_status(struct flash_device *flash)
+static bool mt28_check_status(struct flash_device *flash, flash_word_t error_mask)
 {
     flash_word_t status = flash_read_current(flash);
-    flash_word_t tmp_status;
+    flash_word_t tmp_status1, tmp_status2;
     while (1)
     {
-        tmp_status = flash_read_current(flash);
+        tmp_status1 = flash_read_current(flash);
         /* there is a toggle bit in the status register which toggles on each read */
         /* no change in value indicates we have returned to array read (=success) */
-        if (tmp_status == status)
+        if (tmp_status1 == status)
             return true;
 
-        if (status & MT28_STATUS_ERROR_MASK)
+        /* check again if the operation has finished; this avoids a race condition on */
+        /* S29GLxxxP flash chips where 'status' could have been a corrupt array read */
+        /* if the operation had just finished */
+        tmp_status2 = flash_read_current(flash);
+        if (tmp_status2 == tmp_status1)
+            return true;
+
+        if (status & error_mask)
         {
             flash->status = status;
             return false;
         }
 
-        status = tmp_status;
+        status = tmp_status2;
     }
 }
 
@@ -214,7 +221,7 @@ static bool mt28_erase_block(struct flash_device *flash, flash_address_t address
     flash_set_address(flash, address);
     flash_write_current(flash, MT28_BLOCK_ERASE_SETUP);
     flash_write_current(flash, MT28_BLOCK_ERASE_CONFIRM);
-    if (!mt28_check_status(flash))
+    if (!mt28_check_status(flash, MT28_STATUS_ERASE_ERROR_MASK))
     {
         fprintf(stderr, "ERROR: failed to erase block at 0x%x (sr=0x%x)\n", address, flash->status);
         return false;
@@ -233,7 +240,7 @@ static bool mt28_burst_program(struct flash_device *flash, flash_address_t addre
     for (offset = 1; offset < size; offset++)
         flash_write(flash, address+offset, data[offset]);
     flash_write(flash, address, MT28_BUFFER_PROGRAM_CONFIRM);
-    if (!mt28_check_status(flash))
+    if (!mt28_check_status(flash, MT28_STATUS_PROGRAM_ERROR_MASK))
     {
         fprintf(stderr, "ERROR: failed to program block at 0x%x (sr=0x%x)\n", address, flash->status);
         return false;
