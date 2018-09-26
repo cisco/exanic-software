@@ -1671,10 +1671,18 @@ void exanic_netdev_check_link(struct net_device *ndev)
     if (reg & EXANIC_PORT_STATUS_LINK)
     {
         if (!netif_carrier_ok(ndev))
+        {
             netif_carrier_on(ndev);
+            reg = readl(&priv->registers[REG_PORT_INDEX(priv->port,
+                        REG_PORT_SPEED)]);
+            netdev_info(ndev, "Link is up at %d Mbps", reg);
+        }
     }
     else if (netif_carrier_ok(ndev))
+    {
         netif_carrier_off(ndev);
+        netdev_info(ndev, "Link is down");
+    }
 }
 
 /**
