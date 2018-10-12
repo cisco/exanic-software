@@ -764,13 +764,13 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
                 filter.buffer = ctl.buffer_number;
 
-                for (i = 0; i < 6; i++) 
+                for (i = 0; i < 6; i++)
                     filter.dst_mac[i] = ctl.dst_mac[i];
-                
+
                 filter.ethertype = ctl.ethertype;
                 filter.vlan = ctl.vlan;
                 filter.vlan_match_method = ctl.vlan_match_method;
-                
+
                 mutex_lock(&exanic->mutex);
                 ret = exanic_insert_mac_filter(exanic, ctl.port_number,
                                              &filter);
@@ -782,12 +782,11 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                     return -EFAULT;
 
                 return 0;
-                 
             }
         case EXANICCTL_RX_FILTER_REMOVE_IP:
             {
                 struct exanicctl_rx_filter_remove_ip ctl;
-                struct exanic_port *port; 
+                struct exanic_port *port;
                 int ret;
 
                 if (copy_from_user(&ctl, (void *)arg, sizeof(ctl)) != 0)
@@ -809,7 +808,7 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         case EXANICCTL_RX_FILTER_REMOVE_MAC:
             {
                 struct exanicctl_rx_filter_remove_mac ctl;
-                struct exanic_port *port; 
+                struct exanic_port *port;
                 int ret;
 
                 if (copy_from_user(&ctl, (void *)arg, sizeof(ctl)) != 0)
@@ -843,14 +842,14 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
                 mutex_lock(&exanic->mutex);
                 /* Check to see if we already have a reference. */
-                if (exanic_has_filter_buffer_ref(ctx, ctl.port_number, 
+                if (exanic_has_filter_buffer_ref(ctx, ctl.port_number,
                                                   ctl.buffer_number))
                 {
                     mutex_unlock(&exanic->mutex);
                     return 0;
                 }
 
-                ret = exanic_add_filter_buffer_ref(ctx, ctl.port_number, 
+                ret = exanic_add_filter_buffer_ref(ctx, ctl.port_number,
                                                     ctl.buffer_number);
                 if (ret < 0)
                 {
@@ -863,7 +862,7 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
                 /* Unwind reference on failure. */
                 if (ret < 0)
-                    exanic_remove_filter_buffer_ref(ctx, ctl.port_number, 
+                    exanic_remove_filter_buffer_ref(ctx, ctl.port_number,
                                                     ctl.buffer_number);
                 mutex_unlock(&exanic->mutex);
                 return ret;
@@ -895,14 +894,14 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                     }
                 }
                 /* Check to see if we already have a reference. */
-                if (exanic_has_filter_buffer_ref(ctx, ctl.port_number, 
+                if (exanic_has_filter_buffer_ref(ctx, ctl.port_number,
                                                   ctl.buffer_number))
                 {
                     mutex_unlock(&exanic->mutex);
                     return 0;
                 }
 
-                ret = exanic_add_filter_buffer_ref(ctx, ctl.port_number, 
+                ret = exanic_add_filter_buffer_ref(ctx, ctl.port_number,
                                                     ctl.buffer_number);
                 if (ret < 0)
                 {
@@ -918,7 +917,7 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
                 /* Unwind reference on failure. */
                 if (ret < 0)
-                    exanic_remove_filter_buffer_ref(ctx, ctl.port_number, 
+                    exanic_remove_filter_buffer_ref(ctx, ctl.port_number,
                                                     ctl.buffer_number);
                 mutex_unlock(&exanic->mutex);
                 return ret;
@@ -949,10 +948,10 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 mutex_unlock(&exanic->mutex);
                 return 0;
             }
-        case EXANICCTL_RX_HASH_CONFIGURE: 
+        case EXANICCTL_RX_HASH_CONFIGURE:
             {
                 struct exanicctl_rx_hash_configure ctl;
-                struct exanic_port *port; 
+                struct exanic_port *port;
                 if (copy_from_user(&ctl, (void *)arg, sizeof(ctl)) != 0)
                     return -EFAULT;
                 if (ctl.port_number >= exanic->num_ports)

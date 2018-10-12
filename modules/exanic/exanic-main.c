@@ -90,7 +90,7 @@ static u8 next_mac_addr[ETH_ALEN] = {
                                      (exanic)->hw_id == EXANIC_HW_Z10     || \
                                      (exanic)->hw_id == EXANIC_HW_Z1)
 
-/** 
+/**
  * Configure flow hashing for an ExaNIC port.
  */
 void exanic_configure_port_hash(struct exanic *exanic, unsigned port,
@@ -101,22 +101,22 @@ void exanic_configure_port_hash(struct exanic *exanic, unsigned port,
     if (enable)
     {
         exanic->port[port].flow_hashing_enabled = true;
-        val |= EXANIC_PORT_HASH_ENABLE; 
+        val |= EXANIC_PORT_HASH_ENABLE;
     }
     else
         exanic->port[port].flow_hashing_enabled = false;
-        
+
     val |= (mask << EXANIC_PORT_HASH_MASK_SHIFT) &
              EXANIC_PORT_HASH_MASK_MASK;
     val |= (function << EXANIC_PORT_HASH_FUNCTION_SHIFT) &
-                        EXANIC_PORT_HASH_FUNCTION_MASK;  
+                        EXANIC_PORT_HASH_FUNCTION_MASK;
 
     writel(val, exanic->regs_virt +
         REG_PORT_OFFSET(port, REG_PORT_HASH_CONFIG));
 
 }
 
-/** 
+/**
  * Return true if the port is currently enabled.
  */
 bool exanic_port_enabled(struct exanic *exanic, unsigned port_num)
@@ -193,7 +193,7 @@ static void exanic_link_timer_callback(unsigned long data)
 /**
  * Allocate a region for a receive buffer.
  *
- * Implement common functionality used by exanic_alloc_rx_dma and 
+ * Implement common functionality used by exanic_alloc_rx_dma and
  * exanic_alloc_filter_dma.
  */
 void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
@@ -227,7 +227,7 @@ void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
     /* Fill with 0xFF because generation number starts at 0. */
     if (virt_region)
         memset(virt_region, 0xFF, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE);
-    
+
     return virt_region;
 }
 
@@ -291,8 +291,8 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
         return 0;
     }
 
-    port->filter_buffers[buffer_num].region_virt = 
-                exanic_alloc_dma(exanic, 
+    port->filter_buffers[buffer_num].region_virt =
+                exanic_alloc_dma(exanic,
                                  &numa_node,
                                  &port->filter_buffers[buffer_num].region_dma);
 
@@ -312,13 +312,13 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
     else
         dma_cfg = EXANIC_DMA_ADDR_CFG_64_BIT;
 
-    writel(port->filter_buffers[buffer_num].region_dma | dma_cfg, 
+    writel(port->filter_buffers[buffer_num].region_dma | dma_cfg,
                     exanic->regs_virt +
-                    REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) + 
+                    REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) +
                     2*buffer_num*sizeof(uint32_t) +
                     sizeof(uint32_t));
     writel(port->filter_buffers[buffer_num].region_dma >> 32, exanic->regs_virt +
-                    REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) + 
+                    REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) +
                     2*buffer_num*sizeof(uint32_t));
 
     port->filter_buffers[buffer_num].refcount++;
@@ -327,7 +327,7 @@ int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
         "%u: Port %u filter RX region allocated at "
         "virt: 0x%p, dma handle: 0x%pad, size: %lu bytes.\n",
         exanic->id, port_num, port->filter_buffers[buffer_num].region_virt,
-        &port->filter_buffers[buffer_num].region_dma, 
+        &port->filter_buffers[buffer_num].region_dma,
         EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE);
     return 0;
 }
@@ -367,7 +367,7 @@ int exanic_free_rx_dma(struct exanic *exanic, unsigned port_num)
  *
  * Called with the exanic mutex held.
  */
-int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num, 
+int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
                        unsigned buffer_num)
 {
     struct exanic_port *port = &exanic->port[port_num];
@@ -375,27 +375,27 @@ int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
 
     if (port->filter_buffers[buffer_num].region_virt == NULL)
         return 0;
-    BUG_ON(port->filter_buffers[buffer_num].refcount == 0); 
+    BUG_ON(port->filter_buffers[buffer_num].refcount == 0);
     if (--port->filter_buffers[buffer_num].refcount != 0)
         return 0;
 
     /* Make sure we disable all rules related to this buffer first. */
-    exanic_remove_rx_filter_assoc(exanic, port_num, buffer_num); 
+    exanic_remove_rx_filter_assoc(exanic, port_num, buffer_num);
 
     /* We should disable flow hashing too. */
     exanic_configure_port_hash(exanic, port_num, 0, 0, 0);
 
     /* Set the DMA address to all zeros. */
     writel(0, exanic->regs_virt +
-                REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) + 
+                REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) +
                     2*buffer_num*sizeof(uint32_t) +
                         sizeof(uint32_t));
     writel(0, exanic->regs_virt +
-            REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) + 
+            REG_FILTERS_OFFSET(port_num, REG_BUFFER_BASEADDR) +
                 2*buffer_num*sizeof(uint32_t));
 
     dma_free_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
-            port->filter_buffers[buffer_num].region_virt, 
+            port->filter_buffers[buffer_num].region_virt,
             port->filter_buffers[buffer_num].region_dma);
     port->filter_buffers[buffer_num].region_virt = NULL;
     port->filter_buffers[buffer_num].region_dma = 0;
@@ -480,7 +480,7 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
 
         /* Power off */
         if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-                exanic->hw_id == EXANIC_HW_X10 || 
+                exanic->hw_id == EXANIC_HW_X10 ||
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
                 exanic->hw_id == EXANIC_HW_X10_HPT ||
@@ -535,7 +535,7 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
             msleep(100); /* Wait for PHY to power up. */
             exanic_x4_x2_set_speed(exanic, port_num, 0, SPEED_100);
         }
-        
+
         if (err == 0)
         {
             port->power = power;
@@ -863,7 +863,7 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
 
         /* Save new state */
         if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-                exanic->hw_id == EXANIC_HW_X10 || 
+                exanic->hw_id == EXANIC_HW_X10 ||
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
                 exanic->hw_id == EXANIC_HW_X10_HPT ||
@@ -1056,8 +1056,8 @@ static int exanic_probe(struct pci_dev *pdev,
     }
     else
     {
-        exanic->max_filter_buffers = 
-            readl(exanic->regs_virt + 
+        exanic->max_filter_buffers =
+            readl(exanic->regs_virt +
                             REG_EXANIC_OFFSET(REG_EXANIC_NUM_FILTER_BUFFERS));
     }
 
@@ -1067,19 +1067,19 @@ static int exanic_probe(struct pci_dev *pdev,
             exanic->hw_id == EXANIC_HW_V5P || exanic->hw_id == EXANIC_HW_X25) &&
                 exanic->function_id == EXANIC_FUNCTION_DEVKIT)
     {
-        exanic->devkit_regs_offset = 
-            readl(exanic->regs_virt + 
+        exanic->devkit_regs_offset =
+            readl(exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_DEVKIT_REGISTERS_OFFSET));
-        exanic->devkit_mem_offset = 
-            readl(exanic->regs_virt + 
+        exanic->devkit_mem_offset =
+            readl(exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_DEVKIT_MEMORY_OFFSET));
-        if (exanic->devkit_regs_offset > 0 && 
+        if (exanic->devkit_regs_offset > 0 &&
                 exanic->devkit_mem_offset > 0)
         {
-            exanic->devkit_regs_phys = exanic->regs_phys + 
+            exanic->devkit_regs_phys = exanic->regs_phys +
                 exanic->devkit_regs_offset;
-            exanic->devkit_regs_virt = 
-                ioremap_nocache(exanic->devkit_regs_phys, 
+            exanic->devkit_regs_virt =
+                ioremap_nocache(exanic->devkit_regs_phys,
                     exanic->devkit_regs_offset);
             dev_info(dev,
                 "Devkit regs at phys: 0x%pap, virt: 0x%p, size: %u bytes.\n",
@@ -1468,24 +1468,24 @@ static int exanic_probe(struct pci_dev *pdev,
         if (exanic->max_filter_buffers == 0)
             break;
 
-        exanic->port[port_num].max_ip_filter_slots = 
+        exanic->port[port_num].max_ip_filter_slots =
                         readl(exanic->regs_virt +
-                        REG_EXTENDED_PORT_OFFSET(port_num, 
+                        REG_EXTENDED_PORT_OFFSET(port_num,
                             REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
 
-        exanic->port[port_num].max_mac_filter_slots = 
+        exanic->port[port_num].max_mac_filter_slots =
                         readl(exanic->regs_virt +
-                        REG_EXTENDED_PORT_OFFSET(port_num, 
+                        REG_EXTENDED_PORT_OFFSET(port_num,
                             REG_EXTENDED_PORT_NUM_MAC_FILTER_RULES));
 
-        exanic->port[port_num].num_hash_functions = 
+        exanic->port[port_num].num_hash_functions =
                         readl(exanic->regs_virt +
-                        REG_EXTENDED_PORT_OFFSET(port_num, 
+                        REG_EXTENDED_PORT_OFFSET(port_num,
                             REG_EXTENDED_PORT_NUM_HASH_FUNCTIONS));
 
-        exanic->port[port_num].filter_buffers = 
-            kzalloc(sizeof(struct exanic_filter_buffer) * 
-                            exanic->max_filter_buffers, GFP_KERNEL);  
+        exanic->port[port_num].filter_buffers =
+            kzalloc(sizeof(struct exanic_filter_buffer) *
+                            exanic->max_filter_buffers, GFP_KERNEL);
 
         if (exanic->port[port_num].filter_buffers == NULL)
         {
@@ -1498,8 +1498,8 @@ static int exanic_probe(struct pci_dev *pdev,
         if (exanic->port[port_num].max_ip_filter_slots > 0)
         {
 
-            exanic->port[port_num].ip_filter_slots = 
-                kzalloc(sizeof(struct exanic_ip_filter_slot) * 
+            exanic->port[port_num].ip_filter_slots =
+                kzalloc(sizeof(struct exanic_ip_filter_slot) *
                                 exanic->port[port_num].max_ip_filter_slots, GFP_KERNEL);
 
             if (exanic->port[port_num].ip_filter_slots == NULL)
@@ -1513,8 +1513,8 @@ static int exanic_probe(struct pci_dev *pdev,
 
         if (exanic->port[port_num].max_mac_filter_slots > 0)
         {
-            exanic->port[port_num].mac_filter_slots = 
-                kzalloc(sizeof(struct exanic_mac_filter_slot) * 
+            exanic->port[port_num].mac_filter_slots =
+                kzalloc(sizeof(struct exanic_mac_filter_slot) *
                                 exanic->port[port_num].max_mac_filter_slots, GFP_KERNEL);
 
             if (exanic->port[port_num].mac_filter_slots == NULL)
@@ -1525,7 +1525,7 @@ static int exanic_probe(struct pci_dev *pdev,
                 goto err_flow_steering;
             }
         }
-    } 
+    }
 
     /* Register ethernet interface */
     if (exanic->function_id == EXANIC_FUNCTION_NIC ||

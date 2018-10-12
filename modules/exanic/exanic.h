@@ -22,7 +22,7 @@
 #define PCI_DEVICE_ID_EXANIC_V5P        0x0008
 #define PCI_DEVICE_ID_EXANIC_X25        0x0009
 
-#define SFP_EEPROM_SIZE                  256
+#define SFP_EEPROM_SIZE                 256
 #define SFP_DIAG_SIZE                   256
 #define SFP_DIAG_OFFSET                 SFP_EEPROM_SIZE
 #define SFP_ETHTOOL_SIZE                (SFP_DIAG_SIZE + SFP_EEPROM_SIZE)
@@ -42,14 +42,14 @@ struct exanic *exanic_find_by_minor(unsigned minor);
 
 /* These functions are called with exanic mutex held. */
 void exanic_configure_port_hash(struct exanic *exanic, unsigned port,
-                                bool enable, unsigned mask, 
+                                bool enable, unsigned mask,
                                 unsigned function);
 int exanic_alloc_rx_dma(struct exanic *exanic, unsigned port_num,
                         int numa_node);
 int exanic_alloc_filter_dma(struct exanic *exanic, unsigned port_num,
                             unsigned buffer_num, int numa_node);
 int exanic_free_rx_dma(struct exanic *exanic, unsigned port_num);
-int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num, 
+int exanic_free_filter_dma(struct exanic *exanic, unsigned port_num,
                        unsigned buffer_num);
 bool exanic_rx_in_use(struct exanic *exanic, unsigned port_num);
 int exanic_enable_port(struct exanic *exanic, unsigned port_num);
@@ -81,7 +81,7 @@ int exanic_remove_mac_filter(struct exanic *exanic,
 int exanic_remove_rx_filter_assoc(struct exanic *exanic,
                                   unsigned port_num,
                                   unsigned buffer_num);
-int exanic_get_free_filter_buffer(struct exanic *exanic, 
+int exanic_get_free_filter_buffer(struct exanic *exanic,
                                     unsigned port_num);
 
 /* exanic-ctx.c */
@@ -140,7 +140,7 @@ int exanic_x4_x2_set_speed(struct exanic *exanic, unsigned port_number,
 int exanic_sfp_eeprom_read(struct exanic *exanic, int port_number,
                            uint8_t regaddr, char *buffer, size_t size);
 int exanic_sfp_diag_read(struct exanic *exanic, int port_number,
-                           uint8_t regaddr, char *buffer, size_t size);
+                         uint8_t regaddr, char *buffer, size_t size);
 int exanic_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_diag);
 
 /* exanic-z10.c */

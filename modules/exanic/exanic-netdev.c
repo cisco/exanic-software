@@ -1313,7 +1313,7 @@ static int exanic_netdev_get_ts_info(struct net_device *ndev,
 #ifdef ETHTOOL_GMODULEINFO
 
 static int exanic_get_module_info(struct net_device *ndev,
-                                   struct ethtool_modinfo *minfo)
+                                  struct ethtool_modinfo *minfo)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     bool has_diag = false;
@@ -1325,7 +1325,7 @@ static int exanic_get_module_info(struct net_device *ndev,
 }
 
 static int exanic_get_module_eeprom(struct net_device *ndev,
-                                     struct ethtool_eeprom *eeep, u8 *data)
+                                    struct ethtool_eeprom *eeep, u8 *data)
 {
     int err;
     size_t eeprom_size;
@@ -1353,7 +1353,7 @@ static int exanic_get_module_eeprom(struct net_device *ndev,
     if (eeprom_bytes > 0)
     {
         err = exanic_sfp_eeprom_read(priv->exanic, priv->port, (uint8_t)eeep->offset,
-                                                   stackptr, (size_t)eeprom_bytes);
+                                     stackptr, (size_t)eeprom_bytes);
         if (err)
             return err;
 
@@ -1366,7 +1366,7 @@ static int exanic_get_module_eeprom(struct net_device *ndev,
     if (diag_bytes > 0)
     {
         err = exanic_sfp_diag_read(priv->exanic, priv->port, (uint8_t)diag_offset,
-                                                  stackptr, (size_t)diag_bytes);
+                                   stackptr, (size_t)diag_bytes);
         if (err)
             return err;
     }
@@ -1631,7 +1631,7 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     err = register_netdev(ndev);
     if (err)
         goto err_register;
-    
+
     netdev_info(ndev, "ExaNIC ethernet interface %s:%d, hwaddr %pM\n",
             exanic->name, port, mac_addr);
 

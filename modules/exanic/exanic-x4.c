@@ -66,10 +66,10 @@ static struct {
 #define PORT_CFG_AUTONEG    0x01
 
 #define SFP_DIAG_ADDR       0xA2
-#define SFP_EEPROM_ADDR      0xA0
+#define SFP_EEPROM_ADDR     0xA0
 
 #define SFP_DIAG_MON_BYTE   92
-#define SFP_DIAG_MON_BIT   6
+#define SFP_DIAG_MON_BIT    6
 
 static void setsda(struct exanic *exanic, int bus_number, int val)
 {
@@ -277,10 +277,10 @@ static int exanic_x4_x2_i2c_eeprom_read(struct exanic *exanic, uint8_t regaddr,
     if (exanic->hw_id == EXANIC_HW_X4)
         return i2c_read(exanic, X4_EEPROM_I2C_BUS, X4_EEPROM_I2C_ADDR, regaddr,
                 buffer, size);
-    else if (exanic->hw_id == EXANIC_HW_X2) 
+    else if (exanic->hw_id == EXANIC_HW_X2)
         return i2c_read(exanic, X2_EEPROM_I2C_BUS, X2_EEPROM_I2C_ADDR, regaddr,
                 buffer, size);
-    else if (exanic->hw_id == EXANIC_HW_X10 || 
+    else if (exanic->hw_id == EXANIC_HW_X10 ||
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
                 exanic->hw_id == EXANIC_HW_X10_HPT ||
@@ -309,7 +309,7 @@ static int exanic_x4_x2_i2c_eeprom_write(struct exanic *exanic, uint8_t regaddr,
         bus = X2_EEPROM_I2C_BUS;
         devaddr = X2_EEPROM_I2C_ADDR;
     }
-    else if (exanic->hw_id == EXANIC_HW_X10 || 
+    else if (exanic->hw_id == EXANIC_HW_X10 ||
                 exanic->hw_id == EXANIC_HW_X10_GM ||
                 exanic->hw_id == EXANIC_HW_X40 ||
                 exanic->hw_id == EXANIC_HW_V5P ||
@@ -346,8 +346,8 @@ int exanic_x4_x2_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN
             ETH_ALEN);
 }
 
-static int sfp_read(struct exanic *exanic, int port_number, 
-               uint8_t devaddr, uint8_t regaddr, char *buffer, size_t size)
+static int sfp_read(struct exanic *exanic, int port_number,
+                    uint8_t devaddr, uint8_t regaddr, char *buffer, size_t size)
 {
     /* SFPs are on bus 0-3 in ExaNIC. */
     int bus_number;
@@ -358,8 +358,8 @@ static int sfp_read(struct exanic *exanic, int port_number,
     return i2c_read(exanic, bus_number, devaddr, regaddr, buffer, size);
 }
 
-static int sfp_write(struct exanic *exanic, int port_number, 
-             uint8_t devaddr, uint8_t regaddr, const char *buffer, size_t size)
+static int sfp_write(struct exanic *exanic, int port_number,
+                     uint8_t devaddr, uint8_t regaddr, const char *buffer, size_t size)
 {
     /* SFPs are on bus 0-3 in ExaNIC. */
     int bus_number;
@@ -377,7 +377,7 @@ int exanic_sfp_eeprom_read(struct exanic *exanic, int port_number,
 }
 
 int exanic_sfp_diag_read(struct exanic *exanic, int port_number,
-                           uint8_t regaddr, char *buffer, size_t size)
+                         uint8_t regaddr, char *buffer, size_t size)
 {
     return sfp_read(exanic, port_number, SFP_DIAG_ADDR, regaddr, buffer, size);
 }
@@ -388,11 +388,11 @@ int exanic_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_d
     int ret = 0;
     bool bitset = true;
 
-    if ((ret = exanic_sfp_eeprom_read(exanic, port_number, 
+    if ((ret = exanic_sfp_eeprom_read(exanic, port_number,
                                      SFP_DIAG_MON_BYTE, &diag_mon_type, 1)))
     {
-        return ret; 
-    }  
+        return ret;
+    }
 
     if ((diag_mon_type & (1 << SFP_DIAG_MON_BIT)) == 0)
     {
@@ -428,7 +428,7 @@ static int exanic_x4_x2_optimize_phy_parameters(struct exanic *exanic, unsigned 
                         exanic->id, port_number, cable_length);
         }
         else
-        { 
+        {
             /* very long passive cable >= 5m */
             /* apply most aggressive analog gain and pre-boost settings */
             rx_param[0] = 0x7F;

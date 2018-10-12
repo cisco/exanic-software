@@ -25,7 +25,7 @@
 #endif
 
 /**
- * Determine whether a byte in the {protocol, src_addr, dst_addr, src_port, 
+ * Determine whether a byte in the {protocol, src_addr, dst_addr, src_port,
  * dst_port} concatenation maps to a wildcard field (i.e. the field is set to
  * zero).
  */
@@ -87,7 +87,7 @@ unsigned exanic_mac_filter_is_wildcard_field(struct exanic_mac_filter_slot *filt
                 return 1;
             return 0;
         case 9:
-            return (filter->vlan_match_method == EXANIC_VLAN_MATCH_METHOD_ALL); 
+            return (filter->vlan_match_method == EXANIC_VLAN_MATCH_METHOD_ALL);
         default:
           return 0;
     }
@@ -145,7 +145,7 @@ int exanic_ip_filter_byte_val_check(struct exanic_ip_filter_slot *filter,
         default:
             return (uint8_t) 0;
     }
-    
+
     return prog_value == byte_value;
 }
 
@@ -196,20 +196,20 @@ int exanic_mac_filter_byte_val_check(struct exanic_mac_filter_slot *filter,
                 return 1;
             else if (filter->vlan_match_method == EXANIC_VLAN_MATCH_METHOD_ALL_VLAN)
                 return (byte_value & 0x10) != 0;
-            else 
+            else
                 return (byte_value & 0x10) == 0;
         default:
             return (uint8_t) 0;
     }
-    
+
     return (prog_value == byte_value);
 }
 
 /**
  * Force consistency between the driver IP filter list and the filters in
- * hardware. Necessary because hardware filters are write-only. 
+ * hardware. Necessary because hardware filters are write-only.
  *
- * Called with the exanic mutex held.                   
+ * Called with the exanic mutex held.
  */
 void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_num,
                                             unsigned bank)
@@ -224,9 +224,9 @@ void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_
         for (byte_value = 0; byte_value < 256; byte_value++)
         {
             filter_val = 0;
-            for (filter_number = bank*EXANIC_NUM_FILTERS_PER_BANK; 
-                    filter_number < bank*EXANIC_NUM_FILTERS_PER_BANK 
-                                    + EXANIC_NUM_FILTERS_PER_BANK; 
+            for (filter_number = bank*EXANIC_NUM_FILTERS_PER_BANK;
+                    filter_number < bank*EXANIC_NUM_FILTERS_PER_BANK
+                                    + EXANIC_NUM_FILTERS_PER_BANK;
                     filter_number++)
             {
                 if (port->ip_filter_slots[filter_number].enable &&
@@ -235,13 +235,13 @@ void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_
                        (exanic_ip_filter_byte_val_check(
                             &port->ip_filter_slots[filter_number], byte_number,
                             byte_value))))
-                    filter_val |= 1 << (filter_number - 
+                    filter_val |= 1 << (filter_number -
                                     bank* EXANIC_NUM_FILTERS_PER_BANK);
             }
-            address_offset = (byte_number << 11) | 
+            address_offset = (byte_number << 11) |
                              (byte_value << 3) |
                              (bank & 0x7);
-            writel(filter_val, exanic->regs_virt + 
+            writel(filter_val, exanic->regs_virt +
                 REG_FILTERS_OFFSET(port_num, REG_FILTER_IP_RULES) +
                 address_offset*sizeof(uint32_t));
         }
@@ -250,11 +250,11 @@ void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_
 
 /**
  * Force consistency between the driver MAC filter list and the filters in
- * hardware. Necessary because hardware filters are write-only. 
+ * hardware. Necessary because hardware filters are write-only.
  *
- * Called with the exanic mutex held.                   
+ * Called with the exanic mutex held.
  */
-void exanic_update_hardware_mac_filter_bank(struct exanic *exanic, 
+void exanic_update_hardware_mac_filter_bank(struct exanic *exanic,
                                             unsigned port_num, unsigned bank)
 {
     int byte_number, byte_value, filter_number;
@@ -267,31 +267,31 @@ void exanic_update_hardware_mac_filter_bank(struct exanic *exanic,
         for (byte_value = 0; byte_value < 256; byte_value++)
         {
             filter_val = 0;
-            for (filter_number = bank*EXANIC_NUM_FILTERS_PER_BANK; 
-                    filter_number < bank*EXANIC_NUM_FILTERS_PER_BANK + 
-                                        EXANIC_NUM_FILTERS_PER_BANK; 
+            for (filter_number = bank*EXANIC_NUM_FILTERS_PER_BANK;
+                    filter_number < bank*EXANIC_NUM_FILTERS_PER_BANK +
+                                        EXANIC_NUM_FILTERS_PER_BANK;
                     filter_number++)
             {
                 if (port->mac_filter_slots[filter_number].enable &&
                        (exanic_mac_filter_is_wildcard_field(
                             &port->mac_filter_slots[filter_number], byte_number) ||
                        (exanic_mac_filter_byte_val_check(
-                            &port->mac_filter_slots[filter_number], byte_number, 
+                            &port->mac_filter_slots[filter_number], byte_number,
                             byte_value))))
-                    filter_val |= 1 << (filter_number - 
+                    filter_val |= 1 << (filter_number -
                                             bank*EXANIC_NUM_FILTERS_PER_BANK);
             }
-            address_offset = (byte_number << 11) | 
+            address_offset = (byte_number << 11) |
                              (byte_value << 3) |
                              (bank & 0x7);
-            writel(filter_val, exanic->regs_virt + 
+            writel(filter_val, exanic->regs_virt +
                 REG_FILTERS_OFFSET(port_num, REG_FILTER_MAC_RULES) +
                 address_offset*sizeof(uint32_t));
         }
     }
 }
 
-/** 
+/**
  * Set the filter to memory buffer mapping.
  *
  * Called with the exanic mutex held.
@@ -306,7 +306,7 @@ int exanic_set_filter_buffer(struct exanic *exanic, unsigned port_num,
     if (port->filter_buffers[buffer_num].region_virt == NULL)
         return -EFAULT;
 
-    writel(buffer_num, exanic->regs_virt + 
+    writel(buffer_num, exanic->regs_virt +
         REG_FILTERS_OFFSET(port_num, REG_RULE_TO_BUFFER) +
         (region*EXANIC_NUM_FILTERS_PER_REGION+filter_id)*sizeof(uint32_t));
     dev_dbg(dev, DRV_NAME
@@ -331,12 +331,12 @@ int exanic_insert_mac_filter(struct exanic *exanic, unsigned port_num,
                     filter_id++)
         if (port->mac_filter_slots[filter_id].enable == 0)
             break;
-  
+
     if (filter_id == exanic->port[port_num].max_mac_filter_slots)
         return -ENOMEM;
 
     filter->enable = 1;
-    
+
     ret = exanic_set_filter_buffer(exanic, port_num, filter->buffer,
                                     EXANIC_FILTER_REGION_MAC, filter_id);
     if (ret < 0)
@@ -346,12 +346,12 @@ int exanic_insert_mac_filter(struct exanic *exanic, unsigned port_num,
     port->mac_filter_slots[filter_id] = *filter;
     spin_unlock(&port->filter_lock);
 
-    exanic_update_hardware_mac_filter_bank(exanic, port_num, 
-                            filter_id / EXANIC_NUM_FILTERS_PER_BANK);     
-    
+    exanic_update_hardware_mac_filter_bank(exanic, port_num,
+                            filter_id / EXANIC_NUM_FILTERS_PER_BANK);
+
     return filter_id;
 }
-  
+
 /**
  * Insert an IP filter into the filter list for the port.
  *
@@ -368,13 +368,13 @@ int exanic_insert_ip_filter(struct exanic *exanic, unsigned port_num,
             filter_id++)
         if (port->ip_filter_slots[filter_id].enable == 0)
             break;
-  
+
     if (filter_id == exanic->port[port_num].max_ip_filter_slots)
         return -ENOMEM;
 
     filter->enable = 1;
-    
-    ret = exanic_set_filter_buffer(exanic, port_num, filter->buffer, 
+
+    ret = exanic_set_filter_buffer(exanic, port_num, filter->buffer,
                                     EXANIC_FILTER_REGION_IP, filter_id);
     if (ret < 0)
         return ret;
@@ -383,9 +383,9 @@ int exanic_insert_ip_filter(struct exanic *exanic, unsigned port_num,
     port->ip_filter_slots[filter_id] = *filter;
     spin_unlock(&port->filter_lock);
 
-    exanic_update_hardware_ip_filter_bank(exanic, port_num, 
-                                filter_id / EXANIC_NUM_FILTERS_PER_BANK);     
-    
+    exanic_update_hardware_ip_filter_bank(exanic, port_num,
+                                filter_id / EXANIC_NUM_FILTERS_PER_BANK);
+
     return filter_id;
 }
 
@@ -400,14 +400,14 @@ int exanic_remove_ip_filter(struct exanic *exanic,
 {
     struct exanic_port *port = &exanic->port[port_num];
 
-    if (filter_id > exanic->port[port_num].max_ip_filter_slots) 
+    if (filter_id > exanic->port[port_num].max_ip_filter_slots)
         return -1;
 
     spin_lock(&port->filter_lock);
     port->ip_filter_slots[filter_id].enable = 0;
     spin_unlock(&port->filter_lock);
 
-    exanic_update_hardware_ip_filter_bank(exanic, port_num, 
+    exanic_update_hardware_ip_filter_bank(exanic, port_num,
                                     filter_id / EXANIC_NUM_FILTERS_PER_BANK);
     return 0;
 }
@@ -423,20 +423,20 @@ int exanic_remove_mac_filter(struct exanic *exanic,
 {
     struct exanic_port *port = &exanic->port[port_num];
 
-    if (filter_id > exanic->port[port_num].max_mac_filter_slots) 
+    if (filter_id > exanic->port[port_num].max_mac_filter_slots)
         return -1;
 
     spin_lock(&port->filter_lock);
     port->mac_filter_slots[filter_id].enable = 0;
     spin_unlock(&port->filter_lock);
 
-    exanic_update_hardware_mac_filter_bank(exanic, port_num, 
+    exanic_update_hardware_mac_filter_bank(exanic, port_num,
                                    filter_id / EXANIC_NUM_FILTERS_PER_BANK);
     return 0;
 }
 
 /**
- * Remove all rules assocated with a given buffer. 
+ * Remove all rules assocated with a given buffer.
  */
 int exanic_remove_rx_filter_assoc(struct exanic *exanic,
                                   unsigned port_num,
@@ -444,17 +444,17 @@ int exanic_remove_rx_filter_assoc(struct exanic *exanic,
 {
     struct exanic_port *port = &exanic->port[port_num];
     int i;
-    
+
     for (i = 0; i < exanic->port[port_num].max_ip_filter_slots; i++)
     {
         spin_lock(&port->filter_lock);
         if(port->ip_filter_slots[i].buffer == buffer_num)
-            port->ip_filter_slots[i].enable = 0; 
+            port->ip_filter_slots[i].enable = 0;
         spin_unlock(&port->filter_lock);
     }
 
     /* Update all banks of EXANIC_NUM_FILTERS_PER_BANK filters. */
-    for (i = 0; 
+    for (i = 0;
             i < exanic->port[port_num].max_ip_filter_slots/EXANIC_NUM_FILTERS_PER_BANK;
             i++)
         exanic_update_hardware_ip_filter_bank(exanic, port_num, i);
@@ -463,7 +463,7 @@ int exanic_remove_rx_filter_assoc(struct exanic *exanic,
     {
         spin_lock(&port->filter_lock);
         if(port->mac_filter_slots[i].buffer == buffer_num)
-            port->mac_filter_slots[i].enable = 0; 
+            port->mac_filter_slots[i].enable = 0;
         spin_unlock(&port->filter_lock);
     }
 
