@@ -1911,8 +1911,7 @@ setsockopt_sock(struct exa_socket * restrict sock, int sockfd, int optname,
             optname == SO_TIMESTAMPNS ||
             optname == SO_TIMESTAMPING ||
             optname == SO_SNDTIMEO ||
-            optname == SO_RCVTIMEO ||
-           (optname == SO_REUSEADDR && sock->type == SOCK_STREAM))
+            optname == SO_RCVTIMEO)
             ret = 0;
         else
             ret = exa_sys_setsockopt(sockfd, SOL_SOCKET, optname, optval, optlen);

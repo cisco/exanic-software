@@ -2922,7 +2922,10 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
-    ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, optval, optlen);
+    if (level == SOL_SOCKET)
+        ret = sock_setsockopt(tcp->sock, level, optname, optval, optlen);
+    else
+        ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, optval, optlen);
 
     return ret;
 }

@@ -468,7 +468,10 @@ int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
     BUG_ON(udp->hdr.socket.domain != AF_INET);
     BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
-    ret = udp->sock->ops->setsockopt(udp->sock, level, optname, optval, optlen);
+    if (level == SOL_SOCKET)
+        ret = sock_setsockopt(udp->sock, level, optname, optval, optlen);
+    else
+        ret = udp->sock->ops->setsockopt(udp->sock, level, optname, optval, optlen);
 
     return ret;
 }
