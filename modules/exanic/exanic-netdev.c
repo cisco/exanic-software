@@ -245,21 +245,81 @@ EXPORT_SYMBOL(exanic_netdev_ate_regdump);
 
 static void exanic_rx_catchup(struct exanic_netdev_rx *rx)
 {
-    /* Find the next chunk in which data will arrive */
-    uint8_t generation = rx->buffer[0].u.info.generation;
-    uint32_t next_chunk;
-    for (next_chunk = 1; next_chunk < EXANIC_RX_NUM_CHUNKS; next_chunk++)
-        if (rx->buffer[next_chunk].u.info.generation != generation)
-            break;
-    if (next_chunk < EXANIC_RX_NUM_CHUNKS)
+    /* Find the most recent end-of-frame chunk in the RX region,
+     * and move next_chunk pointer to the next chunk after it
+     *
+     * If no end-of-frame or uninitialized chunks are encountered
+     * (shouldn't happen), then move next_chunk pointer to where
+     * the generation number changes */
+    uint8_t eof_gen = 0, break_gen = 0;
+    uint32_t eof_chunk = 0, break_chunk = 0, chunk;
+    bool eof_found = false, before_break = false;
+    union {
+        struct rx_chunk_info info;
+        uint64_t data;
+    } u;
+
+    /* Iterate backwards through RX region */
+    for (chunk = EXANIC_RX_NUM_CHUNKS; chunk-- > 0; )
     {
-        rx->generation = generation;
-        rx->next_chunk = next_chunk;
+        u.data = rx->buffer[chunk].u.data;
+
+        if (chunk == EXANIC_RX_NUM_CHUNKS - 1)
+        {
+            /* Starting value assumes break is at the wrap-around */
+            break_gen = u.info.generation;
+            break_chunk = EXANIC_RX_NUM_CHUNKS - 1;
+        }
+        else if (u.info.generation != break_gen)
+        {
+            /* Found break in generation number */
+            before_break = true;
+            break_gen = u.info.generation;
+            break_chunk = chunk;
+        }
+
+        /* Length field is non-zero for both end-of-frame chunks and
+         * uninitialized chunks */
+        if (u.info.length != 0)
+        {
+            if (before_break)
+            {
+                /* Found an end-of-frame before the break
+                 * This is the most recent end-of-frame */
+                eof_found = true;
+                eof_gen = u.info.generation;
+                eof_chunk = chunk;
+                break;
+            }
+            else if (!eof_found)
+            {
+                /* Found the final end-of-frame before the wrap-around
+                 * If there are no end-of-frames before the break, then
+                 * this is the most recent end-of-frame */
+                eof_found = true;
+                eof_gen = u.info.generation;
+                eof_chunk = chunk;
+            }
+        }
+    }
+
+    if (eof_found)
+    {
+        /* Set next_chunk to the chunk after the most recent end-of-frame */
+        rx->next_chunk = eof_chunk + 1;
+        rx->generation = eof_gen;
     }
     else
     {
-        rx->generation = generation + 1;
+        /* Set next_chunk to where generation number changes */
+        rx->next_chunk = break_chunk + 1;
+        rx->generation = break_gen;
+    }
+
+    if (rx->next_chunk == EXANIC_RX_NUM_CHUNKS)
+    {
         rx->next_chunk = 0;
+        rx->generation++;
     }
 }
 
