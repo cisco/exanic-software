@@ -200,6 +200,9 @@ struct exasock_tcp_req
 {
     unsigned long               timestamp;
 
+    /* number of syn-ack retransmissions attempted */
+    unsigned                    synack_attempts;
+
     uint32_t                    local_addr;
     uint32_t                    peer_addr;
     uint16_t                    local_port;
@@ -255,6 +258,9 @@ static siphash_key_t            tcp_secret;
 /* Number of timer firings until retransmit */
 #define RETRANSMIT_TIMEOUT      TCP_TIMER_PER_SEC
 
+/* Number of syn-ack retransmissions we will attempt */
+#define SYNACK_ATTEMPTS_MAX     5
+
 /* Use the Linux default, TODO: make configurable */
 #define TIMEWAIT_SECONDS        60
 #define TIMEWAIT_TIMEOUT        TCP_TIMER_PER_SEC * TIMEWAIT_SECONDS
@@ -264,6 +270,9 @@ static siphash_key_t            tcp_secret;
 
 /* Number of jiffies until an incomplete TCP request expires */
 #define TCP_REQUEST_JIFFIES     HZ
+
+/* Number of jiffies before we retransmit syn-ack */
+#define TCP_SYNACK_JIFFIES      (HZ / 2)
 
 #define SEQNUM_ROLLOVER(start, last, now)   ((now) - (last) > (now) - (start))
 #define SEQNUM_TO_BYTES(start, now, rounds) \
@@ -281,6 +290,7 @@ static void exasock_tcp_close_worker(struct work_struct *work);
 static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans);
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup);
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp);
+uint32_t exasock_tcp_req_get_isn(struct exasock_tcp_req *req);
 static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req);
 static void exasock_tcp_send_probe(struct exasock_tcp *tcp);
 static struct exasock_tcp *exasock_tcp_lookup(uint32_t local_addr,
@@ -360,13 +370,20 @@ static inline uint32_t exasock_tcp_isn_hash(uint32_t local_addr,
 /* the Linux function for secure, monotonically increasing isn
  * is not available for use here unless the newest kernel is installed
  *
- * however the algorithm is simple so just lifted it all here instead
- */
+ * however the algorithm is simple so just lifted it all here instead */
 uint32_t exasock_tcp_get_isn(struct exasock_tcp *tcp)
 {
     return (ktime_to_ns(ktime_get_real()) >> 6) +
             exasock_tcp_isn_hash(tcp->local_addr, tcp->peer_addr,
                                  tcp->local_port, tcp->peer_port);
+}
+
+/* for syn-ack segments */
+uint32_t exasock_tcp_req_get_isn(struct exasock_tcp_req *req)
+{
+    return (ktime_to_ns(ktime_get_real()) >> 6) +
+            exasock_tcp_isn_hash(req->local_addr, req->peer_addr,
+                                 req->local_port, req->peer_port);
 }
 
 static inline void exasock_tcp_counters_update_locked(
@@ -1228,6 +1245,13 @@ update_state:
         }
         break;
 
+    case EXA_TCP_CLOSE_WAIT:
+        if (th_fin && before_eq(seq + len, tcp_st->recv_seq))
+        {
+            tcp_st->ack_pending = true;
+        }
+        break;
+
     case EXA_TCP_LAST_ACK:
         if (th_ack && before(tcp_st->send_seq, tcp_st->send_ack))
         {
@@ -1235,6 +1259,7 @@ update_state:
                 goto update_state;
         }
         break;
+
     case EXA_TCP_TIME_WAIT:
         if (th_fin && before_eq(seq + len, tcp_st->recv_seq))
         {
@@ -1909,11 +1934,26 @@ static void exasock_tcp_req_worker(struct work_struct *work)
     spin_lock(&tcp_req_lock);
     list_for_each_entry_safe(req, tmp, &tcp_req_list, list)
     {
+        if (req->state == EXA_TCP_ESTABLISHED)
+            continue;
+
         if (time_after(jiffies, req->timestamp + TCP_REQUEST_JIFFIES))
         {
             hlist_del(&req->hash_node);
             list_del(&req->list);
             kfree(req);
+            continue;
+        }
+
+        /* retransmit SYN-ACK as long as connection is incomplete
+         * and has not yet expired */
+        if (req->synack_attempts < SYNACK_ATTEMPTS_MAX &&
+            time_after(jiffies, req->timestamp +
+                    TCP_SYNACK_JIFFIES))
+        {
+            req->timestamp = jiffies;
+            ++req->synack_attempts;
+            exasock_tcp_send_syn_ack(req);
         }
     }
     spin_unlock(&tcp_req_lock);
@@ -1990,16 +2030,14 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
             goto finish_proc;
 
         req->timestamp = jiffies;
+        req->synack_attempts = 1;
 
         req->local_addr = iph->daddr;
         req->peer_addr = iph->saddr;
         req->local_port = th->dest;
         req->peer_port = th->source;
-#ifdef __HAS_OLD_NET_RANDOM
-        req->local_seq = net_random();
-#else
-        req->local_seq = prandom_u32();
-#endif
+        req->local_seq = exasock_tcp_req_get_isn(req);
+
         req->peer_seq = ntohl(th->seq) + 1;
         req->window = ntohs(th->window);
         req->state = EXA_TCP_SYN_RCVD;
@@ -2046,7 +2084,12 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
             goto finish_proc;
         }
 
-        if (req->state != EXA_TCP_SYN_RCVD ||
+        /* accept final ack if the sequence is correct and
+         * 1. we've just sent syn-ack
+         * 2. connection is already established - this can happen if the
+         *    accepted queue was full when the first ack was received */
+        if ((req->state != EXA_TCP_SYN_RCVD &&
+             req->state != EXA_TCP_ESTABLISHED)  ||
             req->local_seq != ntohl(th->ack_seq) ||
             req->peer_seq != ntohl(th->seq))
         {
@@ -2054,6 +2097,8 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
             spin_unlock(&tcp_req_lock);
             goto finish_proc;
         }
+
+        req->state = EXA_TCP_ESTABLISHED;
 
         /* Insert into accepted queue */
         if (exasock_trylock(&state->rx_lock) == 0)
@@ -2193,6 +2238,7 @@ static void exasock_tcp_rx_worker(struct work_struct *work)
 {
     struct sk_buff *skb;
     struct sk_buff_head tmp_queue;
+    unsigned long irqflags;
 
     skb_queue_head_init(&tmp_queue);
 
@@ -2209,7 +2255,9 @@ static void exasock_tcp_rx_worker(struct work_struct *work)
         queue_delayed_work(tcp_workqueue, &tcp_rx_work, 1);
     }
 
+    spin_lock_irqsave(&tcp_packets.lock, irqflags);
     skb_queue_splice(&tmp_queue, &tcp_packets);
+    spin_unlock_irqrestore(&tcp_packets.lock, irqflags);
 }
 
 static void exasock_tcp_conn_worker(struct work_struct *work)

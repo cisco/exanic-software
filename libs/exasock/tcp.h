@@ -796,6 +796,14 @@ update_state:
         }
         break;
 
+    case EXA_TCP_CLOSE_WAIT:
+        if ((flags & TH_FIN) &&
+            seq_compare(data_seq + len, state->recv_seq) <= 0)
+        {
+            state->ack_pending = true;
+        }
+        break;
+
     case EXA_TCP_LAST_ACK:
         if ((flags & TH_ACK) &&
             seq_compare(state->send_seq, state->send_ack) < 0)
