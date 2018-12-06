@@ -839,7 +839,7 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
     /* If already a member of exa_notify, the socket needs to be added to
      * exasock kernel epoll instance */
     if (sock->notify_parent)
-        return exa_notify_kern_epoll_add(sock->notify_parent, sock);
+        exa_notify_kern_epoll_add(sock->notify_parent, sock);
 
     sock->bind.ip = endpoint;
     if (exa_socket_holds_interfaces(sock))
@@ -878,7 +878,7 @@ exa_socket_tcp_listen(struct exa_socket * restrict sock, int backlog)
      * to exasock kernel epoll instance
      */
     if (sock->notify_parent)
-        return exa_notify_kern_epoll_add(sock->notify_parent, sock);
+        exa_notify_kern_epoll_add(sock->notify_parent, sock);
 
     return 0;
 }
