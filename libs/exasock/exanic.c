@@ -568,13 +568,17 @@ exanic_ip_cleanup(void)
 
     if (exanic_ctx_list != NULL)
     {
-        for (i = exanic_ctx_list; i->next != NULL; i = i->next)
+        for (i = exanic_ctx_list; i->next != NULL;)
         {
             if (i->next->refcount == 0)
             {
                 ctx = i->next;
                 i->next = ctx->next;
                 exanic_ip_free(ctx);
+            }
+            else
+            {
+                i = i->next;
             }
         }
     }
