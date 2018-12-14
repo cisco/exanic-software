@@ -271,6 +271,46 @@ static void __remove_dst_entry(unsigned int idx)
                             empty_idx);
 }
 
+/**
+ * Find output interface and route.
+ */
+static struct net_device *__exasock_dst_get_if(uint32_t *saddr,
+                                               struct rtable **rt,
+#ifndef __HAS_OLD_NETCORE
+                                               struct flowi4 *fl4)
+#else
+                                               struct flowi *fl)
+#endif
+{
+    struct net_device *ndev;
+    int oif;
+
+#ifndef __HAS_OLD_NETCORE
+    *rt = __ip_route_output_key(&init_net, fl4);
+    if (IS_ERR(*rt))
+#else
+    *rt = NULL;
+    if (__ip_route_output_key(&init_net, rt, fl) != 0)
+#endif
+        return NULL;
+
+#ifndef __FILLS_RT_IIF
+    *saddr = fl4->saddr;
+    oif = fl4->flowi4_oif;
+#else
+    *saddr = (*rt)->rt_src;
+    oif = (*rt)->rt_iif;
+#endif
+    ndev = dev_get_by_index(&init_net, oif);
+    if (ndev == NULL)
+    {
+        ip_rt_put(*rt);
+        *rt = NULL;
+    }
+
+    return ndev;
+}
+
 /* Check first entry in the list, remove if expired and adjust the table */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
 static void dst_expiry_timer_handler(struct timer_list *t)
@@ -485,7 +525,7 @@ void exasock_dst_neigh_update(struct neighbour *neigh)
         }
 
         /* Send packet */
-        exanic_transmit_frame(realdev, skb);
+        exanic_netdev_transmit_frame(realdev, skb);
 
         dev_put(skbdev);
         list_del(&qe->list);
@@ -498,6 +538,60 @@ void exasock_dst_neigh_update(struct neighbour *neigh)
 }
 
 /**
+ * Get destination MAC address for a connection.
+ */
+uint8_t *exasock_dst_get_dmac(uint32_t daddr, uint32_t saddr)
+{
+    struct exasock_dst_entry *de;
+    unsigned idx;
+
+    idx = __find_dst_entry(daddr, saddr);
+
+    if (idx == ~0 || dst_table[idx] == NULL)
+    {
+        return NULL;
+    }
+    else
+    {
+        /* Existing entry */
+        de = dst_table[idx];
+        if (de->neigh->nud_state & NUD_VALID)
+            return de->neigh->ha;
+        else
+            return NULL;
+    }
+}
+
+/**
+ * Get output device for a connection.
+ */
+struct net_device *exasock_dst_get_netdev(uint32_t dst_addr, uint32_t src_addr)
+{
+    struct net_device *ndev;
+    struct rtable *rt;
+#ifndef __HAS_OLD_NETCORE
+    struct flowi4 fl4 = { .daddr = dst_addr, .saddr = src_addr };
+#else
+    struct flowi fl = {
+        .nl_u = {
+            .ip4_u = { .daddr = dst_addr, .saddr = src_addr },
+        },
+    };
+#endif
+
+    ndev = __exasock_dst_get_if(&src_addr, &rt,
+#ifndef __HAS_OLD_NETCORE
+                                &fl4);
+#else
+                                &fl);
+#endif
+    if (ndev)
+        ip_rt_put(rt);
+
+    return ndev;
+}
+
+/**
  * Look up or create destination entry and insert skb into queue.
  */
 int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
@@ -505,7 +599,7 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
 {
     struct exasock_dst_entry *de;
     struct exasock_dst_queue_entry *qe;
-    struct net_device *ndev, *realdev;
+    struct net_device *ndev;
     struct rtable *rt;
 #ifndef __HAS_OLD_NETCORE
     struct flowi4 fl4 = { .daddr = dst_addr, .saddr = *src_addr };
@@ -516,47 +610,25 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
         },
     };
 #endif
+    uint32_t saddr = *src_addr;
     unsigned idx;
-    uint32_t saddr;
-    int oif;
     int err;
 
     /* Determine output interface */
+    ndev = __exasock_dst_get_if(&saddr, &rt,
 #ifndef __HAS_OLD_NETCORE
-    rt = __ip_route_output_key(&init_net, &fl4);
-    if (IS_ERR(rt))
+                                &fl4);
 #else
-    rt = NULL;
-    err = __ip_route_output_key(&init_net, &rt, &fl);
-    if (err)
+                                &fl);
 #endif
-    {
-        err = -ENETUNREACH;
-        goto err_ip_route;
-    }
-
-#ifndef __FILLS_RT_IIF
-    saddr = fl4.saddr;
-    oif = fl4.flowi4_oif;
-#else
-    saddr = rt->rt_src;
-    oif = rt->rt_iif;
-#endif
-    ndev = dev_get_by_index(&init_net, oif);
     if (ndev == NULL)
     {
         err = -ENETUNREACH;
-        goto err_netdev_find;
+        goto err_get_if;
     }
 
     /* Verify that output interface is an ExaNIC */
-    realdev =
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-        (ndev->priv_flags & IFF_802_1Q_VLAN) ? vlan_dev_real_dev(ndev) :
-#endif
-          ndev;
-    if (!realdev->dev.parent || !realdev->dev.parent->driver
-          || (strcmp(realdev->dev.parent->driver->name, "exanic") != 0))
+    if (!exasock_is_exanic_dev(exasock_get_realdev(ndev)))
     {
         err = -ENETUNREACH;
         goto err_not_exanic;
@@ -603,6 +675,7 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
         kfree(de);
         de = dst_table[idx];
         list_del(&de->list);
+        ip_rt_put(rt);
     }
     else
     {
@@ -663,9 +736,8 @@ err_entry_alloc:
 err_not_exanic:
     if (ndev)
         dev_put(ndev);
-err_netdev_find:
     ip_rt_put(rt);
-err_ip_route:
+err_get_if:
     kfree_skb(skb);
     return err;
 }

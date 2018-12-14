@@ -38,6 +38,8 @@ int exa_sys_epoll_close(int fd);
 int exa_sys_epoll_mmap(int fd, struct exasock_epoll_state **state);
 void exa_sys_epoll_munmap(int fd, struct exasock_epoll_state **state);
 int exa_sys_epoll_ctl(int epfd, enum exasock_epoll_ctl_op op, int fd);
+int exa_sys_ate_enable(int fd, int ate_id);
+int exa_sys_ate_init(int fd);
 int exa_sys_get_isn(int fd, uint32_t *isn);
 
 #endif /* EXASOCK_SYS_H */

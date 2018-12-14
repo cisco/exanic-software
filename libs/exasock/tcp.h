@@ -35,15 +35,17 @@ exa_tcp_conn_cleanup(struct exa_tcp_conn * restrict ctx)
 {
 }
 
-/* Calculate the size of the largest packet that can be sent right now,
- * allowing for TCP state, receive window, congestion window and MSS
- * Also retrieves the current send sequence number */
+/* Calculate the size of the largest segment that can be sent right now,
+ * allowing for TCP state, receive window, congestion window and MSS.
+ * In case of ATE offloaded connections the most recently updated ATE window
+ * limit is used. Also retrieves the current send sequence number. */
 static inline int
-exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
+exa_tcp_max_seg_len(struct exa_tcp_conn * restrict ctx, bool is_ate,
                     uint32_t * restrict seq, size_t * restrict len)
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
-    uint32_t unacked_len, window_size, rwnd;
+    uint32_t wnd_end;
+    int32_t wnd_space;
 
     if (state->state != EXA_TCP_ESTABLISHED &&
         state->state != EXA_TCP_CLOSE_WAIT)
@@ -54,16 +56,25 @@ exa_tcp_max_pkt_len(struct exa_tcp_conn * restrict ctx,
 
     *seq = state->send_seq;
 
-    unacked_len = state->send_seq - state->send_ack;
-    rwnd = state->rwnd_end - state->send_ack;
-    window_size = rwnd < state->cwnd ? rwnd : state->cwnd;
+    if (!is_ate)
+    {
+        uint32_t cwnd_end = state->send_ack + state->cwnd;
+        uint32_t rwnd_end = state->rwnd_end;
+        wnd_end = seq_compare(cwnd_end, rwnd_end) < 0 ? cwnd_end : rwnd_end;
+    }
+    else
+    {
+        wnd_end = ntohl(state->ate_wnd_end);
+    }
 
-    if (window_size < unacked_len)
+    wnd_space = wnd_end - *seq;
+
+    if (wnd_space < 0)
         *len = 0;
-    else if (state->rmss < window_size - unacked_len)
+    else if (state->rmss < wnd_space)
         *len = state->rmss;
     else
-        *len = window_size - unacked_len;
+        *len = (size_t)wnd_space;
 
     return 0;
 }
@@ -581,12 +592,22 @@ exa_tcp_apply_syn_opts(struct exa_tcp_conn * restrict ctx,
         {
         case TCPOPT_MAXSEG:
             state->rmss = ((uint16_t)tcpopt[i + 2] << 8) | tcpopt[i + 3];
+            if (state->rmss > EXA_TCP_MSS)
+                state->rmss = EXA_TCP_MSS;
             break;
         case TCPOPT_WINDOW:
             state->wscale = tcpopt[i + 2];
             break;
         }
     }
+}
+
+static inline void
+exa_tcp_error_close(struct exa_tcp_conn * restrict ctx, int error)
+{
+    struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
+    ctx->state->error = error;
+    state->state = EXA_TCP_CLOSED;
 }
 
 /* Drop packets which are not valid for the current state
@@ -671,13 +692,14 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
      *        A reset is valid if its sequence number is in the window. */
     if ((flags & TH_RST) && seq_compare(data_seq, state->recv_seq) <= 0)
     {
+        int err;
         /* Connection reset, move to CLOSED state */
         if (state->state == EXA_TCP_SYN_SENT)
-            ctx->state->error = ECONNREFUSED;
+            err = ECONNREFUSED;
         else
-            ctx->state->error = ECONNRESET;
+            err = ECONNRESET;
 
-        state->state = EXA_TCP_CLOSED;
+        exa_tcp_error_close(ctx, err);
 
         /* TODO: Flush send and receive buffers */
 
@@ -688,12 +710,14 @@ exa_tcp_update_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
         state->ack_pending = true;
 }
 
-static inline void
+/* Returns true if a new connection has just been established */
+static inline bool
 exa_tcp_update_conn_state(struct exa_tcp_conn * restrict ctx, uint8_t flags,
                           uint32_t data_seq, size_t len)
 {
     volatile struct exa_tcp_state *state = &ctx->state->p.tcp;
     bool fw1_fin = false, fw1_ack = false;
+    bool new_conn = false;
 
 update_state:
     switch (state->state)
@@ -705,6 +729,7 @@ update_state:
             /* Got SYN ACK */
             state->state = EXA_TCP_ESTABLISHED;
             state->ack_pending = true;
+            new_conn = true;
         }
         else if ((flags & (TH_SYN | TH_ACK)) == TH_SYN)
         {
@@ -721,6 +746,7 @@ update_state:
         {
             /* Connection established */
             state->state = EXA_TCP_ESTABLISHED;
+            new_conn = true;
         }
         break;
 
@@ -815,6 +841,7 @@ update_state:
         }
         break;
     }
+    return new_conn;
 }
 
 #endif /* EXASOCK_TCP_H */

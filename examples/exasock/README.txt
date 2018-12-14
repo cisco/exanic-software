@@ -4,6 +4,22 @@ Exasock example programs
 This directory contains examples of sockets programs which work with the
 Exasock socket acceleration library.
 
+ate-connect.c
+-------------
+
+This program demonstrates the use of ExaNIC Accelerated TCP Engine (ATE) for
+exasock accelerated TCP connections. It creates a socket, enables Accelerated
+TCP Engine for the socket and connects to a TCP server. Once the connection is
+established, ATE is ready to send TCP segments directly from HW whenever
+triggered. This program will keep on receiving any data sent from the server on
+the connection and printing the data as it arrives.
+
+Example usage:
+
+  exasock ./ate-connect 192.168.1.10 11111
+
+Note that exasock is required to enable and control ExaNIC Accelerated TCP
+Engine, so this program will fail if run without exasock.
 
 multicast-echo.c
 ----------------

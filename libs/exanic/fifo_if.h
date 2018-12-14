@@ -146,6 +146,34 @@ struct tx_chunk
 };
 
 /**
+ * \brief Payload metadata fields sent as a part of the TX chunk payload.
+ *
+ * Used only in \ref EXANIC_TX_TYPE_TCP_ACCEL type payload.
+ */
+struct tx_payload_metadata
+{
+    /**
+     * The payload checksum value, big endian
+     */
+    uint16_t csum;
+
+    /**
+     * ATE connection ID, little endian
+     */
+    uint16_t connection_id;
+
+    /**
+     * DMA engine requires the whole structure to be at least 16 bytes long.
+     */
+    uint8_t _reserved[14];
+
+    /**
+     * TCP payload starts here
+     */
+    char    payload[0];
+};
+
+/**
  * \brief Returns the number of padding bytes for a payload of the given type.
  *
  * \param[in]   type
@@ -156,9 +184,16 @@ struct tx_chunk
  */
 static inline unsigned exanic_payload_padding_bytes(exanic_tx_type_id_t type)
 {
+    /*
+     * This was originally derived from trying to align the data after a
+     * 14-byte ethernet header. However, it's inconvenient for the hardware to
+     * change the padding expectation for each TX type, so unless you're
+     * really sure, stick with the original 2-byte padding.
+     */
     switch (type)
     {
         case EXANIC_TX_TYPE_RAW:
+        case EXANIC_TX_TYPE_TCP_ACCEL:
             return 2;
         default:
             return 0;

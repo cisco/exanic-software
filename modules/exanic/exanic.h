@@ -37,6 +37,39 @@ enum exanic_feature
     EXANIC_BRIDGE,
 };
 
+/* ExaNIC ATE configuration */
+
+struct exanic_ate_cfg
+{
+    uint8_t eth_dst[ETH_ALEN];
+    uint8_t eth_src[ETH_ALEN];
+    uint32_t ip_dst;
+    uint32_t ip_src;
+    uint16_t port_dst;
+    uint16_t port_src;
+    uint32_t init_seq_num;
+    uint32_t max_seq_num;
+    uint32_t ack_num;
+    uint16_t window;
+    uint16_t rmss;
+    bool win_limit_disabled;
+};
+
+struct exanic_ate_update
+{
+    uint32_t max_seq_num;
+    uint32_t ack_num;
+    uint16_t window;
+};
+
+struct exanic_ate_regdump
+{
+    uint32_t ack, ack2;
+    uint32_t win, win2;
+    uint32_t ctrl;
+    uint32_t seq;
+};
+
 /* exanic.c */
 struct exanic;
 
@@ -118,16 +151,45 @@ typedef bool (*exanic_netdev_intercept_func)(struct sk_buff *skb);
 int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
                         struct net_device **ndev_ret);
 void exanic_netdev_free(struct net_device *ndev);
-int exanic_transmit_frame(struct net_device *ndev, struct sk_buff *skb);
+int exanic_netdev_transmit_frame(struct net_device *ndev, struct sk_buff *skb);
 void exanic_netdev_rx_irq_handler(struct net_device *ndev);
 int exanic_netdev_intercept_add(exanic_netdev_intercept_func func);
 void exanic_netdev_intercept_remove(exanic_netdev_intercept_func func);
 void exanic_netdev_check_link(struct net_device *ndev);
+int exanic_netdev_ate_acquire(struct net_device *ndev, int ate_id);
+void exanic_netdev_ate_release(struct net_device *ndev, int ate_id);
+void exanic_netdev_ate_disable(struct net_device *ndev, int ate_id);
+int exanic_netdev_ate_init(struct net_device *ndev, int ate_id,
+                           struct exanic_ate_cfg *cfg);
+int exanic_netdev_ate_update(struct net_device *ndev, int ate_id,
+                             struct exanic_ate_update *cfg);
+uint32_t exanic_netdev_ate_read_seq(struct net_device *ndev, int ate_id);
+int exanic_netdev_ate_send_ctrl(struct net_device *ndev, int ate_id);
+void exanic_netdev_ate_regdump(struct net_device *ndev, int ate_id,
+                               struct exanic_ate_regdump *cfg);
 
 /* exanic-ptp.c */
 void exanic_ptp_init(struct exanic *exanic);
 void exanic_ptp_remove(struct exanic *exanic);
 ktime_t exanic_ptp_time_to_ktime(struct exanic *exanic, uint32_t hw_time);
+
+/* exanic-ate.c */
+typedef void (*exanic_ate_client_process_skb_cb)(struct sk_buff *skb);
+int exanic_ate_acquire(struct exanic *exanic, unsigned port_num, int ate_id);
+int exanic_ate_acquire(struct exanic *exanic, unsigned port_num, int ate_id);
+void exanic_ate_release(struct exanic *exanic, unsigned port_num, int ate_id);
+void exanic_ate_disable(struct exanic *exanic, unsigned port_num, int ate_id);
+int exanic_ate_init(struct exanic* exanic, unsigned port_num, int ate_id,
+                     struct exanic_ate_cfg *cfg);
+int exanic_ate_update(struct exanic* exanic, unsigned port_num, int ate_id,
+                       struct exanic_ate_update *cfg);
+uint32_t exanic_ate_read_seq(struct exanic* exanic, unsigned port_num,
+                             int ate_id);
+void exanic_ate_deliver_skb(struct sk_buff *skb);
+int exanic_ate_client_register(exanic_ate_client_process_skb_cb cb);
+void exanic_ate_client_unregister(exanic_ate_client_process_skb_cb cb);
+void exanic_ate_regdump(struct exanic *exanic, unsigned port_num,
+                        int ate_id, struct exanic_ate_regdump *cfg);
 
 /* exanic-x4.c */
 int exanic_x4_x2_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN]);

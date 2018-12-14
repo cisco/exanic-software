@@ -101,6 +101,26 @@ int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
                           size_t frame_size);
 
 /**
+ * \brief Transmit L4 payload through connection acceleration engine
+ *
+ * \param[in]   tx
+ *      A valid TX handle.
+ * \param[in]   connection_id
+ *      ID of the connection acceleration engine to be used for transmit.
+ * \param[in]   type
+ *      The type of payload to transmit.
+ * \param[in]   payload
+ *      Pointer to the user provided buffer.
+ * \param[in]   payload_size
+ *      Size of the payload to transmit.
+ *
+ * \return 0 on success, or -1 on error.
+ */
+int exanic_transmit_payload(exanic_tx_t *tx, uint16_t connection_id,
+                            exanic_tx_type_id_t type, const char *payload,
+                            size_t payload_size);
+
+/**
  * \brief version of exanic_transmit_frame that takes an addition flag input
  *
  * \param[in]   tx
@@ -141,6 +161,43 @@ char * exanic_begin_transmit_frame(exanic_tx_t *tx, size_t frame_size);
  * \return 0 on success, or -1 on error.
  */
 int exanic_end_transmit_frame(exanic_tx_t *tx, size_t frame_size);
+
+/**
+ * \brief Allocate space in the TX buffer to start a new L4 payload
+ *
+ * \param[in]   tx
+ *      A valid TX handle.
+ * \param[in]   connection_id
+ *      ID of the connection acceleration engine to be used for transmit.
+ * \param[in]   type
+ *      The type of payload to transmit.
+ * \param[in]   payload_size
+ *      Size of the payload to allocate.
+ * \param[out]  csum
+ *      Pointer which will be populated with the address of the payload checksum
+ *      field the caller is supposed to set.
+ *
+ * \return Pointer to the start of the allocated payload
+ */
+char * exanic_begin_transmit_payload(exanic_tx_t *tx, uint16_t connection_id,
+                                     exanic_tx_type_id_t type,
+                                     size_t payload_size, uint16_t **csum);
+
+/**
+ * \brief Transmit a payload that was allocated by \ref exanic_begin_transmit_payload
+ *
+ * \param[in]   tx
+ *      A valid TX handle.
+ * \param[in]   type
+ *      The type of payload to transmit.
+ * \param[in]   frame_size
+ *      Actual size of the payload to allocate, must be smaller than the size
+ *      requested in \ref exanic_begin_transmit_payload
+ *
+ * \return 0 on success, or -1 on error.
+ */
+int exanic_end_transmit_payload(exanic_tx_t* tx, exanic_tx_type_id_t type,
+                                size_t payload_size);
 
 /**
  * \brief Abort a frame that was allocated by \ref exanic_begin_transmit_frame

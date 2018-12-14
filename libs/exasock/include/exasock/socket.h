@@ -77,12 +77,49 @@
  */
 #define SO_EXA_MCAST_LISTEN 2
 
+/** \brief Exasock socket option for enabling Accelerated TCP Engine on the
+ * socket
+ *
+ * An exasock accelerated socket configured with SO_EXA_ATE will use an ExaNIC
+ * Accelerated TCP Engine (ATE) for transmitting TCP segments. This option takes
+ * an integer value which is an ID of ExaNIC ATE to be used for this socket (-1
+ * for disabled ATE). Each ExaNIC interface has its own range of available ATE
+ * IDs, provided it does support the ATE feature. Each Accelerated TCP Engine
+ * may be used only by one socket at a time. The ATE ID value given in this
+ * option should specify an available ATE on the ExaNIC interface on which the
+ * connection is to be established.
+ *
+ * Enabling of ATE is allowed only for TCP sockets (SOCK_STREAM type in AF_INET
+ * domain) and needs to take place before the socket gets connected. It is also
+ * not allowed if exasock acceleration has already been disabled on the socket.
+ * If any of above rules is not followed setsocketopt() fails with EPERM error.
+ *
+ * Enabling of ATE on passive (listening) sockets is currently not supported.
+ * An attempt to invoke listen() on an ATE-enabled socket will fail with the
+ * error EOPNOTSUPP.
+ *
+ * Connecting of an ATE-enabled socket (invoking connect() call) will fail if
+ * the socket is not able to use the requested ExaNIC Accelerated TCP Engine.
+ * This may happen if:
+ *  - the connection is not going to use an ExaNIC interface or the connection
+ *    is not going to be accelerated (connect() fails with EOPNOTSUPP), or
+ *  - the connection is going to use an ExaNIC interface which does not support
+ *    the ATE feature (connect() fails with EOPNOTSUPP), or
+ *  - ExaNIC Accelerated TCP Engine of the given ID is not available on the
+ *    interface (connect() fails with EBUSY if the ATE is currently used by
+ *    another socket, or with EINVAL if ATE ID is invalid).
+ *
+ * This is Exasock private socket level option (the level argument of
+ * setsockopt()/getsockopt() needs to be specified as SOL_EXASOCK).
+ */
+#define SO_EXA_ATE          3
+
 /**
  * \brief Disable acceleration on the socket
  *
  * This is a helper function for disabling acceleration on the socket. This
  * function can be used instead of calling directly setsockopt() with
- * SO_EXA_NO_ACCEL Exasock private socket option.
+ * \ref SO_EXA_NO_ACCEL Exasock private socket option.
  * Disabling of acceleration on a socket is not allowed if the socket has
  * already been accelerated (either by binding it to an ExaNIC interface
  * or joining a multicast group with an ExaNIC interface). In such a case
@@ -99,6 +136,45 @@ static inline int exasock_disable_acceleration(int fd)
 
     return setsockopt(fd, SOL_EXASOCK, SO_EXA_NO_ACCEL, &disable,
                       sizeof(disable));
+}
+
+/**
+ * \brief Connect the socket using ExaNIC Accelerated TCP Engine
+ *
+ * This is a helper function for enabling ExaNIC Accelerated TCP Engine on the
+ * socket and connecting it to the specified address.
+ * This function can be used instead of calling directly setsockopt() with
+ * \ref SO_EXA_ATE Exasock private socket option followed by connect().
+ * Please refer to \ref SO_EXA_ATE description for more details.
+ *
+ * \param[in]   fd
+ *      Exasock socket to enable ATE on
+ * \param[in]   ate_id
+ *      ID of Accelerated TCP Engine to be used for the socket
+ * \param[in]   addr
+ *      Pointer to a generic socket address to connect to
+ * \param[in]   addrlen
+ *      Size of address
+ *
+ * \return 0 on success, or -1 if an error occurred
+ */
+static inline int exasock_ate_connect(int fd, int ate_id,
+                                      const struct sockaddr *addr,
+                                      socklen_t addrlen)
+{
+    int err;
+
+    if (ate_id < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    err = setsockopt(fd, SOL_EXASOCK, SO_EXA_ATE, &ate_id, sizeof(ate_id));
+    if (err)
+        return err;
+
+    return connect(fd, addr, addrlen);
 }
 
 /**

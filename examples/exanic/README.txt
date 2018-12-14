@@ -46,3 +46,14 @@ exanic-rx-chunk-inplace.c
 This is a demonstration of the exanic_receive_chunk_inplace() function. This
 demo tests the ability of the host to receive chunks/frames and reports the
 speed at which they are received.
+
+exanic-benchmarker-stac-t0.c
+----------------------------
+
+This application works with the stac_t0 FDK example. It performs the
+STAC_T0 latency test as defined by the Securities Technology Analysis Center (STAC).
+It generates UDP datagrams containing random indexes and expects
+echoed indexes to come back in TCP segments from the stack under test,
+in this case an ExaNIC.
+
+Hardware timestamps are taken to calculate the latency in the stack.

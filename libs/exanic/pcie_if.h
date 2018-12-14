@@ -38,6 +38,12 @@ enum
     /** The number of TX feedback slots per ExaNIC */
     EXANIC_TX_FEEDBACK_NUM_SLOTS    = 256,
 
+    /** The number of Accelerated TCP engines */
+    EXANIC_ATE_ENGINES_PER_PORT     = 512,
+
+    /** The `matched filter` ID for reflected ATE transmissions */
+    EXANIC_ATE_FILTER_REFLECTED     = 1,
+
     /** TX region size divided by the number of TX command FIFO entries */
     EXANIC_TX_CMD_FIFO_SIZE_DIVISOR = 512,
 
@@ -195,6 +201,12 @@ enum
      * value in units of parts per 2^40.
      */
     REG_EXANIC_CLK_ADJ_EXT              = 17,
+
+    /**
+     * [RO] Per-port Accelerated TCP Engine availability. If a bit is
+     * set, the corresponding port has ATE.
+     */
+    REG_EXANIC_PORTS_ATE_STATUS         = 19,
 
     /**
      * [RW] Bi-color LED control
@@ -719,6 +731,57 @@ enum
 #define REG_FIREWALL_OFFSET(reg) (REG_FIREWALL_BASE + (reg) * sizeof(uint32_t))
 #define REG_FIREWALL_INDEX(reg) (REG_FIREWALL_OFFSET(reg) / sizeof(uint32_t))
 
+/* bits for EXANIC_ATE_REGS_CTL.
+ * ENABLED:   enables sending
+ * CHECK_SEQ: forces the hardware sender to respect the maximum sequence
+ *            number
+ * CURR_BUF:  which set of ACK/WINDOW regs to use. This is used for
+ *            atomically updating state.
+ */
+enum
+{
+    EXANIC_ATE_CTL_ENABLED   = (1 << 0),
+    EXANIC_ATE_CTL_CHECK_SEQ = (1 << 1),
+    EXANIC_ATE_CTL_CURR_BUF  = (1 << 2),
+};
+
+/*
+ * ATE related registers and addresses
+ */
+enum
+{
+    REG_ATE_BASE                    = 0x40000,
+
+    EXANIC_ATE_REGS_DST_MAC_ADDR_HI = 0,
+
+    /* this register is a bit odd. It splits the low part of the dest mac
+       address (in the high bits) and the high bits of the src mac address
+       (in the low bits).
+    */
+    EXANIC_ATE_REGS_DST_HI_SRC_LO_MAC_ADDR_HI = 4,
+    EXANIC_ATE_REGS_SRC_MAC_ADDR_LO = 8,
+
+    EXANIC_ATE_REGS_TCP_IP_PART_CKSUMS = 12,
+    EXANIC_ATE_REGS_SRC_IP          = 16,
+    EXANIC_ATE_REGS_DST_IP          = 20,
+    EXANIC_ATE_REGS_SRC_DST_PORT    = 24,
+    EXANIC_ATE_REGS_SEQ             = 28,
+    EXANIC_ATE_REGS_ACK             = 32, /* double-buffered */
+    EXANIC_ATE_REGS_WINDOW          = 36, /* double-buffered. window size in lower bits */
+    EXANIC_ATE_REGS_ACK_2           = 40, /* double-buffered */
+    EXANIC_ATE_REGS_WINDOW_2        = 44, /* double-buffered. window size in lower bits */
+    EXANIC_ATE_REGS_CTL             = 48,
+    EXANIC_ATE_REGS_MAX_SEQ         = 52,
+};
+
+#define EXANIC_ATE_REGS_ID_OFFSET     6
+#define EXANIC_ATE_REGS_PORT_OFFSET   15
+
+#define REG_ATE_OFFSET(port, ate_id, whichreg)                        \
+        (REG_ATE_BASE + (((port) << EXANIC_ATE_REGS_PORT_OFFSET)  |   \
+                         ((ate_id) << EXANIC_ATE_REGS_ID_OFFSET)  |   \
+                          (whichreg)))
+
 /**
  * \brief 0x0400-0x04FF: Port-specific statistics
  *
@@ -1044,7 +1107,10 @@ static inline const char * exanic_function_id_str(exanic_function_id_t type)
 typedef enum
 {
     /** Expects a full ethernet frame (without FCS). */
-    EXANIC_TX_TYPE_RAW   = 0x01,
+    EXANIC_TX_TYPE_RAW       = 0x01,
+
+    /** Expects a TCP payload. */
+    EXANIC_TX_TYPE_TCP_ACCEL = 0x02,
 } exanic_tx_type_id_t;
 
 /**
@@ -1063,6 +1129,8 @@ static inline const char * exanic_tx_type_id_str(exanic_tx_type_id_t type_id)
     {
         case EXANIC_TX_TYPE_RAW:
             return "raw";
+        case EXANIC_TX_TYPE_TCP_ACCEL:
+            return "tcp_accel";
         default:
             return NULL;
     }
@@ -1077,6 +1145,7 @@ typedef enum
     EXANIC_CAP_STEER_TWO        = 0x00000002, /**< Two-tuple flow steering */
     EXANIC_CAP_HOT_RELOAD       = 0x00000004, /**< Hot reload supported */
     EXANIC_CAP_JTAG_ACCESS      = 0x00000008, /**< JTAG over PCIe, for ExaNIC FDK */
+    EXANIC_CAP_ATE              = 0x00000010, /**< Accelerated TCP engine */
 
     EXANIC_CAP_HW_TIME_HI       = 0x00000100, /**< 64 bit time counter */
     EXANIC_CAP_CLK_ADJ_EXT      = 0x00000200, /**< Extended clock correction */

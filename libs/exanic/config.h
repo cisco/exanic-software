@@ -24,7 +24,7 @@ typedef struct exanic_if_addr
 } exanic_if_addr_t;
 
 /**
- * \brief Get the address info for an ierface
+ * \brief Get the address info for an interface
  *
  * \param[in]   exanic
  *      A valid ExaNIC handle

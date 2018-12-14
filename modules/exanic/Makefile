@@ -1,6 +1,6 @@
 ifneq ($(PATCHLEVEL),) # kbuild part of makefile
 obj-m := exanic.o
-exanic-objs := exanic-main.o exanic-filter.o exanic-ctx.o exanic-dev.o exanic-netdev.o exanic-ptp.o exanic-x4.o exanic-z10.o
+exanic-objs := exanic-main.o exanic-filter.o exanic-ctx.o exanic-dev.o exanic-netdev.o exanic-ptp.o exanic-ate.o exanic-x4.o exanic-z10.o
 
 # detect kernel features that cannot be reliably detected by version
 HAS_NETDEVICE_DEV_PORT := ${shell grep -c 'dev_port' $(srctree)/include/linux/netdevice.h}

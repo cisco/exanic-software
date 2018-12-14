@@ -203,6 +203,66 @@ exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
     exa_unlock(&exanic_tx_lock);
 }
 
+/* Inject a payload to be sent by a ExaNIC ATE */
+static inline void
+exanic_ate_send(struct exanic_ip * restrict ctx, int ate_id,
+                const struct iovec * restrict iov, size_t iovcnt,
+                size_t skip_len, size_t data_len, bool warm)
+{
+    char *tx_buf, *p;
+    size_t offs;
+    size_t i;
+    size_t iov_len = skip_len + data_len;
+    uint16_t *csum;
+    int trial;
+
+    assert(ctx->refcount > 0);
+
+    exa_lock(&exanic_tx_lock);
+
+    for (trial = 0; trial < 65536; trial++)
+    {
+        tx_buf = exanic_begin_transmit_payload(ctx->exanic_tx, ate_id,
+                                               EXANIC_TX_TYPE_TCP_ACCEL,
+                                               data_len, &csum);
+        if(tx_buf != NULL)
+            break;
+    }
+
+    if (tx_buf == NULL)
+    {
+        /* timed out waiting for tx buffer, fail silently for now... */
+        exa_unlock(&exanic_tx_lock);
+        return;
+    }
+
+    *csum = htons(csum_iov(iov, iovcnt, skip_len, data_len, 0));
+
+    offs = 0;
+    p = tx_buf;
+    for (i = 0; i < iovcnt && offs < iov_len; i++)
+    {
+        size_t len = iov[i].iov_len < iov_len - offs
+                   ? iov[i].iov_len : iov_len - offs;
+        size_t skip = offs < skip_len ? skip_len - offs : 0;
+        if (skip < len)
+        {
+            memcpy(p, iov[i].iov_base + skip, len - skip);
+            p += len - skip;
+        }
+        offs += len;
+    }
+    assert(offs == iov_len);
+
+    if (EXPECT_FALSE(warm))
+        exanic_abort_transmit_frame(ctx->exanic_tx);
+    else
+        exanic_end_transmit_payload(ctx->exanic_tx,
+                                    EXANIC_TX_TYPE_TCP_ACCEL, 0);
+
+    exa_unlock(&exanic_tx_lock);
+}
+
 static void
 __exanic_ip_update_timestamping(struct exanic_ip * restrict ctx)
 {
@@ -676,7 +736,7 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
                    const struct iovec *iov, size_t iovcnt, size_t skip_len,
                    size_t data_len, bool warm)
 {
-    exa_ip_build_hdr(ip, hdr_ptr, hdr_len, iov, iovcnt, skip_len, data_len);
+    exa_ip_build_hdr(ip, hdr_ptr, hdr_len, data_len);
 
     if (exa_dst_update(dst))
         exa_eth_set_dest(eth, dst->eth_addr);
@@ -684,8 +744,7 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
     if (exa_dst_found(dst))
     {
         /* Send directly */
-        exa_eth_build_hdr(eth, hdr_ptr, hdr_len, iov, iovcnt, skip_len,
-                          data_len);
+        exa_eth_build_hdr(eth, hdr_ptr, hdr_len);
         exanic_send(exanic_ctx, *hdr_ptr, *hdr_len, iov, iovcnt, skip_len,
                     data_len, warm);
     }
@@ -1020,8 +1079,20 @@ exanic_poll(void)
                                          buf1_len + buf2_len, prev_proc_seq);
                 exa_tcp_update_state(&sock->ctx.tcp->tcp, tcp_flags,
                                      data_seq, ack_seq, tcp_win);
-                exa_tcp_update_conn_state(&sock->ctx.tcp->tcp, tcp_flags,
-                                          data_seq, data_len);
+                bool new_connection =
+                    exa_tcp_update_conn_state(&sock->ctx.tcp->tcp, tcp_flags,
+                                              data_seq, data_len);
+
+                /* Initialise ATE here so that poll/select, epoll and write
+                 * and friends only succeed after ATE is set up, because
+                 * these functions call exanic_poll through do_socket_wait */
+                if (EXPECT_FALSE(new_connection && sock->ate_init_pending))
+                {
+                    if (exa_sys_ate_init(fd) == -1)
+                        exa_tcp_error_close(&sock->ctx.tcp->tcp, ECANCELED);
+                    else
+                        sock->ate_init_pending = false;
+                }
 
                 /* Update socket ready state */
                 exa_notify_tcp_update(sock);
@@ -1472,7 +1543,7 @@ exanic_tcp_writeable(struct exa_socket * restrict sock)
     if (exa_tcp_connecting(&ctx->tcp))
         return false;
 
-    if (exa_tcp_max_pkt_len(&ctx->tcp, &seq, &len) == -1)
+    if (exa_tcp_max_seg_len(&ctx->tcp, EXA_USE_ATE(sock), &seq, &len) == -1)
         return true;
 
     return (len > 0);
@@ -1498,12 +1569,13 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
     size_t max_len;
     size_t send_len;
     uint32_t send_seq;
+    bool is_ate = EXA_USE_ATE(sock);
 
     assert(sock->state->tx_lock);
     assert(ctx != NULL);
 
     /* Send up to the maximum for a single packet */
-    if (exa_tcp_max_pkt_len(&ctx->tcp, &send_seq, &max_len) == -1)
+    if (exa_tcp_max_seg_len(&ctx->tcp, is_ate, &send_seq, &max_len) == -1)
         return -1;
 
     /* If we can't send any data, don't send anything unless we are
@@ -1520,18 +1592,27 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
         sock->state->p.tcp.tx_consistent = 0;
     }
 
-    /* Build TCP header */
-    exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq,
-                      iov, iovcnt, skip_len, send_len);
+    if (is_ate)
+    {
+        /* Send data through ATE */
+        exanic_ate_send(ctx->exanic_ctx, sock->ate_id, iov, iovcnt, skip_len,
+                        send_len, warm);
+    }
+    else
+    {
+        /* Build TCP header */
+        exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq,
+                          iov, iovcnt, skip_len, send_len);
 
-    /* Build IP header and send packet */
-    exanic_ip_send_iov(&ctx->ip, &ctx->eth, &ctx->dst, ctx->exanic_ctx,
-                       &hdr_ptr, &hdr_len, iov, iovcnt, skip_len, send_len,
-                       warm);
+        /* Build IP header and send packet */
+        exanic_ip_send_iov(&ctx->ip, &ctx->eth, &ctx->dst, ctx->exanic_ctx,
+                           &hdr_ptr, &hdr_len, iov, iovcnt, skip_len, send_len,
+                           warm);
 
-    /* Update retransmit buffer and sequence numbers */
-    if (EXPECT_TRUE(!warm))
-        exa_tcp_tx_buffer_write(sock, iov, iovcnt, skip_len, send_len);
+        /* Update retransmit buffer and sequence numbers */
+        if (EXPECT_TRUE(!warm))
+            exa_tcp_tx_buffer_write(sock, iov, iovcnt, skip_len, send_len);
+    }
 
     return send_len;
 }
@@ -1576,13 +1657,13 @@ exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
     }
 
     /* Retrieve the current send sequence number */
-    if (exa_tcp_max_pkt_len(&ctx->tcp, &send_seq, &max_len) == -1)
+    if (exa_tcp_max_seg_len(&ctx->tcp, false, &send_seq, &max_len) == -1)
         return -1;
 
     /* Build headers for a zero-length packet */
     exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq, NULL, 0, 0, 0);
-    exa_ip_build_hdr(&ctx->ip, &hdr_ptr, &hdr_len, NULL, 0, 0, 0);
-    exa_eth_build_hdr(&ctx->eth, &hdr_ptr, &hdr_len, NULL, 0, 0, 0);
+    exa_ip_build_hdr(&ctx->ip, &hdr_ptr, &hdr_len, 0);
+    exa_eth_build_hdr(&ctx->eth, &hdr_ptr, &hdr_len);
 
     memcpy(buf, hdr_ptr, hdr_len < len ? hdr_len : len);
 

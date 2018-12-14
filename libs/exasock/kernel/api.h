@@ -14,13 +14,15 @@
                                           struct exasock_endpoint)
 #define EXASOCK_IOCTL_CONNECT       _IOWR(EXASOCK_IOCTL_TYPE, 0x55, \
                                           struct exasock_endpoint)
+#define EXASOCK_IOCTL_ATE_ENABLE    _IOW(EXASOCK_IOCTL_TYPE, 0x58, int)
+#define EXASOCK_IOCTL_ATE_INIT      _IO(EXASOCK_IOCTL_TYPE, 0x59)
 #define EXASOCK_IOCTL_DST_QUEUE     _IOWR(EXASOCK_IOCTL_TYPE, 0x5c, \
                                           struct exasock_dst_request)
 #define EXASOCK_IOCTL_UPDATE        _IOW(EXASOCK_IOCTL_TYPE, 0x5d, \
                                          struct exasock_endpoint)
 #define EXASOCK_IOCTL_EPOLL_CREATE  _IO(EXASOCK_IOCTL_TYPE, 0x5e)
 #define EXASOCK_IOCTL_EPOLL_CTL     _IOW(EXASOCK_IOCTL_TYPE, 0x5f, \
-                                          struct exasock_epoll_ctl_request)
+                                         struct exasock_epoll_ctl_request)
 #define EXASOCK_IOCTL_ISN_ALLOC     _IOR(EXASOCK_IOCTL_TYPE, 0x60, uint32_t)
 
 /* Arguments for EXASOCK_IOCTL_BIND, EXASOCK_IOCTL_CONNECT

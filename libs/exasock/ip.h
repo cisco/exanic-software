@@ -139,8 +139,7 @@ exa_ip_parse_hdr(struct exa_ip * restrict ctx,
 
 static inline void
 exa_ip_build_hdr(struct exa_ip_tx * restrict ctx, char ** restrict hdr,
-                 size_t * restrict hdr_len, const struct iovec * restrict iov,
-                 size_t iovcnt, size_t skip_len, size_t data_len)
+                 size_t * restrict hdr_len, size_t data_len)
 {
     struct ip * restrict h = (struct ip *)(*hdr - sizeof(struct ip));
 

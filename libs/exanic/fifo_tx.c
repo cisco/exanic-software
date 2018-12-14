@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <assert.h>
 
 #include "platform.h"
 #include "fifo_tx.h"
@@ -10,6 +11,7 @@
 #include "ioctl.h"
 #include "port.h"
 #include "register.h"
+#include "checksum.h"
 
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
@@ -355,7 +357,7 @@ exanic_transmit_frame_common(exanic_tx_t *tx, const char *frame,
 
     if (tx->prepared_chunk != NULL)
     {
-        exanic_err_printf("missing call to exanic_end_transmit_frame");
+        exanic_err_printf("missing call to exanic_end_transmit_*");
         return -1;
     }
 
@@ -377,6 +379,7 @@ exanic_transmit_frame_common(exanic_tx_t *tx, const char *frame,
     chunk->length = frame_size + padding;
     chunk->type = EXANIC_TX_TYPE_RAW;
     chunk->flags = 0;
+    /* write padding to avoid a gap in the write-combining buffer */
     memset(chunk->payload, 0, padding);
     memcpy(chunk->payload + padding, frame, frame_size);
     exanic_send_tx_chunk(tx, chunk_size);
@@ -398,11 +401,12 @@ int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
 char * exanic_begin_transmit_frame(exanic_tx_t *tx, size_t frame_size)
 {
     size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
-    size_t chunk_size = frame_size + padding + sizeof(struct tx_chunk);
+    size_t length = padding + frame_size;
+    size_t chunk_size = sizeof(struct tx_chunk) + length;
 
     if (tx->prepared_chunk != NULL)
     {
-        exanic_err_printf("missing call to exanic_end_transmit_frame");
+        exanic_err_printf("missing call to exanic_end_transmit_*");
         return NULL;
     }
 
@@ -412,9 +416,10 @@ char * exanic_begin_transmit_frame(exanic_tx_t *tx, size_t frame_size)
 
     tx->prepared_chunk_size = chunk_size;
 
-    tx->prepared_chunk->length = frame_size + padding;
+    tx->prepared_chunk->length = length;
     tx->prepared_chunk->type = EXANIC_TX_TYPE_RAW;
     tx->prepared_chunk->flags = 0;
+    /* write padding to avoid a gap in the write-combining buffer */
     memset(tx->prepared_chunk->payload, 0, padding);
 
     return tx->prepared_chunk->payload + padding;
@@ -427,8 +432,103 @@ int exanic_end_transmit_frame(exanic_tx_t *tx, size_t frame_size)
     if (frame_size != 0)
     {
         size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
-        chunk_size = frame_size + padding + sizeof(struct tx_chunk);
-        tx->prepared_chunk->length = frame_size + padding;
+        size_t length = padding + frame_size;
+        chunk_size = sizeof(struct tx_chunk) + length;
+        tx->prepared_chunk->length = length;
+    }
+    else
+        chunk_size = tx->prepared_chunk_size;
+
+    exanic_send_tx_chunk(tx, chunk_size);
+    tx->prepared_chunk = NULL;
+
+    return 0;
+}
+
+int exanic_transmit_payload(exanic_tx_t *tx, uint16_t connection_id,
+                            exanic_tx_type_id_t type, const char* payload,
+                            size_t payload_size)
+{
+    size_t padding = exanic_payload_padding_bytes(type);
+    size_t length = padding + sizeof(struct tx_payload_metadata) + payload_size;
+    size_t chunk_size = sizeof(struct tx_chunk) + length;
+    struct tx_payload_metadata payload_metadata;
+    struct tx_chunk *chunk;
+    char *payload_ptr;
+
+    if (tx->prepared_chunk != NULL)
+    {
+        exanic_err_printf("missing call to exanic_end_transmit_*");
+        return -1;
+    }
+
+    chunk = exanic_prepare_tx_chunk(tx, chunk_size);
+    if (chunk == NULL)
+        return -1;
+
+    chunk->length = length;
+    chunk->type = type;
+    chunk->flags = 0;
+
+    payload_metadata.csum = htons(csum(payload, payload_size, 0));
+
+    payload_metadata.connection_id = connection_id;
+    payload_ptr = chunk->payload + padding;
+    memcpy(payload_ptr, &payload_metadata, sizeof(struct tx_payload_metadata));
+
+    payload_ptr += sizeof(struct tx_payload_metadata);
+    memcpy(payload_ptr, payload, payload_size);
+
+    exanic_send_tx_chunk(tx, chunk_size);
+
+    return 0;
+}
+
+char * exanic_begin_transmit_payload(exanic_tx_t *tx, uint16_t connection_id,
+                                     exanic_tx_type_id_t type,
+                                     size_t payload_size, uint16_t **csum)
+{
+    size_t padding = exanic_payload_padding_bytes(type);
+    size_t length = padding + sizeof(struct tx_payload_metadata) + payload_size;
+    size_t chunk_size = sizeof(struct tx_chunk) + length;
+    struct tx_payload_metadata *ate_hdr;
+
+    if (tx->prepared_chunk != NULL)
+    {
+        exanic_err_printf("missing call to exanic_end_transmit_*");
+        return NULL;
+    }
+
+    tx->prepared_chunk = exanic_prepare_tx_chunk(tx, chunk_size);
+    if (tx->prepared_chunk == NULL)
+        return NULL;
+
+    tx->prepared_chunk_size = chunk_size;
+
+    tx->prepared_chunk->length = length;
+    tx->prepared_chunk->type = type;
+    tx->prepared_chunk->flags = 0;
+
+    ate_hdr = (struct tx_payload_metadata *)(tx->prepared_chunk->payload + padding);
+    assert((intptr_t)ate_hdr % __alignof__(*ate_hdr) == 0);
+
+    *csum = &ate_hdr->csum;
+    ate_hdr->connection_id = connection_id;
+
+    return (char *)&ate_hdr->payload;
+}
+
+int exanic_end_transmit_payload(exanic_tx_t* tx, exanic_tx_type_id_t type,
+                                size_t payload_size)
+{
+    size_t chunk_size;
+
+    if (payload_size != 0)
+    {
+        size_t padding = exanic_payload_padding_bytes(type);
+        size_t length = padding + sizeof(struct tx_payload_metadata) + payload_size;
+        chunk_size = sizeof(struct tx_chunk) + length;
+        tx->prepared_chunk->length = length;
     }
     else
         chunk_size = tx->prepared_chunk_size;

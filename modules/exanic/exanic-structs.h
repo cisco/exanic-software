@@ -29,7 +29,9 @@ struct exanic_ctx
 struct exanic_port
 {
     void *rx_region_virt;
+    void *ate_rx_region_virt;
     dma_addr_t rx_region_dma;
+    dma_addr_t ate_rx_region_dma;
     unsigned int rx_refcount; /* Only counts in-kernel users. */
     unsigned numa_node;
     size_t tx_region_usable_offset;
@@ -47,6 +49,9 @@ struct exanic_port
     struct exanic_ip_filter_slot *ip_filter_slots;
     struct exanic_mac_filter_slot *mac_filter_slots;
     spinlock_t filter_lock;
+
+    bool has_ate;
+    struct semaphore ate_lockbox[EXANIC_ATE_ENGINES_PER_PORT];
 
     /* MAC address before any user changes */
     unsigned char orig_mac_addr[ETH_ALEN];
@@ -139,7 +144,7 @@ struct exanic_filter_buffer_ref
     int buffer;
 };
 
-struct exanic_filter_buffer 
+struct exanic_filter_buffer
 {
     void *region_virt;
     dma_addr_t region_dma;
@@ -199,6 +204,11 @@ static inline char *exanic_tx_region(struct exanic *exanic)
 static inline void *exanic_rx_region(struct exanic *exanic, unsigned port_num)
 {
     return exanic->port[port_num].rx_region_virt;
+}
+
+static inline void *exanic_ate_rx_region(struct exanic *exanic, unsigned port_num)
+{
+    return exanic->port[port_num].ate_rx_region_virt;
 }
 
 #endif /* _EXANIC_STRUCTS_H_ */

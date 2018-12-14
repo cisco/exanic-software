@@ -164,6 +164,76 @@ enum
     EXANIC_RX_FRAME_TRUNCATED = 257,
 };
 
+static int exanic_transmit_payload(struct exanic_netdev_tx *tx,
+                                   int connection_id, const char *payload,
+                                   size_t payload_size);
+
+int exanic_netdev_ate_acquire(struct net_device *ndev, int ate_id)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    return exanic_ate_acquire(priv->exanic, priv->port, ate_id);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_acquire);
+
+void exanic_netdev_ate_release(struct net_device *ndev, int ate_id)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    exanic_ate_release(priv->exanic, priv->port, ate_id);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_release);
+
+void exanic_netdev_ate_disable(struct net_device *ndev, int ate_id)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    exanic_ate_disable(priv->exanic, priv->port, ate_id);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_disable);
+
+int exanic_netdev_ate_init(struct net_device *ndev, int ate_id,
+                           struct exanic_ate_cfg *cfg)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    return exanic_ate_init(priv->exanic, priv->port, ate_id, cfg);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_init);
+
+int exanic_netdev_ate_update(struct net_device *ndev, int ate_id,
+                             struct exanic_ate_update *cfg)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    return exanic_ate_update(priv->exanic, priv->port, ate_id, cfg);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_update);
+
+uint32_t exanic_netdev_ate_read_seq(struct net_device *ndev, int ate_id)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    return exanic_ate_read_seq(priv->exanic, priv->port, ate_id);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_read_seq);
+
+int exanic_netdev_ate_send_ctrl(struct net_device *ndev, int ate_id)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    return exanic_transmit_payload(&priv->tx, ate_id, "\0", 0);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_send_ctrl);
+
+void exanic_netdev_ate_regdump(struct net_device *ndev, int ate_id,
+                               struct exanic_ate_regdump *cfg)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    exanic_ate_regdump(priv->exanic, priv->port, ate_id, cfg);
+}
+EXPORT_SYMBOL(exanic_netdev_ate_regdump);
+
 static void exanic_rx_catchup(struct exanic_netdev_rx *rx)
 {
     /* Find the next chunk in which data will arrive */
@@ -211,6 +281,7 @@ static void exanic_rx_set_irq(struct exanic_netdev_rx *rx)
 static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
                                             char **rx_buf_ptr,
                                             uint32_t *chunk_id,
+                                            uint8_t *matched_filter,
                                             int *more_chunks)
 {
     union {
@@ -227,6 +298,9 @@ static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
 
         if (chunk_id != NULL)
             *chunk_id = rx->generation * EXANIC_RX_NUM_CHUNKS + rx->next_chunk;
+
+        if (matched_filter != NULL)
+            *matched_filter = u.info.matched_filter;
 
         /* Advance next_chunk to next chunk */
         rx->next_chunk++;
@@ -441,8 +515,8 @@ static void exanic_send_tx_chunk(struct exanic_netdev_tx *tx, size_t chunk_size)
     tx->next_seq++;
 }
 
-static int __exanic_transmit_frame(struct exanic_netdev_tx *tx,
-                                   struct sk_buff *skb)
+static int exanic_transmit_frame(struct exanic_netdev_tx *tx,
+                                 struct sk_buff *skb)
 {
     size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_RAW);
     size_t chunk_size = skb->len + padding + sizeof(struct tx_chunk);
@@ -460,6 +534,38 @@ static int __exanic_transmit_frame(struct exanic_netdev_tx *tx,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
     skb_tx_timestamp(skb);
 #endif
+
+    exanic_send_tx_chunk(tx, chunk_size);
+    return 0;
+}
+
+static int exanic_transmit_payload(struct exanic_netdev_tx* tx,
+                                   int connection_id, const char *payload,
+                                   size_t payload_size)
+{
+    size_t padding = exanic_payload_padding_bytes(EXANIC_TX_TYPE_TCP_ACCEL);
+    size_t length = padding + sizeof(struct tx_payload_metadata) + payload_size;
+    size_t chunk_size = sizeof(struct tx_chunk) + length;
+    struct tx_payload_metadata payload_metadata;
+    struct tx_chunk *chunk;
+    char *payload_ptr;
+
+    chunk = exanic_prepare_tx_chunk(tx, chunk_size);
+    if (chunk == NULL)
+        return -1;
+
+    writew(length, &chunk->length);
+    writeb(EXANIC_TX_TYPE_TCP_ACCEL, &chunk->type);
+    writeb(connection_id, &chunk->flags);
+    payload_metadata.csum = 0;
+    payload_metadata.connection_id = connection_id;
+    payload_ptr = chunk->payload + padding;
+    memcpy_toio(payload_ptr, &payload_metadata, sizeof(struct tx_payload_metadata));
+    if (payload_size)
+    {
+        payload_ptr += sizeof(struct tx_payload_metadata);
+        memcpy_toio(payload_ptr, payload, payload_size);
+    }
 
     exanic_send_tx_chunk(tx, chunk_size);
     return 0;
@@ -802,7 +908,7 @@ static netdev_tx_t exanic_netdev_xmit(struct sk_buff *skb,
         return NETDEV_TX_OK;
     }
 
-    err = __exanic_transmit_frame(&priv->tx, skb);
+    err = exanic_transmit_frame(&priv->tx, skb);
 
     spin_unlock_irqrestore(&priv->tx_lock, flags);
 
@@ -1440,6 +1546,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
     int received = 0, chunk_count = 0;
     ssize_t len;
     uint32_t chunk_id = 0, tstamp;
+    uint8_t matched_filter;
     char *ptr = NULL;
     int more_chunks = 0;
     ktime_t interval;
@@ -1457,7 +1564,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         }
 
         chunk_count++;
-        len = exanic_receive_chunk_inplace(rx, &ptr, &chunk_id, &more_chunks);
+        len = exanic_receive_chunk_inplace(rx, &ptr, &chunk_id, &matched_filter, &more_chunks);
         if (len == 0)
             break;
         else if (len < 0)
@@ -1525,7 +1632,11 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             ndev->stats.rx_bytes += priv->skb->len;
 
             /* Deliver packet to intercept functions or kernel stack */
-            exanic_deliver_skb(priv->skb);
+            if (matched_filter == EXANIC_ATE_FILTER_REFLECTED)
+                exanic_ate_deliver_skb(priv->skb);
+            else
+                exanic_deliver_skb(priv->skb);
+
             priv->skb = NULL;
             received++;
         }
@@ -1688,7 +1799,7 @@ void exanic_netdev_check_link(struct net_device *ndev)
 /**
  * Send a packet on an ExaNIC interface.
  */
-int exanic_transmit_frame(struct net_device *ndev, struct sk_buff *skb)
+int exanic_netdev_transmit_frame(struct net_device *ndev, struct sk_buff *skb)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     int err;
@@ -1704,13 +1815,13 @@ int exanic_transmit_frame(struct net_device *ndev, struct sk_buff *skb)
         return -1;
     }
 
-    err = __exanic_transmit_frame(&priv->tx, skb);
+    err = exanic_transmit_frame(&priv->tx, skb);
 
     spin_unlock_irqrestore(&priv->tx_lock, flags);
     dev_kfree_skb(skb);
     return err;
 }
-EXPORT_SYMBOL(exanic_transmit_frame);
+EXPORT_SYMBOL(exanic_netdev_transmit_frame);
 
 /**
  * Add a function to intercept incoming frames before the Linux stack.

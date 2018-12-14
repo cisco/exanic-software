@@ -423,6 +423,46 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
                 return -EINVAL;
         }
 
+    case EXASOCK_IOCTL_ATE_ENABLE:
+        {
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
+            int ate_id;
+
+            if (copy_from_user(&ate_id, (void *)arg, sizeof(ate_id)) != 0)
+                return -EFAULT;
+
+            if (priv == NULL)
+                return -EINVAL;
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
+                return exasock_ate_enable((struct exasock_tcp *)priv, ate_id);
+            else
+                return -EINVAL;
+        }
+
+    case EXASOCK_IOCTL_ATE_INIT:
+        {
+            struct exasock_hdr *priv = filp->private_data;
+            struct exasock_hdr_socket *socket;
+
+            if (priv == NULL)
+                return -EINVAL;
+
+            if (priv->type != EXASOCK_TYPE_SOCKET)
+                return -EINVAL;
+
+            socket = &priv->socket;
+            if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
+                return exasock_ate_init((struct exasock_tcp *)priv);
+            else
+                return -EINVAL;
+        }
+
     case EXASOCK_IOCTL_SETSOCKOPT:
         {
             struct exasock_hdr *priv = filp->private_data;

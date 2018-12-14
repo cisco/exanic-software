@@ -368,6 +368,15 @@ listen(int sockfd, int backlog)
             return -1;
         }
 
+        if (EXA_USE_ATE(sock))
+        {
+            /* No support for ATE on listening sockets */
+            exa_write_unlock(&sock->lock);
+            errno = EOPNOTSUPP;
+            TRACE_RETURN(INT, -1);
+            return -1;
+        }
+
         if (exanic_tcp_listening(sock))
         {
             /* If socket is already listening, return success */
@@ -869,6 +878,14 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
                               in_addr->sin_port);
             TRACE_RETURN(INT, ret);
             return ret;
+        }
+        else if (EXA_USE_ATE(sock))
+        {
+            /* Unable to use ATE requested on this socket */
+            exa_write_unlock(&sock->lock);
+            errno = EOPNOTSUPP;
+            TRACE_RETURN(INT, -1);
+            return -1;
         }
         else
         {
@@ -1460,6 +1477,11 @@ getsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
         out_int = true;
         ret = 0;
         break;
+    case SO_EXA_ATE:
+        val = sock->ate_id;
+        out_int = true;
+        ret = 0;
+        break;
     default:
         errno = ENOPROTOOPT;
         ret = -1;
@@ -2029,7 +2051,7 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
         return -1;
     }
 
-    if (optname == SO_EXA_NO_ACCEL)
+    if (optname == SO_EXA_NO_ACCEL || optname == SO_EXA_ATE)
     {
         if (optlen >= sizeof(int))
             val = *(int *)optval;
@@ -2122,6 +2144,29 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
 
         sock->ip_membership.mcast_ep = mcast_ep;
         sock->ip_membership.mcast_ep_valid = true;
+        break;
+
+    case SO_EXA_ATE:
+        if ((sock->domain != AF_INET)
+            || (sock->type != SOCK_STREAM)
+            || sock->bypass_state == EXA_BYPASS_DISABLED
+            || sock->connected)
+        {
+            errno = EPERM;
+            goto err_exit;
+        }
+        if (sock->bypass_state == EXA_BYPASS_ACTIVE
+            && exanic_tcp_listening(sock))
+        {
+            errno = EOPNOTSUPP;
+            goto err_exit;
+        }
+        if (val < -1)
+        {
+            errno = EINVAL;
+            goto err_exit;
+        }
+        sock->ate_id = val;
         break;
 
     default:

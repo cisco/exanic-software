@@ -1,3 +1,27 @@
+/*
+ * This program receives multicast UDP packets and echos the packets on a
+ * different unicast UDP socket.
+ *
+ *
+ * Example usage:
+ *
+ *   ./multicast-echo 224.1.2.3:192.168.1.11:14159 192.168.2.10:26535
+ *
+ * This will receive packets on the interface with address 192.168.1.11
+ * which are addressed to multicast group 224.1.2.3 and UDP port 14159.
+ *
+ * Each received packet will be sent out again on unicast UDP to address
+ * 192.168.2.10 port 26535.
+ *
+ *
+ * To run using Exasock socket acceleration:
+ *
+ *   exasock ./multicast-echo 224.1.2.3:192.168.1.11:14159 192.168.2.10:26535
+ *
+ * 192.168.1.11 must be the address of an ExaNIC interface and the route to
+ * 192.168.2.10 must go out via an ExaNIC interface.
+ */
+
 #include <time.h>
 #include <poll.h>
 #include <errno.h>

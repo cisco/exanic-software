@@ -102,6 +102,10 @@ struct exa_socket
     bool connected;
     bool valid;
 
+    /* TCP Tx Engine ID (-1 if ATE not used) */
+    int ate_id;
+    bool ate_init_pending;
+
     /* Bound to specific device with SO_BINDTODEVICE */
     bool bound_to_device;
 
@@ -192,6 +196,8 @@ struct exa_socket
         bool so_rcvbuf;
     } warn;
 };
+
+#define EXA_USE_ATE(sock)   ((sock)->ate_id != -1)
 
 #define EXA_HASHTABLE_SIZE_LOG2 16
 

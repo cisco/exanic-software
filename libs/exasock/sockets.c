@@ -73,6 +73,10 @@ exa_socket_init(struct exa_socket * restrict sock, int domain, int type,
     sock->ip_membership.mcast_ep.interface = htonl(INADDR_ANY);
     sock->ip_membership.mcast_ep.multiaddr = htonl(INADDR_ANY);
 
+    /* ATE disabled */
+    sock->ate_id = -1;
+    sock->ate_init_pending = false;
+
     sock->bypass_state =
         (getenv("EXASOCK_DEFAULT_DISABLE") != NULL) ? EXA_BYPASS_INACTIVE : EXA_BYPASS_AVAIL;
 }
@@ -831,6 +835,17 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
         goto err_sys_update;
     }
 
+    /* Enable TCP Tx Engine for the connection if requested */
+    if (EXA_USE_ATE(sock))
+    {
+        if (exa_sys_ate_enable(fd, sock->ate_id) == -1)
+        {
+            saved_errno = errno;
+            goto err_sys_ate_enable;
+        }
+        sock->ate_init_pending = true;
+    }
+
     exanic_tcp_connect(sock, &endpoint);
 
     /* The kernel writes to the rx buffer, so we need to poll for updates */
@@ -849,6 +864,9 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
 
     return 0;
 
+err_sys_ate_enable:
+    /* Revert the connection endpoint update in kernel */
+    exa_sys_update(fd, &sock->bind.ip);
 err_sys_update:
     /* Revert to previously bound interface */
     exa_socket_update_interfaces(sock, sock->bind.ip.addr.local);

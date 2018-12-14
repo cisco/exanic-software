@@ -118,8 +118,7 @@ exa_eth_parse_hdr(struct exa_eth * restrict ctx, char *hdr,
 
 static inline void
 exa_eth_build_hdr(struct exa_eth_tx * restrict ctx, char ** restrict hdr,
-                  size_t * restrict hdr_len, const struct iovec * restrict iov,
-                  size_t iovcnt, size_t skip_len, size_t data_len)
+                  size_t * restrict hdr_len)
 {
     if (ctx->hdr.eth.h_proto == htons(ETH_P_8021Q))
     {

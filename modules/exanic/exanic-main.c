@@ -394,8 +394,16 @@ int exanic_free_rx_dma(struct exanic *exanic, unsigned port_num)
 
     dma_free_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
             port->rx_region_virt, port->rx_region_dma);
+
+    if (port->ate_rx_region_virt != NULL)
+        dma_free_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
+                          port->ate_rx_region_virt,
+                          port->ate_rx_region_dma);
+
     port->rx_region_virt = NULL;
     port->rx_region_dma = 0;
+    port->ate_rx_region_virt = NULL;
+    port->ate_rx_region_dma = 0;
 
     dev_dbg(dev, DRV_NAME
         "%u: Port %u RX region freed.\n", exanic->id, port_num);
@@ -1339,6 +1347,7 @@ static int exanic_probe(struct pci_dev *pdev,
     /* Set up port information in exanic struct */
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
     {
+        int ate_id = 0;
         exanic->port[port_num].rx_region_virt = NULL;
         exanic->port[port_num].rx_region_dma = 0;
         exanic->port[port_num].rx_refcount = 0;
@@ -1362,6 +1371,11 @@ static int exanic_probe(struct pci_dev *pdev,
         exanic->port[port_num].ip_filter_slots = NULL;
         exanic->port[port_num].mac_filter_slots = NULL;
         exanic->port[port_num].filter_buffers = NULL;
+        exanic->port[port_num].has_ate = false;
+        for (ate_id = 0; ate_id < EXANIC_ATE_ENGINES_PER_PORT; ++ate_id)
+        {
+            sema_init(&exanic->port[port_num].ate_lockbox[ate_id],1);
+        }
         spin_lock_init(&exanic->port[port_num].filter_lock);
     }
 
@@ -1567,6 +1581,20 @@ static int exanic_probe(struct pci_dev *pdev,
             }
         }
     }
+
+    /* Fill in ATE information */
+    if (exanic->caps & EXANIC_CAP_ATE)
+    {
+        uint32_t ate_status = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_PORTS_ATE_STATUS));
+
+        for (port_num = 0; port_num < exanic->num_ports; ++port_num)
+        {
+            exanic->port[port_num].has_ate =
+                (ate_status & (1 << port_num)) ? true : false;
+        }
+    }
+
 
     /* Register ethernet interface */
     if (exanic->function_id == EXANIC_FUNCTION_NIC ||

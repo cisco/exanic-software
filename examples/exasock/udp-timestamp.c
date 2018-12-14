@@ -1,3 +1,14 @@
+/*
+ * This program demonstrates the use of hardware timestamps for received packets
+ * on a UDP socket using the SO_TIMESTAMPING API.  It can be used with or without
+ * exasock.
+ *
+ * Example usage:
+ *   exasock ./udp-timestamp enp1s0 8000
+ *   recvmsg returned 6
+ *   timestamp 1501811797.753824888
+ */
+
 #include <time.h>
 #include <poll.h>
 #include <errno.h>
