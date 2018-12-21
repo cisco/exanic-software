@@ -1,3 +1,10 @@
+2.2.2 [2018-12-21]
+* exasock: various TCP passive open bug fixes, including syn-ack retransmit
+* exasock: fix epoll issue where adding to epoll instances causes socket to
+  become dormant
+* exasock: fix exasock_ip_cleanup() list traversal error leading to potential
+  crash
+
 2.2.1 [2018-10-25]
 * libexanic: add exanic_transmit_frame_ex() with support for EXA_FRAME_WARM
   flag for keeping cache warm
