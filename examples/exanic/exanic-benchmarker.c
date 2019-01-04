@@ -16,6 +16,7 @@
 #include <string.h>
 #include <time.h>
 #include <getopt.h>
+#include <unistd.h>
 
 #include <exanic/exanic.h>
 #include <exanic/fifo_tx.h>

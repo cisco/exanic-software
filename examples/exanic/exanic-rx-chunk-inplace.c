@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <exanic/exanic.h>
 #include <exanic/fifo_rx.h>
