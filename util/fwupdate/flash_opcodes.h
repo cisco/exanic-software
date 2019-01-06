@@ -18,7 +18,7 @@
 #define P30_BUFFER_PROGRAM_CONFIRM   0xD0
 /* Intel/P30 status register masks */
 #define P30_STATUS_READY_MASK        0x80
-#define P30_STATUS_ERROR_MASK        0x60
+#define P30_STATUS_ERROR_MASK        0x30
 /* Value to program to P30 config register */
 #define P30_CR_CONFIG                0x9803
 
