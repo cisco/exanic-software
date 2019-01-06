@@ -19,6 +19,8 @@ struct flash_device
     flash_size_t partition_size;
     flash_size_t block_size;
     flash_size_t burst_buffer_size;
+    flash_address_t boot_area_start;
+    flash_size_t boot_area_block_size;
     uint8_t status;
 };
 

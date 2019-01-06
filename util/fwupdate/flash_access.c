@@ -263,7 +263,7 @@ static struct flash_ops mt28_ops = {
 struct flash_device *flash_open(exanic_t *exanic, bool recovery_partition, flash_size_t *partition_size)
 {
     struct flash_device *flash;
-    uint16_t command_set, burst_buffer_size, block_size_b, block_size_t;
+    uint16_t command_set, burst_buffer_size, block_size_b, num_blocks_b, block_size_t;
     uint8_t device_size;
 
     flash = calloc(1, sizeof(struct flash_device));
@@ -321,14 +321,17 @@ struct flash_device *flash_open(exanic_t *exanic, bool recovery_partition, flash
     }
     flash->burst_buffer_size = 1 << (burst_buffer_size-1);
 
-    block_size_b = (flash_read(flash, 0x30) << 8) | (flash_read(flash, 0x2f));
-    block_size_t = (flash_read(flash, 0x34) << 8) | (flash_read(flash, 0x33));
+    block_size_b = ((flash_read(flash, 0x30) << 8) | (flash_read(flash, 0x2f)));
+    num_blocks_b = ((flash_read(flash, 0x2e) << 8) | (flash_read(flash, 0x2d))) + 1;
+    block_size_t = ((flash_read(flash, 0x34) << 8) | (flash_read(flash, 0x33)));
     if ((block_size_b < block_size_t) || (block_size_b < 1))
     {
         fprintf(stderr, "ERROR: flash organization not currently supported\n");
         goto error;
     }
     flash->block_size = block_size_b * 256 / 2;
+    flash->boot_area_start = num_blocks_b * flash->block_size;
+    flash->boot_area_block_size = block_size_t * 256 / 2;
 
     flash->ops->init(flash);
     return flash;
@@ -341,18 +344,15 @@ error:
 
 bool flash_erase(struct flash_device *flash, flash_size_t size, void (*report_progress)())
 {
-    flash_address_t offset, address;
+    flash_address_t address = flash->partition_start;
+    flash_address_t erase_end = address + size;
 
-    /* round size up to a multiple of block size */
-    if (size % flash->block_size != 0)
-        size += flash->block_size - size % flash->block_size;
-
-    for (offset = 0; offset < size; offset += flash->block_size)
+    while (address < erase_end)
     {
-        address = flash->partition_start + offset;
         if (!flash->ops->erase_block(flash, address))
             return false; 
         report_progress();
+        address += (address >= flash->boot_area_start) ? flash->boot_area_block_size : flash->block_size;
     }
     return true;
 }
