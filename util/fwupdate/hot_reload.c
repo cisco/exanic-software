@@ -86,7 +86,7 @@ bool check_can_hot_reload(exanic_t *exanic, bool silent)
     if (ioctl(exanic->fd, EXANICCTL_DEVICE_USAGE, &usage) == -1)
     {
         if (!silent)
-            fprintf(stderr, "ERROR: could not obtain usage information from driver\n");
+            fprintf(stderr, "ERROR: could not obtain usage information from driver (driver 2.2.1 or later required)\n");
         return false;
     }
 
@@ -94,7 +94,7 @@ bool check_can_hot_reload(exanic_t *exanic, bool silent)
     if (usage.users > 1)
     {
         if (!silent)
-            fprintf(stderr, "ERROR: driver still in use\n");
+            fprintf(stderr, "ERROR: device still in use\n");
         return false;
     }
 
