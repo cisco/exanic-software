@@ -60,18 +60,21 @@ static inline void exasock_unlock(volatile uint32_t *flag)
 /* exasock-dst.c */
 int __init exasock_dst_init(void);
 void exasock_dst_exit(void);
-void exasock_dst_remove_socket(uint32_t local_addr, uint32_t peer_addr,
+void exasock_dst_remove_socket(struct net *net,
+                               uint32_t local_addr, uint32_t peer_addr,
                                uint16_t local_port, uint16_t peer_port);
-void exasock_dst_neigh_update(struct neighbour *neigh);
-int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
+void exasock_dst_neigh_update(struct net *net, struct neighbour *neigh);
+int exasock_dst_insert(struct net *net,
+                       uint32_t dst_addr, uint32_t *src_addr,
                        struct sk_buff *skb);
-void exasock_dst_invalidate_src(uint32_t src_addr);
-int exasock_dst_used_flags_mmap(struct vm_area_struct *vma);
-int exasock_dst_table_mmap(struct vm_area_struct *vma);
-unsigned int exasock_dst_table_size(void);
+void exasock_dst_invalidate_src(struct net *net, uint32_t src_addr);
+int exasock_dst_used_flags_mmap(struct net *net, struct vm_area_struct *vma);
+int exasock_dst_table_mmap(struct net *net, struct vm_area_struct *vma);
+unsigned int exasock_dst_table_size(struct net *net);
 
 /* exasock-ip.c */
-int exasock_ip_send(uint8_t proto, uint32_t dst_addr, uint32_t src_addr,
+int exasock_ip_send(struct net *net,
+                    uint8_t proto, uint32_t dst_addr, uint32_t src_addr,
                     struct sk_buff *skb);
 
 /* exasock-udp.c */

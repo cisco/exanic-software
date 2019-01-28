@@ -291,7 +291,7 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans);
 static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup);
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp);
 uint32_t exasock_tcp_req_get_isn(struct exasock_tcp_req *req);
-static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req);
+static void exasock_tcp_send_syn_ack(struct exasock_tcp *tcp, struct exasock_tcp_req *req);
 static void exasock_tcp_send_probe(struct exasock_tcp *tcp);
 static struct exasock_tcp *exasock_tcp_lookup(uint32_t local_addr,
                                               uint32_t peer_addr,
@@ -960,6 +960,7 @@ void exasock_tcp_close(struct exasock_tcp *tcp)
  *       or from a user app's context */
 static void exasock_tcp_free(struct exasock_tcp *tcp)
 {
+    struct net *net = sock_net(tcp->sock->sk);
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
@@ -986,7 +987,8 @@ static void exasock_tcp_free(struct exasock_tcp *tcp)
     /* If there are still any packets pending in destination table queue,
      * it means the socket does not have a valid neighbour. These packets
      * need to be removed now. */
-    exasock_dst_remove_socket(tcp->local_addr, tcp->peer_addr,
+    exasock_dst_remove_socket(net,
+                              tcp->local_addr, tcp->peer_addr,
                               tcp->local_port, tcp->peer_port);
 
     /* Remove from epoll notify */
@@ -1953,7 +1955,7 @@ static void exasock_tcp_req_worker(struct work_struct *work)
         {
             req->timestamp = jiffies;
             ++req->synack_attempts;
-            exasock_tcp_send_syn_ack(req);
+            exasock_tcp_send_syn_ack(NULL, req);
         }
     }
     spin_unlock(&tcp_req_lock);
@@ -2062,7 +2064,7 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
         }
 
         /* Send SYN ACK packet */
-        exasock_tcp_send_syn_ack(req);
+        exasock_tcp_send_syn_ack(tcp, req);
 
         /* Insert into hash table and lists */
         hash = exasock_tcp_hash(req->local_addr, req->peer_addr,
@@ -2501,6 +2503,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
                                      uint32_t len, bool dup)
 {
     struct exa_socket_state *state = tcp->user_page;
+    struct net *net = sock_net(tcp->sock->sk);
     struct sk_buff *skb;
     struct tcphdr *th;
     uint8_t tcp_state;
@@ -2663,7 +2666,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
     th->check = csum_tcpudp_magic(tcp->peer_addr, tcp->local_addr, skb->len,
                                   IPPROTO_TCP, csum_partial(th, skb->len, 0));
 
-    exasock_ip_send(IPPROTO_TCP, tcp->peer_addr, tcp->local_addr, skb);
+    exasock_ip_send(net, IPPROTO_TCP, tcp->peer_addr, tcp->local_addr, skb);
     return;
 
 abort_packet:
@@ -2733,6 +2736,7 @@ static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup)
 static void exasock_tcp_send_reset(struct exasock_tcp *tcp)
 {
     struct exa_socket_state *state = tcp->user_page;
+    struct net *net = sock_net(tcp->sock->sk);
     struct sk_buff *skb;
     struct tcphdr *th;
     uint8_t tcp_state;
@@ -2790,15 +2794,16 @@ static void exasock_tcp_send_reset(struct exasock_tcp *tcp)
     th->check = csum_tcpudp_magic(tcp->peer_addr, tcp->local_addr, skb->len,
                                   IPPROTO_TCP, csum_partial(th, skb->len, 0));
 
-    exasock_ip_send(IPPROTO_TCP, tcp->peer_addr, tcp->local_addr, skb);
+    exasock_ip_send(net, IPPROTO_TCP, tcp->peer_addr, tcp->local_addr, skb);
     return;
 
 abort_packet:
     kfree_skb(skb);
 }
 
-static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req)
+static void exasock_tcp_send_syn_ack(struct exasock_tcp *tcp, struct exasock_tcp_req *req)
 {
+    struct net *net = tcp != NULL ? sock_net(tcp->sock->sk) : NULL;
     struct sk_buff *skb;
     struct tcphdr *th;
     uint8_t *opts;
@@ -2836,7 +2841,7 @@ static void exasock_tcp_send_syn_ack(struct exasock_tcp_req *req)
     th->check = csum_tcpudp_magic(req->peer_addr, req->local_addr, skb->len,
                                   IPPROTO_TCP, csum_partial(th, skb->len, 0));
 
-    exasock_ip_send(IPPROTO_TCP, req->peer_addr, req->local_addr, skb);
+    exasock_ip_send(net, IPPROTO_TCP, req->peer_addr, req->local_addr, skb);
 }
 
 static void exasock_tcp_send_probe(struct exasock_tcp *tcp)

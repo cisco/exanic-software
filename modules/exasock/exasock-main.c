@@ -14,6 +14,7 @@
 #include <linux/vmalloc.h>
 #include <linux/file.h>
 #include <linux/if_vlan.h>
+#include <linux/nsproxy.h>
 #include <net/arp.h>
 #include <net/netevent.h>
 
@@ -28,6 +29,11 @@ bool module_removed;
 static struct exasock_kernel_info *exasock_info_page;
 static struct file_operations exasock_fops;
 
+static struct net *get_current_net(void)
+{
+    return get_net(current->nsproxy->net_ns);
+}
+
 static int exasock_net_event(struct notifier_block *notifier,
                              unsigned long event, void *ptr)
 {
@@ -35,10 +41,12 @@ static int exasock_net_event(struct notifier_block *notifier,
     {
     case NETEVENT_NEIGH_UPDATE:
         {
+            struct net *net;
             struct neighbour *neigh = ptr;
             if (neigh->tbl != &arp_tbl)
                 break;
-            exasock_dst_neigh_update(neigh);
+            net = dev_net(neigh->dev);
+            exasock_dst_neigh_update(net, neigh);
             return NOTIFY_OK;
         }
 
@@ -61,7 +69,7 @@ static int exasock_inetaddr_event(struct notifier_block *notifier,
     switch (event)
     {
     case NETDEV_DOWN:
-        exasock_dst_invalidate_src(ifa->ifa_address);
+        exasock_dst_invalidate_src(dev_net(ifa->ifa_dev->dev), ifa->ifa_address);
         break;
 
     default:
@@ -75,10 +83,12 @@ static struct notifier_block exasock_inetaddr_notifier = {
     .notifier_call      = exasock_inetaddr_event
 };
 
-static int exasock_dst_queue(uint32_t addr, uint32_t *src_addr,
+static int exasock_dst_queue(
+                             uint32_t addr, uint32_t *src_addr,
                              const char __user *buf, size_t len)
 {
     struct sk_buff *skb = NULL;
+    struct net *net = get_current_net();
     int err;
 
     if (len > 0)
@@ -100,7 +110,7 @@ static int exasock_dst_queue(uint32_t addr, uint32_t *src_addr,
         }
     }
 
-    return exasock_dst_insert(addr, src_addr, skb);
+    return exasock_dst_insert(net, addr, src_addr, skb);
 
 err_copy_from_user:
     kfree_skb(skb);
@@ -224,6 +234,7 @@ static int exasock_socket_mmap(struct exasock_hdr *common,
 static int exasock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
     void *priv = filp->private_data;
+    struct net *net = get_current_net();
 
     if (vma->vm_pgoff >= (EXASOCK_OFFSET_EPOLL_STATE / PAGE_SIZE))
         return exasock_epoll_state_mmap((struct exasock_epoll *)priv, vma);
@@ -232,9 +243,9 @@ static int exasock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_RX_BUFFER / PAGE_SIZE))
         return exasock_socket_mmap((struct exasock_hdr *)priv, vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_DST_USED_FLAGS / PAGE_SIZE))
-        return exasock_dst_used_flags_mmap(vma);
+        return exasock_dst_used_flags_mmap(net, vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_DST_TABLE / PAGE_SIZE))
-        return exasock_dst_table_mmap(vma);
+        return exasock_dst_table_mmap(net, vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_SOCKET_STATE / PAGE_SIZE))
         return exasock_socket_mmap((struct exasock_hdr *)priv, vma);
     else
@@ -388,7 +399,8 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             if (copy_from_user(&req, (void *)arg, sizeof(req)) != 0)
                 return -EFAULT;
 
-            err = exasock_dst_queue(req.dst_addr, &req.src_addr, req.ip_packet,
+            err = exasock_dst_queue(
+                                    req.dst_addr, &req.src_addr, req.ip_packet,
                                     req.ip_packet_len);
             if (err)
                 return err;
@@ -639,7 +651,7 @@ static int __init exasock_init(void)
         goto err_vmalloc;
 
     exasock_info_page->api_version = EXASOCK_API_VERSION;
-    exasock_info_page->dst_table_size = exasock_dst_table_size();
+    exasock_info_page->dst_table_size = exasock_dst_table_size(&init_net);
 
     /* Create /dev/exasock device */
     exasock_dev.minor = MISC_DYNAMIC_MINOR;
