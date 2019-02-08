@@ -18,7 +18,8 @@
 #include "../exanic/exanic.h"
 #include "exasock.h"
 
-int exasock_ip_send(uint8_t proto, uint32_t dst_addr, uint32_t src_addr,
+int exasock_ip_send(struct net *net,
+                    uint8_t proto, uint32_t dst_addr, uint32_t src_addr,
                     struct sk_buff *skb)
 {
     struct iphdr *iph;
@@ -38,5 +39,8 @@ int exasock_ip_send(uint8_t proto, uint32_t dst_addr, uint32_t src_addr,
 
     skb_reset_network_header(skb);
 
-    return exasock_dst_insert(dst_addr, &src_addr, skb);
+    if (net != NULL)
+        return exasock_dst_insert(net, dst_addr, &src_addr, skb);
+    else
+        return 0;
 }
