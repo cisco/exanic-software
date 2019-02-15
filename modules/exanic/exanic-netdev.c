@@ -1135,6 +1135,51 @@ static struct net_device_ops exanic_ndos = {
 
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+static int exanic_netdev_get_link_ksettings(struct net_device *ndev,
+                                            struct ethtool_link_ksettings *settings)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    uint32_t reg;
+
+    reg = readl(&priv->registers[REG_EXANIC_INDEX(REG_EXANIC_CAPS)]);
+    ethtool_link_ksettings_zero_link_mode(settings, supported);
+    ethtool_link_ksettings_add_link_mode(settings, supported, FIBRE);
+    if (reg & EXANIC_CAP_100M) {
+        ethtool_link_ksettings_add_link_mode(settings, supported, 100baseT_Full);
+        ethtool_link_ksettings_add_link_mode(settings, supported, Autoneg);
+    }
+    if (reg & EXANIC_CAP_1G) {
+        ethtool_link_ksettings_add_link_mode(settings, supported, 1000baseT_Full);
+        ethtool_link_ksettings_add_link_mode(settings, supported, 1000baseKX_Full);
+        ethtool_link_ksettings_add_link_mode(settings, supported, Autoneg);
+    }
+    if (reg & EXANIC_CAP_10G)
+        ethtool_link_ksettings_add_link_mode(settings, supported, 10000baseKR_Full);
+    if (reg & EXANIC_CAP_40G) {
+        ethtool_link_ksettings_add_link_mode(settings, supported, 40000baseCR4_Full);
+        ethtool_link_ksettings_add_link_mode(settings, supported, 40000baseSR4_Full);
+        ethtool_link_ksettings_add_link_mode(settings, supported, 40000baseLR4_Full);
+    }
+
+    reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_SPEED)]);
+    settings->base.speed = reg;
+
+    settings->base.duplex = DUPLEX_FULL;
+    settings->base.port = PORT_FIBRE;
+    settings->base.transceiver = XCVR_INTERNAL;
+
+    reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_FLAGS)]);
+    if (reg & EXANIC_PORT_FLAG_AUTONEG_ENABLE)
+        settings->base.autoneg = AUTONEG_ENABLE;
+    else
+        settings->base.autoneg = AUTONEG_DISABLE;
+
+    return 0;
+}
+
+#else // LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+
 static int exanic_netdev_get_settings(struct net_device *ndev,
                                       struct ethtool_cmd *cmd)
 {
@@ -1170,15 +1215,28 @@ static int exanic_netdev_get_settings(struct net_device *ndev,
     return 0;
 }
 
+#endif // LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+static int exanic_netdev_set_link_ksettings(struct net_device *ndev,
+                                            const struct ethtool_link_ksettings *settings)
+#else
 static int exanic_netdev_set_settings(struct net_device *ndev,
                                       struct ethtool_cmd *cmd)
+#endif
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     uint32_t reg, speed, caps;
+    bool autoneg_enable;
 
     caps = readl(&priv->registers[REG_EXANIC_INDEX(REG_EXANIC_CAPS)]);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+    speed = settings->base.speed;
+#else
     speed = ethtool_cmd_speed(cmd);
+#endif
+
     reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_SPEED)]);
     if (speed != reg)
     {
@@ -1213,7 +1271,13 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
     }
 
     reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_FLAGS)]);
-    if (cmd->autoneg == AUTONEG_ENABLE)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+    autoneg_enable = settings->base.autoneg == AUTONEG_ENABLE;
+#else
+    autoneg_enable = cmd->autoneg == AUTONEG_ENABLE;
+#endif
+
+    if (autoneg_enable)
         reg |= EXANIC_PORT_FLAG_AUTONEG_ENABLE;
     else
         reg &= ~EXANIC_PORT_FLAG_AUTONEG_ENABLE;
@@ -1226,8 +1290,7 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
                     priv->exanic->hw_id == EXANIC_HW_X40 ||
                     priv->exanic->hw_id == EXANIC_HW_V5P ||
                     priv->exanic->hw_id == EXANIC_HW_X25)
-        exanic_x4_x2_save_autoneg(priv->exanic, priv->port,
-                                  cmd->autoneg == AUTONEG_ENABLE);
+        exanic_x4_x2_save_autoneg(priv->exanic, priv->port, autoneg_enable);
 
     return 0;
 }
@@ -1498,8 +1561,6 @@ static int exanic_get_module_eeprom(struct net_device *ndev,
 #endif /* ETHTOOL_GMODULEINFO */
 
 static struct ethtool_ops exanic_ethtool_ops = {
-    .get_settings           = exanic_netdev_get_settings,
-    .set_settings           = exanic_netdev_set_settings,
     .get_drvinfo            = exanic_netdev_get_drvinfo,
     .get_link               = exanic_netdev_get_link,
     .get_strings            = exanic_netdev_get_strings,
@@ -1508,12 +1569,21 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_sset_count         = exanic_netdev_get_sset_count,
     .get_coalesce           = exanic_netdev_get_coalesce,
     .set_coalesce           = exanic_netdev_set_coalesce,
+
 #if defined(ETHTOOL_GMODULEINFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .get_module_info        = exanic_get_module_info,
     .get_module_eeprom      = exanic_get_module_eeprom,
 #endif
 #if defined(ETHTOOL_GET_TS_INFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .get_ts_info            = exanic_netdev_get_ts_info,
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+    .get_link_ksettings     = exanic_netdev_get_link_ksettings,
+    .set_link_ksettings     = exanic_netdev_set_link_ksettings,
+#else
+    .get_settings           = exanic_netdev_get_settings,
+    .set_settings           = exanic_netdev_set_settings,
 #endif
 };
 
