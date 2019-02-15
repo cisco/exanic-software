@@ -79,6 +79,15 @@ MODULE_PARM_DESC(txbuf_size_min,
 #define SIOCGHWTSTAMP 0x89b1
 #endif
 
+/* Define QSFP types and page lengths if not already defined */
+#ifndef ETH_MODULE_SFF_8436
+#define ETH_MODULE_SFF_8436             0x4
+#endif
+
+#ifndef ETH_MODULE_SFF_8436_LEN
+#define ETH_MODULE_SFF_8436_LEN         256
+#endif
+
 /* Loop timeout when waiting for feedback. */
 #define FEEDBACK_TIMEOUT                10000
 
@@ -1422,59 +1431,65 @@ static int exanic_get_module_info(struct net_device *ndev,
                                   struct ethtool_modinfo *minfo)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    bool is_qsfp_card = (priv->exanic->hw_id == EXANIC_HW_X40) || (priv->exanic->hw_id == EXANIC_HW_V5P);
     bool has_diag = false;
-    exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
 
-    minfo->type = has_diag ? ETH_MODULE_SFF_8472 : ETH_MODULE_SFF_8079;
-    minfo->eeprom_len = has_diag ? SFP_ETHTOOL_SIZE : SFP_EEPROM_SIZE;
+    if (is_qsfp_card)
+    {
+        minfo->type       = ETH_MODULE_SFF_8436;
+        minfo->eeprom_len = ETH_MODULE_SFF_8436_LEN;
+    }
+    else
+    {
+        exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
+        if (has_diag)
+        {
+            minfo->type       = ETH_MODULE_SFF_8472;
+            minfo->eeprom_len = ETH_MODULE_SFF_8472_LEN;
+        }
+        else
+        {
+            minfo->type       = ETH_MODULE_SFF_8079;
+            minfo->eeprom_len = ETH_MODULE_SFF_8079_LEN;
+        }
+    }
     return 0;
 }
 
 static int exanic_get_module_eeprom(struct net_device *ndev,
                                     struct ethtool_eeprom *eeep, u8 *data)
 {
-    int err;
-    size_t eeprom_size;
-    int eeprom_bytes, diag_bytes;
-    size_t diag_offset;
-    size_t last_byte;
-
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     char stackbuff[SFP_ETHTOOL_SIZE] = {0}, *stackptr = &stackbuff[0];
-    bool has_diag = false;
+    size_t offset, len_remaining, eeprom_bytes;
+    int err;
 
-    /* determine whether the diagnostics page at A2h exists */
-    exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
-    eeprom_size = SFP_EEPROM_SIZE + (has_diag ? SFP_DIAG_SIZE : 0);
-
-    last_byte = (size_t)eeep->offset - 1 + eeep->len;
-
-    if (last_byte >= eeprom_size)
-    {
+    offset = eeep->offset;
+    len_remaining = eeep->len;
+    if (offset + len_remaining > SFP_ETHTOOL_SIZE)
         return -EINVAL;
-    }
 
-    /* read A0 */
-    eeprom_bytes = SFP_EEPROM_SIZE - eeep->offset;
-    if (eeprom_bytes > 0)
+    /* read EEPROM data from I2C address A0 */
+    if (offset < SFP_EEPROM_SIZE)
     {
-        err = exanic_sfp_eeprom_read(priv->exanic, priv->port, (uint8_t)eeep->offset,
-                                     stackptr, (size_t)eeprom_bytes);
+        eeprom_bytes = min(len_remaining, SFP_EEPROM_SIZE-offset);
+        err = exanic_sfp_eeprom_read(priv->exanic, priv->port, (uint8_t)offset,
+                                     stackptr, eeprom_bytes);
         if (err)
-            return err;
+            return -EIO;
 
         stackptr += eeprom_bytes;
+        offset += eeprom_bytes;
+        len_remaining -= eeprom_bytes;
     }
 
-    /* read A2 */
-    diag_bytes = eeep->len - eeprom_bytes;
-    diag_offset = eeep->offset < SFP_EEPROM_SIZE ? 0: eeep->offset;
-    if (diag_bytes > 0)
+    /* read diagnostics data from I2C address A2 */
+    if (len_remaining > 0)
     {
-        err = exanic_sfp_diag_read(priv->exanic, priv->port, (uint8_t)diag_offset,
-                                   stackptr, (size_t)diag_bytes);
+        err = exanic_sfp_diag_read(priv->exanic, priv->port, (uint8_t)(offset-SFP_EEPROM_SIZE),
+                                   stackptr, len_remaining);
         if (err)
-            return err;
+            return -EIO;
     }
     memcpy(data, stackbuff, (size_t)eeep->len);
     return 0;
