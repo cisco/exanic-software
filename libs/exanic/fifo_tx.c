@@ -299,6 +299,8 @@ static struct tx_chunk * exanic_prepare_tx_chunk(exanic_tx_t *tx,
              FEEDBACK_INTERVAL)
         /* Too many bytes since last feedback request */
         tx->need_feedback = 1;
+    else
+        tx->need_feedback = 0;
 
     return (struct tx_chunk *)(tx->buffer + tx->next_offset);
 }
