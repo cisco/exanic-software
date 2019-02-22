@@ -727,7 +727,7 @@ usage_error:
     fprintf(stderr, "  -C: file size at which to start a new save file (in millions of bytes)\n");
     fprintf(stderr, "  -F: file format [pcap|erf] (default is pcap)\n");
     fprintf(stderr, "  -p: do not attempt to put interface in promiscuous mode\n");
-    fprintf(stderr, "  -H: use hardware timestamps (requires exanic-clock-sync or exanic-ptpd)\n");
+    fprintf(stderr, "  -H: use hardware timestamps (refer to documentation on how to sync clock)\n");
     fprintf(stderr, "  -N: write nanosecond-resolution pcap format\n\n");
     fprintf(stderr, "Filter examples:\n");
     fprintf(stderr, "  tcp port 80                   (to/from tcp port 80)\n");
