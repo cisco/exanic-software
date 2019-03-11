@@ -492,7 +492,7 @@ exa_tcp_tx_buffer_empty(struct exa_socket * restrict sock)
 {
     struct exa_tcp_state * restrict tcp = &sock->state->p.tcp;
 
-    return (tcp->send_ack == tcp->send_seq);
+    return seq_compare(tcp->send_seq, tcp->send_ack) <= 0;
 }
 
 #endif /* EXASOCK_TCP_BUFFER_H */

@@ -606,7 +606,11 @@ static void exasock_tcp_stats_get_snapshot_conn(struct exasock_tcp *tcp,
     state = tcp_st->state;
 
     ssbrf->recv_q = recv_seq - read_seq;
-    ssbrf->send_q = send_seq - send_ack;
+
+    if (unlikely(after(send_ack, send_seq)))
+        ssbrf->send_q = 0;
+    else
+        ssbrf->send_q = send_seq - send_ack;
 
     if (ssconn != NULL)
     {
@@ -2299,7 +2303,7 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             /* Duplicate ACK */
             uint32_t send_seq = state->p.tcp.send_seq;
 
-            if (ack_seq != send_seq && datalen == 0)
+            if (before(ack_seq, send_seq) && datalen == 0)
                 tcp->dup_acks.cnt++;
         }
         else
@@ -2361,7 +2365,11 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
             send_ack = state->p.tcp.send_ack;
 
             /* Adjust cwnd and ssthresh */
-            flight_size = send_seq - send_ack;
+            if (likely(before(send_ack, send_seq)))
+                flight_size = send_seq - send_ack;
+            else
+                flight_size = 0;
+
             ssthresh = flight_size / 2;
             if (ssthresh < 2 * EXA_TCP_MSS)
                 ssthresh = 2 * EXA_TCP_MSS;
@@ -2805,16 +2813,11 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
         }
     }
     /*
-     * Note: after transmitting all payload bytes, send_seq stops
-     *       updating, but send_ack continues to update
-     *
-     * With that in mind, the ugly boolean expression below says:
-     *
-     * if send_ack equals send_seq when we are sending payload,
-     * or send_ack == send_seq + 1 when we have received an ack
-     * in FIN handshake, then no acks are pending; otherwise...
+     * Note: after having transmitted all payload bytes, send_seq stops
+     *       updating, but send_ack continues to update as new acks
+     *       arrive, hence the separate cases
      */
-    else if (!(tcp_state == EXA_TCP_ESTABLISHED && send_ack == send_seq) &&
+    else if (!(tcp_state == EXA_TCP_ESTABLISHED && after_eq(send_ack, send_seq)) &&
              !(tcp_state == EXA_TCP_FIN_WAIT_2 && send_ack == send_seq + 1))
     {
         /* ACKs are pending from the remote host, reset retransmit countdown
@@ -3197,11 +3200,10 @@ static void exasock_tcp_retransmit(struct exasock_tcp *tcp, bool fast_retrans)
     }
     else
     {
-        len = send_seq - send_ack;
-
-        if (len == 0)
+        if (after_eq(send_ack, send_seq))
             return;
 
+        len = send_seq - send_ack;
         if (len > rmss)
             len = rmss;
     }
