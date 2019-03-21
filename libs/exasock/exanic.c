@@ -310,6 +310,7 @@ err_acquire_handle:
 static void
 exanic_ip_free(struct exanic_ip *ctx)
 {
+    exanic_release_tx_buffer(ctx->exanic_tx);
     exanic_release_rx_buffer(ctx->exanic_rx);
     exanic_release_handle(ctx->exanic);
 
