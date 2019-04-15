@@ -59,6 +59,6 @@ ssize_t exanic_tcp_send_iov(struct exa_socket * restrict sock,
                             const struct iovec *iov, size_t iovcnt,
                             size_t skip_len, size_t data_len, bool warm);
 ssize_t exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf,
-                             size_t len);
+                             size_t len, bool *conn_closed);
 
 #endif /* EXASOCK_EXANIC_H */

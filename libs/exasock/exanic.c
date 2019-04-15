@@ -1635,7 +1635,8 @@ exanic_tcp_send(struct exa_socket * restrict sock, const void *buf, size_t len,
 }
 
 ssize_t
-exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
+exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf,
+                     size_t len, bool *conn_closed)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
     char hdr[MAX_HDR_LEN];
@@ -1646,6 +1647,17 @@ exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
 
     assert(sock->state->tx_lock);
     assert(ctx != NULL);
+
+    *conn_closed = false;
+
+    /* Retrieve the current send sequence number */
+    if (exa_tcp_max_seg_len(&ctx->tcp, false, &send_seq, &max_len) == -1)
+    {
+        /* No data can be sent in the current state
+         * Connection is either closed or not yet established */
+        *conn_closed = !exa_tcp_connecting(&ctx->tcp);
+        return -1;
+    }
 
     /* Try to get destination MAC address from the cache */
     if (exa_dst_update(&ctx->dst))
@@ -1658,10 +1670,6 @@ exanic_tcp_build_hdr(struct exa_socket * restrict sock, void *buf, size_t len)
         exa_sys_dst_request(ctx->dst.dst_addr, &src_addr);
         return -1;
     }
-
-    /* Retrieve the current send sequence number */
-    if (exa_tcp_max_seg_len(&ctx->tcp, false, &send_seq, &max_len) == -1)
-        return -1;
 
     /* Build headers for a zero-length packet */
     exa_tcp_build_hdr(&ctx->tcp, &hdr_ptr, &hdr_len, send_seq, NULL, 0, 0, 0);
