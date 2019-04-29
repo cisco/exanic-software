@@ -956,7 +956,7 @@ int exanic_get_num_ports(struct exanic *exanic)
     int port_idx;
     int port_status;
 
-    for(port_idx = 0; port_idx < 8; port_idx++)
+    for (port_idx = 0; port_idx < 8; port_idx++)
     {
         port_status = readl(exanic->regs_virt +
                       REG_PORT_OFFSET(port_idx, REG_PORT_STATUS));
@@ -1077,103 +1077,6 @@ static int exanic_probe(struct pci_dev *pdev,
     exanic->caps =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CAPS));
 
-    switch (exanic->hw_id)
-    {
-        case EXANIC_HW_X2:
-        case EXANIC_HW_X25:
-        case EXANIC_HW_X10:
-        case EXANIC_HW_X10_GM:
-        case EXANIC_HW_X10_HPT:
-            exanic->num_ports = 2;
-            break;
-        case EXANIC_HW_Z1:
-        case EXANIC_HW_Z10:
-        case EXANIC_HW_X4:
-            exanic->num_ports = 4;
-            break;
-        case EXANIC_HW_X40:
-        case EXANIC_HW_V5P:
-            exanic->num_ports = exanic_get_num_ports(exanic);
-            break;
-        default:
-            exanic->num_ports = 0;
-    }
-
-    if (exanic->hw_id == EXANIC_HW_Z1 || exanic->hw_id == EXANIC_HW_Z10)
-    {
-        exanic->max_filter_buffers = 0;
-    }
-    else
-    {
-        exanic->max_filter_buffers =
-            readl(exanic->regs_virt +
-                            REG_EXANIC_OFFSET(REG_EXANIC_NUM_FILTER_BUFFERS));
-    }
-
-    /* Set up and map the development kit memory if present. */
-    if ((exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4 ||
-            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_V5P || exanic->hw_id == EXANIC_HW_X25) &&
-                exanic->function_id == EXANIC_FUNCTION_DEVKIT)
-    {
-        exanic->devkit_regs_offset =
-            readl(exanic->regs_virt +
-                REG_EXANIC_OFFSET(REG_EXANIC_DEVKIT_REGISTERS_OFFSET));
-        exanic->devkit_mem_offset =
-            readl(exanic->regs_virt +
-                REG_EXANIC_OFFSET(REG_EXANIC_DEVKIT_MEMORY_OFFSET));
-        if (exanic->devkit_regs_offset > 0 &&
-                exanic->devkit_mem_offset > 0)
-        {
-            exanic->devkit_regs_phys = exanic->regs_phys +
-                exanic->devkit_regs_offset;
-            exanic->devkit_regs_virt =
-                ioremap_nocache(exanic->devkit_regs_phys,
-                    exanic->devkit_regs_offset);
-            dev_info(dev,
-                "Devkit regs at phys: 0x%pap, virt: 0x%p, size: %u bytes.\n",
-                &exanic->devkit_regs_phys, exanic->devkit_regs_virt,
-                    exanic->devkit_regs_offset);
-
-            /* Configure Devkit memory region */
-            if (pci_resource_flags(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
-                    & IORESOURCE_MEM)
-            {
-                exanic->devkit_mem_phys
-                    = pci_resource_start(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
-                        + exanic->devkit_mem_offset;
-                exanic->devkit_mem_virt =
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
-                    ioremap_wc(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
-#else
-                    ioremap(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
-#endif
-
-                dev_info(dev, "Devkit memory at phys: 0x%pap, size: %u bytes.\n",
-                    &exanic->devkit_mem_phys, exanic->devkit_mem_offset);
-            }
-            else
-            {
-                dev_info(dev,
-                    "Devkit memory not available. (BAR %u is not a memory resource.)\n",
-                    EXANIC_DEVKIT_MEMORY_REGION_BAR);
-
-                exanic->devkit_mem_offset = 0;
-                exanic->devkit_mem_phys = 0;
-                exanic->devkit_regs_virt = NULL;
-            }
-        }
-    }
-    else
-    {
-        exanic->devkit_regs_offset = 0;
-        exanic->devkit_mem_offset = 0;
-        exanic->devkit_regs_phys = 0;
-        exanic->devkit_mem_phys = 0;
-        exanic->devkit_regs_virt = NULL;
-        exanic->devkit_mem_virt = NULL;
-    }
-
     /* Capabilities register returns a bogus value on the Z10 */
     if (exanic->hw_id == EXANIC_HW_Z10)
         exanic->caps = 0;
@@ -1210,6 +1113,7 @@ static int exanic_probe(struct pci_dev *pdev,
         exanic->misc_dev.name = exanic->name;
         exanic->misc_dev.fops = &exanic_fops;
         exanic->unsupported = true;
+        exanic->num_ports = 0;
         err = misc_register(&exanic->misc_dev);
         if (err)
         {
@@ -1269,21 +1173,27 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_dma_mask;
     }
 
-    /* Filter space is in same BAR as register space */
-    if (exanic->regs_size > EXANIC_PGOFF_FILTERS * PAGE_SIZE)
+    /* Determine number of ports */
+    switch (exanic->hw_id)
     {
-        exanic->filters_size = exanic->regs_size - EXANIC_PGOFF_FILTERS * PAGE_SIZE;
-        exanic->filters_phys = exanic->regs_phys + EXANIC_PGOFF_FILTERS * PAGE_SIZE;
-
-        dev_info(dev, "Filters at phys: 0x%pap, size: %zu bytes.\n",
-            &exanic->filters_phys, exanic->filters_size);
-    }
-    else
-    {
-        dev_info(dev, "Filters not available.\n");
-
-        exanic->filters_size = 0;
-        exanic->filters_phys = 0;
+        case EXANIC_HW_X2:
+        case EXANIC_HW_X25:
+        case EXANIC_HW_X10:
+        case EXANIC_HW_X10_GM:
+        case EXANIC_HW_X10_HPT:
+            exanic->num_ports = 2;
+            break;
+        case EXANIC_HW_Z1:
+        case EXANIC_HW_Z10:
+        case EXANIC_HW_X4:
+            exanic->num_ports = 4;
+            break;
+        case EXANIC_HW_X40:
+        case EXANIC_HW_V5P:
+            exanic->num_ports = exanic_get_num_ports(exanic);
+            break;
+        default:
+            exanic->num_ports = 0;
     }
 
     /* Configure TX region */
@@ -1513,6 +1423,13 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Configure flow steering. */
+    if (exanic->hw_id == EXANIC_HW_Z1 || exanic->hw_id == EXANIC_HW_Z10)
+        exanic->max_filter_buffers = 0;
+    else
+        exanic->max_filter_buffers =
+            readl(exanic->regs_virt +
+                            REG_EXANIC_OFFSET(REG_EXANIC_NUM_FILTER_BUFFERS));
+
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
     {
         unsigned port_status = readl(exanic->regs_virt +
@@ -1580,6 +1497,100 @@ static int exanic_probe(struct pci_dev *pdev,
                 goto err_flow_steering;
             }
         }
+    }
+
+    /* Filter space is in same BAR as register space */
+    if (exanic->regs_size > EXANIC_PGOFF_FILTERS * PAGE_SIZE)
+    {
+        exanic->filters_size = exanic->regs_size - EXANIC_PGOFF_FILTERS * PAGE_SIZE;
+        exanic->filters_phys = exanic->regs_phys + EXANIC_PGOFF_FILTERS * PAGE_SIZE;
+
+        dev_info(dev, "Filters at phys: 0x%pap, size: %zu bytes.\n",
+            &exanic->filters_phys, exanic->filters_size);
+    }
+    else
+    {
+        dev_info(dev, "Filters not available.\n");
+
+        exanic->filters_size = 0;
+        exanic->filters_phys = 0;
+    }
+
+    /* Set up and map the development kit memory if present. */
+    if ((exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4 ||
+            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
+            exanic->hw_id == EXANIC_HW_V5P || exanic->hw_id == EXANIC_HW_X25) &&
+                exanic->function_id == EXANIC_FUNCTION_DEVKIT)
+    {
+        exanic->devkit_regs_offset =
+            readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_DEVKIT_REGISTERS_OFFSET));
+        exanic->devkit_mem_offset =
+            readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_DEVKIT_MEMORY_OFFSET));
+        if (exanic->devkit_regs_offset > 0 &&
+                exanic->devkit_mem_offset > 0)
+        {
+            exanic->devkit_regs_phys = exanic->regs_phys +
+                exanic->devkit_regs_offset;
+            exanic->devkit_regs_virt =
+                ioremap_nocache(exanic->devkit_regs_phys,
+                    exanic->devkit_regs_offset);
+            if (!exanic->devkit_regs_virt)
+            {
+                dev_err(dev, "Devkit registers ioremap_nocache failed.\n");
+                err = -EIO;
+                goto err_devkit_regs_ioremap;
+            }
+
+            dev_info(dev,
+                "Devkit regs at phys: 0x%pap, virt: 0x%p, size: %u bytes.\n",
+                &exanic->devkit_regs_phys, exanic->devkit_regs_virt,
+                    exanic->devkit_regs_offset);
+
+            /* Configure Devkit memory region */
+            if (pci_resource_flags(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
+                    & IORESOURCE_MEM)
+            {
+                exanic->devkit_mem_phys
+                    = pci_resource_start(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
+                        + exanic->devkit_mem_offset;
+                exanic->devkit_mem_virt =
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
+                    ioremap_wc(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
+#else
+                    ioremap(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
+#endif
+
+                if (!exanic->devkit_mem_virt)
+                {
+                    dev_err(dev, "Devkit memory ioremap failed.\n");
+                    err = -EIO;
+                    goto err_devkit_mem_ioremap;
+                }
+                dev_info(dev, "Devkit memory at phys: 0x%pap, size: %u bytes.\n",
+                    &exanic->devkit_mem_phys, exanic->devkit_mem_offset);
+            }
+            else
+            {
+                dev_info(dev,
+                    "Devkit memory not available. (BAR %u is not a memory resource.)\n",
+                    EXANIC_DEVKIT_MEMORY_REGION_BAR);
+
+                exanic->devkit_mem_offset = 0;
+                exanic->devkit_mem_phys = 0;
+                exanic->devkit_regs_virt = NULL;
+            }
+        }
+    }
+    else
+    {
+        exanic->devkit_regs_offset = 0;
+        exanic->devkit_mem_offset = 0;
+        exanic->devkit_regs_phys = 0;
+        exanic->devkit_mem_phys = 0;
+        exanic->devkit_regs_virt = NULL;
+        exanic->devkit_mem_virt = NULL;
     }
 
     /* Fill in ATE information */
@@ -1692,6 +1703,10 @@ err_miscdev:
 err_netdev:
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
         exanic_netdev_free(exanic->ndev[port_num]);
+    iounmap(exanic->devkit_mem_virt);
+err_devkit_mem_ioremap:
+    iounmap(exanic->devkit_regs_virt);
+err_devkit_regs_ioremap:
 err_flow_steering:
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
     {
@@ -1803,6 +1818,12 @@ static void exanic_remove(struct pci_dev *pdev)
 
     if (exanic->info_page != NULL)
         vfree(exanic->info_page);
+
+    if (exanic->devkit_mem_virt != NULL)
+        iounmap(exanic->devkit_mem_virt);
+
+    if (exanic->devkit_regs_virt != NULL)
+        iounmap(exanic->devkit_regs_virt);
 
     if (exanic->tx_feedback_virt != NULL)
         dma_free_coherent(&exanic->pci_dev->dev,
