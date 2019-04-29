@@ -42,4 +42,6 @@ int exa_sys_ate_enable(int fd, int ate_id);
 int exa_sys_ate_init(int fd);
 int exa_sys_get_isn(int fd, uint32_t *isn);
 
+pid_t exa_sys_get_tid();
+
 #endif /* EXASOCK_SYS_H */

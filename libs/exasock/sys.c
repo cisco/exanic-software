@@ -8,6 +8,7 @@
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -516,4 +517,16 @@ exa_sys_get_isn(int fd, uint32_t *isn)
     exasock_override_on();
 
     return ret;
+}
+
+pid_t
+exa_sys_get_tid()
+{
+#ifdef SYS_gettid
+    return syscall(SYS_gettid);
+#else
+#warning "gettid system call is unavailable!"
+#warning "exasock trace output will not look correct."
+    return getpid();
+#endif
 }

@@ -17,13 +17,19 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <poll.h>
+#include <assert.h>
 
 #include "trace.h"
+#include "../lock.h"
 
 #ifndef NDEBUG
 
 int __trace_enabled = 0;
-int __thread __trace_nest_level = 0;
+static uint32_t trace_flush_lock;
+/* the current tracing thread */
+static pid_t __trace_thread;
+
+struct __trace_state __thread __trace_state;
 
 __attribute__((constructor))
 void
@@ -218,19 +224,93 @@ struct __trace_enum_table __trace_bits_epoll_events[] =
     {0, NULL}
 };
 
+static void
+__trace_vprintf_immediate(bool returning, const char *fmt, va_list args)
+{
+    exa_lock(&trace_flush_lock);
+    pid_t curr_thread = exa_sys_get_tid(),
+          last_thread = __trace_thread;
+
+    /* we've interrupted someone */
+    bool interrupting =
+        (curr_thread != last_thread && last_thread != -1);
+    /* someone interrupted us */
+    bool resuming = (curr_thread != last_thread) && __trace_started;
+    /* should prefix with thread ID */
+    bool print_pid = resuming || interrupting || !__trace_started;
+
+    if (interrupting)
+        printf(" "TRACE_UNFINISHED"\n");
+
+    if (print_pid)
+        printf(TRACE_PID" ", curr_thread);
+
+    if (resuming)
+        printf(TRACE_RESUMED" ",
+            __trace_in_handler ? "(sig handler)" :
+                                 __trace_curr_func);
+    vprintf(fmt, args);
+    if (returning)
+        __trace_thread = -1;
+    else
+    {
+        __trace_thread = curr_thread;
+        __trace_started = true;
+    }
+
+    exa_unlock(&trace_flush_lock);
+    fflush(stdout);
+}
+
+static void
+__trace_printf_immediate(bool returning, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    __trace_vprintf_immediate(returning, fmt, ap);
+    va_end(ap);
+}
+
+void
+__trace_flush(bool returning)
+{
+    if (!__trace_buffer_size)
+        return;
+
+    __trace_printf_immediate(returning, "%.*s",
+                             __trace_buffer_size, __trace_buffer);
+    __trace_buffer_size = 0;
+}
+
 void
 __trace_printf(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(stdout, fmt, ap);
+    size_t len = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
-}
 
-void
-__trace_flush(void)
-{
-    fflush(stdout);
+    /* string too long to fit in temp buffer?
+     * print immediately */
+    if (len >= __trace_buffer_cap)
+    {
+        __trace_flush(false);
+        va_start(ap, fmt);
+        __trace_vprintf_immediate(false, fmt, ap);
+        va_end(ap);
+        return;
+    }
+
+    if (__trace_buffer_size + len >= __trace_buffer_cap)
+        __trace_flush(false);
+
+    va_start(ap, fmt);
+    vsnprintf(__trace_buffer + __trace_buffer_size,
+              __trace_buffer_cap - __trace_buffer_size - 1,
+              fmt, ap);
+    va_end(ap);
+
+    __trace_buffer_size += len;
 }
 
 void
