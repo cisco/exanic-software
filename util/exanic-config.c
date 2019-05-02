@@ -332,6 +332,14 @@ void show_device_info(const char *device, int port_number, int verbose)
 
     if (verbose)
     {
+        if (hw_type == EXANIC_HW_X25)
+        {
+            uint32_t ddr_fitted = exanic_register_read(exanic,
+                    REG_EXANIC_INDEX(REG_EXANIC_FEATURE_CFG))
+                    & EXANIC_STATUS_HW_DRAM_PRES;
+            printf("  DDR4 DRAM: %s\n", ddr_fitted ? "present" : "not present");
+        }
+
         uint8_t serial[SERIAL_LEN] = {0};
         if (exanic_i2c_eeprom_read (exanic, SERIAL_ADDRESS, (char*) serial,
                                     SERIAL_LEN) == -1)
@@ -353,7 +361,7 @@ void show_device_info(const char *device, int port_number, int verbose)
         hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
         hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
         hw_type == EXANIC_HW_X40  || hw_type == EXANIC_HW_X10_HPT ||
-        hw_type == EXANIC_HW_V5P)
+        hw_type == EXANIC_HW_V5P || hw_type == EXANIC_HW_X25)
     {
         uint32_t temp, vccint, vccaux;
         double temp_real=0, vccint_real=0, vccaux_real=0;

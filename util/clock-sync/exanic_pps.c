@@ -106,8 +106,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     }
     else if (((hw_id == EXANIC_HW_X10) || (hw_id == EXANIC_HW_X10_GM) ||
                 (hw_id == EXANIC_HW_X40 || (hw_id == EXANIC_HW_V5P) ||
-                (hw_id == EXANIC_HW_X10_HPT))) &&
-            pps_type == PPS_DIFFERENTIAL)
+                (hw_id == EXANIC_HW_X10_HPT) || (hw_id == EXANIC_HW_X25)))
+            && pps_type == PPS_DIFFERENTIAL)
     {
         log_printf(LOG_WARNING, "%s: %s does not support differential PPS input",
                 state->name, exanic_hardware_id_str(hw_id));
@@ -157,7 +157,7 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     }
     else if ((hw_id == EXANIC_HW_X10) || (hw_id == EXANIC_HW_X10_GM) ||
             (hw_id == EXANIC_HW_X40) || (hw_id == EXANIC_HW_X10_HPT) ||
-            (hw_id == EXANIC_HW_V5P))
+            (hw_id == EXANIC_HW_V5P) || (hw_id == EXANIC_HW_X25))
     {
         /* PPS Termination Settings */
         uint32_t reg;

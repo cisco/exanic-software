@@ -101,6 +101,7 @@ enum
      * (see \ref exanic_feature_cfg_t)
      * Availability: NIC only
      * Bitmap:
+     * [18]   - [RO] DDR4 fitted to this PCB (X25, X100 only)
      * [17]   - [RO] HW startup in progress
      * [16]   - [RW] Set to 0 to permanently clear the auxiliary enable signals
      * [15]   - reserved
@@ -1253,6 +1254,9 @@ typedef enum
 
     /** Wait until this bit is unset before initialising the card. */
     EXANIC_STATUS_HW_STARTUP    = 0x20000,
+
+    /** Set if this build variant has DDR4 DRAM fitted (X25, X100 only) */
+    EXANIC_STATUS_HW_DRAM_PRES  = 0x40000,
 } exanic_feature_cfg_t;
 
 /**
