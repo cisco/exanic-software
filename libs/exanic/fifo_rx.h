@@ -5,6 +5,8 @@
 #ifndef EXANIC_FIFO_RX_H
 #define EXANIC_FIFO_RX_H
 
+#include <unistd.h> /* for ssize_t */
+
 #include "exanic.h"
 #include "pcie_if.h"
 #include "fifo_if.h"
