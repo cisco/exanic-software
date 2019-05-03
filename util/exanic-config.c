@@ -2232,7 +2232,8 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
     else if (argc == 4 && strcmp(argv[2], "sfp") == 0
             && strcmp(argv[3], "status") == 0 && port_number != -1)
     {
-        return show_sfp_status(device, port_number);
+        show_sfp_status(device, port_number);
+        return 0;
     }
     else if (argc == 4 && strcmp(argv[2], "counters") == 0
             && strcmp(argv[3], "reset") == 0 && port_number != -1)
