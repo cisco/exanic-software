@@ -1,3 +1,20 @@
+2.3.0 [2019-05-03]
+* libexanic: avoid receiving partial frames after a software overflow
+* libexanic: fix throughput regression in exanic_transmit_frame introduced
+  in 2.2.1 (observed at high rate)
+* exasock: support for Exablaze Accelerated TCP Engine (ATE) which allows
+  sending TCP payloads from FPGA logic
+* exasock: fix race condition between poll and close causing possible crash
+* exasock: improve handling of ACKs for segments that have been sent on the
+  wire but not yet committed to the TX buffer
+* exasock: improve legibility of trace output for multithreaded programs
+* exasock: fix TX buffer leak when closing/opening connections
+* exasock TCP extensions: return EPIPE rather than EAGAIN on connection close
+* driver: compile fix for Linux 4.20+
+* driver: ethtool -m support for QSFPs
+* driver: fix missing unmap of FDK memory at unload
+* exanic-clock-sync: log maximum clock offset at PPS pulse
+
 2.2.2 [2018-12-21]
 * exasock: various TCP passive open bug fixes, including syn-ack retransmit
 * exasock: fix epoll issue where adding to epoll instances causes socket to

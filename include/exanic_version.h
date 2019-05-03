@@ -4,8 +4,8 @@
 /* Edit the 4 macros below should the version change */
 
 #define EXANIC_VERSION_MAJOR        2
-#define EXANIC_VERSION_MINOR        2
-#define EXANIC_VERSION_REV          2
+#define EXANIC_VERSION_MINOR        3
+#define EXANIC_VERSION_REV          0
 #define EXANIC_VERSION_EXTRA        "-git"
 
 /* Do not edit these macros */
