@@ -224,9 +224,41 @@ struct exa_socket_list
 extern struct exa_socket *exa_socket_table;
 extern size_t exa_socket_table_size;
 
-/* Poll lock protects the hardware rx buffer and related structs
- * The holder of the lock must poll for new packets in the rx buffer */
-extern uint32_t exasock_poll_lock __attribute__((aligned (64)));
+struct exasock_poll_sync
+{
+    /* Poll lock protects the hardware rx buffer and related structs
+     * The holder of the lock must poll for new packets in the rx buffer */
+    uint32_t lock;
+    /* code wishing to delete a socket increments "reclaim_req"
+     * exanic_poll sets reclaim_ack to reclaim_req, indicating the
+     * end of read critical section */
+    uint32_t reclaim_req;
+    uint32_t reclaim_ack;
+};
+
+extern struct exasock_poll_sync exasock_poll_sync;
+
+#define exasock_poll_lock           (exasock_poll_sync.lock)
+#define exasock_poll_reclaim_req    (exasock_poll_sync.reclaim_req)
+#define exasock_poll_reclaim_ack    (exasock_poll_sync.reclaim_ack)
+
+static inline void
+exa_socket_reclaim_sync(void)
+{
+    uint32_t req;
+
+    do
+        req = exasock_poll_reclaim_req;
+    while (!__sync_bool_compare_and_swap(&exasock_poll_reclaim_req,
+                                         req, req + 1));
+
+    /* if either no thread is holding the poll lock
+     * or if the current iteration of exanic_poll has finished
+     * then the socket is safe to reclaim */
+    while (exasock_poll_lock &&
+           (int32_t)(exasock_poll_reclaim_ack - req) <= 0)
+        sched_yield();
+}
 
 static inline struct exa_socket *
 exa_socket_get(int fd)

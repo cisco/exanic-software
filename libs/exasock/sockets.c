@@ -738,6 +738,9 @@ exa_socket_udp_close(struct exa_socket * restrict sock)
     else if (exa_socket_holds_interfaces(sock))
         exa_udp_remove(fd);
 
+    /* Wait for read critical section of socket to finish */
+    exa_socket_reclaim_sync();
+
     exa_socket_release_interfaces(sock);
     exanic_udp_free(sock);
 
@@ -986,10 +989,12 @@ exa_socket_tcp_close(struct exa_socket * restrict sock)
     assert(exa_write_locked(&sock->lock));
 
     if (exa_socket_holds_interfaces(sock))
-    {
         exa_tcp_remove(fd);
-        exa_socket_release_interfaces(sock);
-    }
+
+    /* Wait for read critical section of socket to finish */
+    exa_socket_reclaim_sync();
+
+    exa_socket_release_interfaces(sock);
     exanic_tcp_free(sock);
 
     sock->bound = false;

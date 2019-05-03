@@ -1012,6 +1012,7 @@ exanic_poll(void)
                 if (more_chunks)
                     exanic_receive_abort(ctx->exanic_rx);
 
+                exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
                 return fd;
 
             abort_udp_queue_write:
@@ -1105,6 +1106,7 @@ exanic_poll(void)
                 if (more_chunks)
                     exanic_receive_abort(ctx->exanic_rx);
 
+                exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
                 return fd;
 
             abort_tcp_rx_buffer_write:
@@ -1126,6 +1128,7 @@ exanic_poll(void)
     if (exanic_ctx_need_cleanup)
         exanic_ip_cleanup();
 
+    exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
     return -1;
 }
 

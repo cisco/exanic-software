@@ -21,8 +21,9 @@
 struct exa_socket *exa_socket_table;
 size_t exa_socket_table_size;
 
-uint32_t exasock_poll_lock __attribute__((aligned (64)));
 uint32_t exasock_tx_lock __attribute__((aligned (64)));
+
+struct exasock_poll_sync exasock_poll_sync __attribute__((aligned (64)));
 
 __attribute__((constructor))
 void

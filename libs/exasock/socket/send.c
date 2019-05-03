@@ -279,10 +279,7 @@ auto_bind(struct exa_socket * restrict sock, int sockfd,
              * On successful return we hold rx_lock and tx_lock */
             ret = exa_socket_enable_bypass(sock);
             if (ret == -1)
-            {
-                exa_write_unlock(&sock->lock);
                 return -1;
-            }
 
             exa_unlock(&sock->state->rx_lock);
             exa_unlock(&sock->state->tx_lock);
