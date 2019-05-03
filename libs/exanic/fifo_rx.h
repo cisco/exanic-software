@@ -55,7 +55,7 @@ typedef struct exanic_rx
  * \return A handle to the RX buffer.
  */
 exanic_rx_t * exanic_acquire_rx_buffer(exanic_t *exanic, int port_number,
-                                       int filter_number);
+                                       int buffer_number);
 
 /**
  * \brief Allocate and return an unused RX filter buffer for flow steering.
