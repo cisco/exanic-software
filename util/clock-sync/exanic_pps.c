@@ -45,6 +45,7 @@ struct exanic_pps_sync_state
     uint64_t last_log_ns; /* Time of last log message (ns since epoch) */
     time_t pps_last_seen; /* Time of last poll that a PPS pulse was detected
                              (CLOCK_MONOTONIC) */
+    double max_log_pps_offset; /* Max observed offset since last log entry (ns) */
 };
 
 
@@ -207,6 +208,8 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     state->log_reset = 0;
     state->last_log_ns = 0;
     state->pps_last_seen = ts_mono.tv_sec;
+    state->max_log_pps_offset = 0;
+
     reset_rate_error(&state->rate, state->interval);
 
     update_phc_status(clkfd, PHC_STATUS_UNKNOWN);
@@ -376,6 +379,8 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
         {
             state->pps_offset = pps_offset;
             state->pps_time = time_sec;
+            if (fabs(state->pps_offset) > fabs(state->max_log_pps_offset))
+                state->max_log_pps_offset = state->pps_offset;
             good_pps_seen = 1;
         }
 
@@ -418,22 +423,30 @@ enum sync_status poll_exanic_pps_sync(struct exanic_pps_sync_state *state)
             if (!rate_error_known)
             {
                 log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
-                        "%.4f us", state->name, state->pps_offset * 0.001);
+                        "%.4f us  max offset: %.4f us", state->name,
+                        state->pps_offset * 0.001,
+                        state->max_log_pps_offset * 0.001);
             }
             else if (!adev_known)
             {
                 log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
-                        "%.4f us  drift: %.4f ppm", state->name,
-                        state->pps_offset * 0.001, rate_error * 1000000);
+                        "%.4f us  max offset: %.4f us  drift: %.4f ppm",
+                        state->name, state->pps_offset * 0.001,
+                        state->max_log_pps_offset * 0.001,
+                        rate_error * 1000000);
             }
             else
             {
                 log_printf(LOG_INFO, "%s: Clock offset at PPS pulse: "
-                        "%.4f us  drift: %.4f ppm  adev: %.3e",
+                        "%.4f us  max offset: %.4f us  drift: %.4f ppm"
+                        "  adev: %.3e",
                         state->name, state->pps_offset * 0.001,
+                        state->max_log_pps_offset * 0.001,
                         rate_error * 1000000, adev);
             }
+
             state->last_log_ns = poll_time_ns;
+            state->max_log_pps_offset = 0;
         }
 
         /* Slow down logging if offset is less than 1us */
