@@ -63,7 +63,7 @@ make install-bin BINDIR=%{buildroot}%{_bindir} LIBDIR=%{buildroot}%{_libdir} INC
 mkdir -p %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel \
          %{buildroot}/usr/src/%{name}-%{version}-%{release}/include
 cp -r modules %{buildroot}/usr/src/%{name}-%{version}-%{release}/
-cp libs/exanic/{ioctl.h,pcie_if.h,fifo_if.h,const.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic
+cp libs/exanic/{ioctl.h,pcie_if.h,fifo_if.h,const.h,checksum*.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic
 cp libs/exasock/kernel/{api.h,structs.h,consts.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
 cp include/exanic_version.h %{buildroot}/usr/src/%{name}-%{version}-%{release}/include
 
