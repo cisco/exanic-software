@@ -480,8 +480,9 @@ int main(int argc, char *argv[])
     unsigned long file_size = 0, file_size_limit = 0;
     char file_name_buf[4096];
     int c;
+    int buffer_number = 0;
 
-    while ((c = getopt(argc, argv, "i:w:s:C:F:pHNh?")) != -1)
+    while ((c = getopt(argc, argv, "i:w:s:C:F:b:pHNh?")) != -1)
     {
         switch (c)
         {
@@ -516,6 +517,8 @@ int main(int argc, char *argv[])
             case 'N':
                 nsec_pcap = 1;
                 break;
+            case 'b':
+                buffer_number = atoi(optarg);
             default:
                 goto usage_error;
         }
@@ -566,7 +569,7 @@ int main(int argc, char *argv[])
     if (filter)
         rx = exanic_acquire_unused_filter_buffer(exanic, port_number);
     else
-        rx = exanic_acquire_rx_buffer(exanic, port_number, 0);
+        rx = exanic_acquire_rx_buffer(exanic, port_number, buffer_number);
 
     if (rx == NULL)
     {
@@ -720,7 +723,7 @@ err_open_savefile:
 usage_error:
     fprintf(stderr, "Usage: %s -i interface\n", argv[0]);
     fprintf(stderr, "           [-w savefile] [-s snaplen] [-C file_size]\n");
-    fprintf(stderr, "           [-F file_format] [-p] [-H] [-N] [filter...]\n");
+    fprintf(stderr, "           [-F file_format] [-p] [-H] [-N] [-b filter_buffer] [filter...]\n");
     fprintf(stderr, "  -i: specify Linux interface (e.g. eth0) or ExaNIC port name (e.g. exanic0:0)\n");
     fprintf(stderr, "  -w: dump frames to given file in specified format (- for stdout)\n");
     fprintf(stderr, "  -s: maximum data length to capture\n");
@@ -728,7 +731,8 @@ usage_error:
     fprintf(stderr, "  -F: file format [pcap|erf] (default is pcap)\n");
     fprintf(stderr, "  -p: do not attempt to put interface in promiscuous mode\n");
     fprintf(stderr, "  -H: use hardware timestamps (refer to documentation on how to sync clock)\n");
-    fprintf(stderr, "  -N: write nanosecond-resolution pcap format\n\n");
+    fprintf(stderr, "  -N: write nanosecond-resolution pcap format\n");
+    fprintf(stderr, "  -b: read data from specific RX filter buffer number\n\n");
     fprintf(stderr, "Filter examples:\n");
     fprintf(stderr, "  tcp port 80                   (to/from tcp port 80)\n");
     fprintf(stderr, "  host 192.168.0.1 tcp port 80  (to/from 192.168.0.1:80)\n");
