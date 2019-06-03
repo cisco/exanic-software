@@ -207,7 +207,7 @@ struct exasock_tcp
 
     struct exasock_epoll_notify     notify;
 
-    /* TCP Tx Engine */
+    /* TCP Accelerated TCP Engine */
     struct exasock_ate              ate;
 
     struct kref                     refcount;
@@ -318,10 +318,10 @@ static struct work_struct       ate_skb_proc_work;
 
 /* on close(), we turn HW payload injection off and then
  * wait for all SW injected payload to make it from DMA
- * engine's blockram to the TCP engine.
+ * engine's blockram to the ATE.
  *
  * if the hw sequence number stays the same for 1ms, we
- * assume that the TCP engine has seen all SW payloads */
+ * assume that ATE has seen all SW payloads */
 #ifdef __HAS_OLD_SLEEP_FUNCS
 #define ATE_HWSEQ_INTERVAL_MS   1
 #else
@@ -1071,8 +1071,7 @@ static void exasock_ate_release(struct exasock_tcp *tcp)
  * number.
  *
  * hwseq: sequence number read from bar0 indicating
- *        that last sequence number assigned by the
- *        TCP engine
+ *        that last sequence number assigned by ATE
  */
 static inline bool
 exasock_ate_mirror_caught_up(struct exasock_tcp *tcp,
@@ -1095,8 +1094,7 @@ static int exasock_ate_wait_echo(struct exasock_tcp *tcp)
     bool timeout;
 
     /* wait for hwseq to stabalise, indicating
-     * that SW segments have been seen by TCP
-     * engine */
+     * that SW segments have been seen by ATE */
     do
     {
         hwseq = exasock_ate_read_seq(tcp);

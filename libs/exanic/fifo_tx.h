@@ -101,12 +101,12 @@ int exanic_transmit_frame(exanic_tx_t *tx, const char *frame,
                           size_t frame_size);
 
 /**
- * \brief Transmit L4 payload through connection acceleration engine
+ * \brief Transmit L4 payload through Accelerated TCP Engine
  *
  * \param[in]   tx
  *      A valid TX handle.
  * \param[in]   connection_id
- *      ID of the connection acceleration engine to be used for transmit.
+ *      ID of the Accelerated TCP Engine to be used for transmit.
  * \param[in]   type
  *      The type of payload to transmit.
  * \param[in]   payload
@@ -168,7 +168,7 @@ int exanic_end_transmit_frame(exanic_tx_t *tx, size_t frame_size);
  * \param[in]   tx
  *      A valid TX handle.
  * \param[in]   connection_id
- *      ID of the connection acceleration engine to be used for transmit.
+ *      ID of the Accelerated TCP Engine to be used for transmit.
  * \param[in]   type
  *      The type of payload to transmit.
  * \param[in]   payload_size

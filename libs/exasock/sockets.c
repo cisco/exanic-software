@@ -838,7 +838,7 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
         goto err_sys_update;
     }
 
-    /* Enable TCP Tx Engine for the connection if requested */
+    /* Enable ATE for the connection if requested */
     if (EXA_USE_ATE(sock))
     {
         if (exa_sys_ate_enable(fd, sock->ate_id) == -1)

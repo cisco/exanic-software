@@ -10,8 +10,8 @@
  *
  *   exasock ./ate-connect 192.168.1.10 11111
  *
- * Note that exasock is required to enable and control ExaNIC Accelerated TCP
- * Engine, so this program will fail if run without exasock.
+ * Note that exasock is required to enable and control ExaNIC Accelerated
+ * TCP Engine, so this program will fail if run without exasock.
  */
 
 #include <stdio.h>

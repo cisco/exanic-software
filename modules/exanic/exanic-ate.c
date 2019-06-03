@@ -1,5 +1,5 @@
 /**
- * TCP acceleration engine management
+ * TCP Accelerated TCP Engine management
  * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
  */
 
@@ -91,7 +91,7 @@ void exanic_ate_disable(struct exanic *exanic, unsigned port_num, int ate_id)
 }
 
 /**
- * Hand off new connection to hardware TCP transmit engine
+ * Hand off new connection to hardware Accelerated TCP Engine
  */
 int exanic_ate_init(struct exanic* exanic, unsigned port_num, int ate_id,
                     struct exanic_ate_cfg *cfg)

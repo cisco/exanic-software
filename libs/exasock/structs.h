@@ -102,7 +102,7 @@ struct exa_socket
     bool connected;
     bool valid;
 
-    /* TCP Tx Engine ID (-1 if ATE not used) */
+    /* ATE Connection ID (-1 if ATE not used) */
     int ate_id;
     bool ate_init_pending;
 
