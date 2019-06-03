@@ -35,6 +35,7 @@
 #include <linux/in.h>
 #include <linux/ip.h>
 
+#include <byteswap.h>
 
 #define RX_BUFFER_SIZE 2048
 
@@ -82,8 +83,21 @@ static inline int little_endian(void)
     return lower_byte;
 }
 
-/* mask an index so that when interpreted
- * as big-endian, it triggers the SUT */
+/* current stac_t0 firmware expects to find the 2-byte
+ * connection ID, in little endian order, in bytes 44 and 45 */
+void set_ate_id(char *packet, uint16_t ate_id)
+{
+    /* the current stac_t0 firmware looks for
+     * the connection ID in bytes 44 and 45
+     * little endian byte order is expected */
+    if (little_endian())
+        *(uint16_t*)(packet + 44) = ate_id;
+    else
+        *(uint16_t*)(packet + 44) = bswap_16(ate_id);
+}
+
+/* mask an index so that when interpreted as big-endian
+ * by the STAC-T0 firmware, it always triggers the SUT */
 uint64_t make_hammer(uint64_t index)
 {
     if (little_endian())
@@ -131,13 +145,8 @@ void init_packets(tx_packet_t* packets, const int data_size, const int count,
         memset(packet + 6, 0xaa, 6);
         memset(packet + 12, 0xCC, 2);
 
-        /* Byte 44 is ATE session ID in the current firmware
-         *
-         * TODO:
-         * put in 2-byte connection IDs and verify byte order
-         * once a mult-port, 512 session per port firmware is
-         * available */
-        memset(packet + 44, 0, 1);
+        /* put the ATE connection ID into UDP payload */
+        set_ate_id(packet, 0);
 
         /* Set the message type */
         packet[14 + 20 + 8] = message_type;
@@ -458,13 +467,15 @@ int main(int argc, char *argv[])
     fprintf(stderr,
             "           [-p txport] [-P rxport] \n");
     fprintf(stderr,
-            "           [-c count] [-h] \n\n");
+            "           [-c count] [-H] [-h]\n\n");
     fprintf(stderr,
             "  -d: specify the ExaNIC device name (e.g. exanic0)\n");
     fprintf(stderr,
             "  -w: write results to given file (- for stdout)\n");
     fprintf(stderr,
             "  -c: number of packets to send (default 1000)\n");
+    fprintf(stderr,
+            "  -H: mask STAC-t0 index lower bits to stress test SUT response\n");
     fprintf(stderr,
             "  -h: print this usage information\n\n");
     return 1;
