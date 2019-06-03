@@ -222,7 +222,7 @@ bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     TRACE_LAST_ARG(INT, addrlen);
     TRACE_FLUSH();
 
-    if (sock == NULL)
+    if (sock == NULL || override_unsafe)
     {
         ret = LIBC(bind, sockfd, addr, addrlen);
         TRACE_RETURN(INT, ret);
@@ -535,7 +535,7 @@ accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     TRACE_ARG(INT, sockfd);
     TRACE_FLUSH();
 
-    if (sock != NULL)
+    if (sock != NULL && !override_unsafe)
     {
         exa_read_lock(&sock->lock);
 
@@ -585,7 +585,7 @@ accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     TRACE_ARG(INT, sockfd);
     TRACE_FLUSH();
 
-    if (sock != NULL)
+    if (sock != NULL && !override_unsafe)
     {
         exa_read_lock(&sock->lock);
 
@@ -756,7 +756,7 @@ connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     TRACE_LAST_ARG(INT, addrlen);
     TRACE_FLUSH();
 
-    if (sock == NULL)
+    if (sock == NULL || override_unsafe)
     {
         ret = LIBC(connect, sockfd, addr, addrlen);
         TRACE_RETURN(INT, ret);
@@ -2198,7 +2198,9 @@ setsockopt(int sockfd, int level, int optname, const void *optval,
     TRACE_LAST_ARG(INT, optlen);
     TRACE_FLUSH();
 
-    if (level == SOL_EXASOCK)
+    if (override_unsafe)
+        ret = LIBC(setsockopt, sockfd, level, optname, optval, optlen);
+    else if (level == SOL_EXASOCK)
         ret = setsockopt_exasock(sock, sockfd, optname, optval, optlen);
     else if ((sock != NULL) && (level == SOL_SOCKET))
         ret = setsockopt_sock(sock, sockfd, optname, optval, optlen);

@@ -261,8 +261,19 @@ auto_bind(struct exa_socket * restrict sock, int sockfd,
         return 0;
     }
 
+    if (override_unsafe)
+    {
+        /* Inside a libc function that is known to be incompatible with
+         * bypass sockets */
+        return 0;
+    }
+
     if (sock->bypass_state <= EXA_BYPASS_INACTIVE)
-        return 0; /* falls through to native */
+    {
+        /* Bypass is either disabled by default or permanently disabled
+         * for this socket */
+        return 0;
+    }
 
     if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
     {

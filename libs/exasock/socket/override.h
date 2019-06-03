@@ -68,6 +68,7 @@ extern bool __thread signal_received;
 extern bool __thread signal_interrupted;
 
 extern bool __thread override_disabled;
+extern bool __thread override_unsafe;
 extern bool __override_initialized;
 
 #define LIBC(func, ...)                 \

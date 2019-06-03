@@ -11,7 +11,7 @@ LDFLAGS=-shared
 LDLIBS=-ldl -lrt -lexanic -L../exanic
 
 CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c warn.c
-SOCK_SRCS=socket/override.c socket/trace.c socket/socket.c socket/recv.c socket/send.c socket/select.c socket/signal.c socket/epoll.c
+SOCK_SRCS=socket/override.c socket/trace.c socket/socket.c socket/recv.c socket/send.c socket/select.c socket/signal.c socket/epoll.c socket/override_unsafe.c
 EXT_SRCS=extensions/tcp.c extensions/misc.c
 
 PRELOAD_SRCS=$(CORE_SRCS) $(SOCK_SRCS) $(EXT_SRCS)
@@ -40,7 +40,8 @@ EXT_STUB_LIB_LDFLAGS=-Wl,-soname,$(EXT_STUB_LIB_SONAME)
 
 HAVE_NET_TSTAMP_H:=${shell $(CC) $(CFLAGS) -include linux/net_tstamp.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}
 RECVMMSG_HAS_CONST_TIMESPEC:=${shell echo 'int recvmmsg(int fd, struct mmsghdr *m, unsigned int l, int f, const struct timespec *t);' | $(CC) $(CFLAGS) -D_GNU_SOURCE -include sys/socket.h -c -o /dev/null -x c - >/dev/null 2>&1 && echo 1 || echo 0}
-CONFIG_CFLAGS=-DHAVE_NET_TSTAMP_H=$(HAVE_NET_TSTAMP_H) -DRECVMMSG_HAS_CONST_TIMESPEC=$(RECVMMSG_HAS_CONST_TIMESPEC)
+GETNAMEINFO_HAS_SIGNED_FLAGS:=${shell echo 'int getnameinfo(const struct sockaddr *, socklen_t, char *, socklen_t, char *, socklen_t, int);' | $(CC) $(CFLAGS) -D_GNU_SOURCE -include netdb.h -c -o /dev/null -x c - >/dev/null 2>&1 && echo 1 || echo 0}
+CONFIG_CFLAGS=-DHAVE_NET_TSTAMP_H=$(HAVE_NET_TSTAMP_H) -DRECVMMSG_HAS_CONST_TIMESPEC=$(RECVMMSG_HAS_CONST_TIMESPEC) -DGETNAMEINFO_HAS_SIGNED_FLAGS=$(GETNAMEINFO_HAS_SIGNED_FLAGS)
 
 .PHONY: debug release all clean
 
