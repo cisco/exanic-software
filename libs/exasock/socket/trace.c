@@ -26,8 +26,10 @@
 
 int __trace_enabled = 0;
 static uint32_t trace_flush_lock;
-/* the current tracing thread */
-static pid_t __trace_thread;
+/* the current tracing thread: initialize with -1 so that the code below doesn't
+ * assume that the program was interrupted on first print.
+ */
+static pid_t __trace_thread = -1;
 
 struct __trace_state __thread __trace_state;
 
@@ -240,16 +242,16 @@ __trace_vprintf_immediate(bool returning, const char *fmt, va_list args)
     bool print_pid = resuming || interrupting || !__trace_started;
 
     if (interrupting)
-        printf(" "TRACE_UNFINISHED"\n");
+        fprintf(stderr, " "TRACE_UNFINISHED"\n");
 
     if (print_pid)
-        printf(TRACE_PID" ", curr_thread);
+        fprintf(stderr, TRACE_PID" ", curr_thread);
 
     if (resuming)
-        printf(TRACE_RESUMED" ",
+        fprintf(stderr, TRACE_RESUMED" ",
             __trace_in_handler ? "(sig handler)" :
                                  __trace_curr_func);
-    vprintf(fmt, args);
+    vfprintf(stderr, fmt, args);
     if (returning)
         __trace_thread = -1;
     else
@@ -259,7 +261,7 @@ __trace_vprintf_immediate(bool returning, const char *fmt, va_list args)
     }
 
     exa_unlock(&trace_flush_lock);
-    fflush(stdout);
+    fflush(stderr);
 }
 
 static void
