@@ -732,55 +732,115 @@ enum
 #define REG_FIREWALL_OFFSET(reg) (REG_FIREWALL_BASE + (reg) * sizeof(uint32_t))
 #define REG_FIREWALL_INDEX(reg) (REG_FIREWALL_OFFSET(reg) / sizeof(uint32_t))
 
-/* bits for EXANIC_ATE_REGS_CTL.
- * ENABLED:   enables sending
- * CHECK_SEQ: forces the hardware sender to respect the maximum sequence
- *            number
- * CURR_BUF:  which set of ACK/WINDOW regs to use. This is used for
+/* bits for REG_ATE_CTL.
+ * ENABLE: enables hardware-injected payload
+ * CHECK_MAX_SEQ: forces the hardware sender to respect the maximum sequence
+ *            number set by writing to REG_ATE_MAX_SEQ
+ * ACK_WIN_SEL: which set of ACK/WINDOW regs to use. This is used for
  *            atomically updating state.
  */
 enum
 {
-    EXANIC_ATE_CTL_ENABLED   = (1 << 0),
-    EXANIC_ATE_CTL_CHECK_SEQ = (1 << 1),
-    EXANIC_ATE_CTL_CURR_BUF  = (1 << 2),
+    REG_ATE_CTL_ENABLE          = (1 << 0),
+    REG_ATE_CTL_CHECK_MAX_SEQ   = (1 << 1),
+    REG_ATE_CTL_ACK_WIN_SEL     = (1 << 2),
 };
 
-/*
- * ATE related registers and addresses
+/**
+ * \brief 0x40000-0x7ffff: ATE registers
+ *
+ * These registers configure the ExaNIC Accelerated TCP Engines
+ * to control hardware-accelerated TCP sessions
  */
 enum
 {
-    REG_ATE_BASE                    = 0x40000,
+    REG_ATE_BASE            = 0x40000,
 
-    EXANIC_ATE_REGS_DST_MAC_ADDR_HI = 0,
+    /**
+     * [RW] First four bytes of the destination MAC address
+     */
+    REG_ATE_DMAC_HI         = 0,
 
-    /* this register is a bit odd. It splits the low part of the dest mac
-       address (in the high bits) and the high bits of the src mac address
-       (in the low bits).
-    */
-    EXANIC_ATE_REGS_DST_HI_SRC_LO_MAC_ADDR_HI = 4,
-    EXANIC_ATE_REGS_SRC_MAC_ADDR_LO = 8,
+    /**
+     * [RW] Last two bytes of the destination MAC address
+     *      and first two bytes of the source MAC address
+     */
+    REG_ATE_DMAC_HI_SMAC_LO = 4,
 
-    EXANIC_ATE_REGS_TCP_IP_PART_CKSUMS = 12,
-    EXANIC_ATE_REGS_SRC_IP          = 16,
-    EXANIC_ATE_REGS_DST_IP          = 20,
-    EXANIC_ATE_REGS_SRC_DST_PORT    = 24,
-    EXANIC_ATE_REGS_SEQ             = 28,
-    EXANIC_ATE_REGS_ACK             = 32, /* double-buffered */
-    EXANIC_ATE_REGS_WINDOW          = 36, /* double-buffered. window size in lower bits */
-    EXANIC_ATE_REGS_ACK_2           = 40, /* double-buffered */
-    EXANIC_ATE_REGS_WINDOW_2        = 44, /* double-buffered. window size in lower bits */
-    EXANIC_ATE_REGS_CTL             = 48,
-    EXANIC_ATE_REGS_MAX_SEQ         = 52,
+    /**
+     * [RW] Last four bytes of the source MAC address
+     */
+    REG_ATE_SMAC_LO         = 8,
+
+    /**
+     * [RW] Partial checksum of TCP and IP static fields written
+     *      to the FPGA before connection establishment
+     */
+    REG_ATE_PART_CSUM       = 12,
+
+    /**
+     * [RW] Source IP address of this connection
+     */
+    REG_ATE_SRC_IP          = 16,
+
+    /**
+     * [RW] Destination IP address of this connection
+     */
+    REG_ATE_DST_IP          = 20,
+
+    /**
+     * [RW] Source and Destination TCP ports
+     */
+    REG_ATE_SRC_DST_PORT    = 24,
+
+    /**
+     * [RW] Send sequence number of the next packet
+     */
+    REG_ATE_SEQ             = 28,
+
+    /**
+     * [RW] ACK sequence number of the next packet
+     *      selected when REG_ATE_CTL_ACK_WIN_SEL is set to 0
+     */
+    REG_ATE_ACK             = 32,
+
+    /**
+     * [RW] Receive window value of the next packet
+     *      selected when REG_ATE_CTL_ACK_WIN_SEL is set to 0
+     */
+    REG_ATE_WINDOW          = 36,
+
+    /**
+     * [RW] ACK sequence number of the next packet
+     *      selected when REG_ATE_CTL_ACK_WIN_SEL is set to 1
+     */
+    REG_ATE_ACK_2           = 40,
+
+    /**
+     * [RW] Receive window value of the next packet
+     *      selected when REG_ATE_CTL_ACK_WIN_SEL is set to 1
+     */
+    REG_ATE_WINDOW_2        = 44,
+
+    /**
+     * [RW] Control register
+     */
+    REG_ATE_CTL             = 48,
+
+    /**
+     * [RW] Maximum sequence number ATE is allowed to send
+     *      the check is disabled when REG_ATE_CTL_CHECK_MAX_SEQ
+     *      is set to 0
+     */
+    REG_ATE_MAX_SEQ         = 52,
 };
 
-#define EXANIC_ATE_REGS_ID_OFFSET     6
-#define EXANIC_ATE_REGS_PORT_OFFSET   15
+#define REG_ATE_CONN_ID_OFFSET      6
+#define REG_ATE_PORT_OFFSET         15
 
-#define REG_ATE_OFFSET(port, ate_id, whichreg)                        \
-        (REG_ATE_BASE + (((port) << EXANIC_ATE_REGS_PORT_OFFSET)  |   \
-                         ((ate_id) << EXANIC_ATE_REGS_ID_OFFSET)  |   \
+#define REG_ATE_OFFSET(port, ate_id, whichreg)                  \
+        (REG_ATE_BASE + (((port) << REG_ATE_PORT_OFFSET)|       \
+                         ((ate_id) << REG_ATE_CONN_ID_OFFSET)|  \
                           (whichreg)))
 
 /**

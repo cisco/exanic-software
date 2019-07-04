@@ -85,9 +85,9 @@ void exanic_ate_disable(struct exanic *exanic, unsigned port_num, int ate_id)
         return;
 
     /* Disable ATE */
-    ctl_reg = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_CTL);
-    ctl_reg &= ~EXANIC_ATE_CTL_ENABLED;
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_CTL, ctl_reg);
+    ctl_reg = READ_ATE_PORT32(port_num, ate_id, REG_ATE_CTL);
+    ctl_reg &= ~REG_ATE_CTL_ENABLE;
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_CTL, ctl_reg);
 }
 
 /**
@@ -111,34 +111,34 @@ int exanic_ate_init(struct exanic* exanic, unsigned port_num, int ate_id,
     csum_scratch[2] = (htons(cfg->port_src) << 16) | htons(cfg->port_dst);
     csum_tcp = csum(csum_scratch, 12, 0x501a);
 
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_DST_MAC_ADDR_HI,
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_DMAC_HI,
                      cfg->eth_dst[0] | (cfg->eth_dst[1] << 8) |
                      (cfg->eth_dst[2] << 16) | (cfg->eth_dst[3] << 24));
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_DST_HI_SRC_LO_MAC_ADDR_HI,
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_DMAC_HI_SMAC_LO,
                      cfg->eth_dst[4] | (cfg->eth_dst[5] << 8) |
                      (cfg->eth_src[0] << 16) | (cfg->eth_src[1] << 24));
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_SRC_MAC_ADDR_LO,
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_SMAC_LO,
                      cfg->eth_src[2] | (cfg->eth_src[3] << 8) |
                      (cfg->eth_src[4] << 16) | (cfg->eth_src[5] << 24));
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_TCP_IP_PART_CKSUMS,
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_PART_CSUM,
                      (csum_tcp << 16) | csum_ip);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_SRC_IP, cfg->ip_src);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_DST_IP, cfg->ip_dst);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_SRC_DST_PORT,
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_SRC_IP, cfg->ip_src);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_DST_IP, cfg->ip_dst);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_SRC_DST_PORT,
                      (cfg->port_dst << 16) | cfg->port_src);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_SEQ, cfg->init_seq_num);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_ACK, cfg->ack_num);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_WINDOW, CONVERT_HW_WINDOW(cfg->window));
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_SEQ, cfg->init_seq_num);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_ACK, cfg->ack_num);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_WINDOW, CONVERT_HW_WINDOW(cfg->window));
 
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_ACK_2, cfg->ack_num);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_WINDOW_2, CONVERT_HW_WINDOW(cfg->window));
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_MAX_SEQ, cfg->max_seq_num);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_ACK_2, cfg->ack_num);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_WINDOW_2, CONVERT_HW_WINDOW(cfg->window));
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_MAX_SEQ, cfg->max_seq_num);
 
     reg = 0;
-    reg |= EXANIC_ATE_CTL_ENABLED;
+    reg |= REG_ATE_CTL_ENABLE;
     if (!cfg->win_limit_disabled)
-        reg |= EXANIC_ATE_CTL_CHECK_SEQ;
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_CTL, reg);
+        reg |= REG_ATE_CTL_CHECK_MAX_SEQ;
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_CTL, reg);
 
     return 0;
 }
@@ -151,22 +151,22 @@ int exanic_ate_update(struct exanic* exanic, unsigned port_num, int ate_id,
     if (exanic->devkit_mem_virt == 0)
         return -EOPNOTSUPP;
 
-    ctl = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_CTL);
-    if ((ctl & EXANIC_ATE_CTL_CURR_BUF) == 0)
+    ctl = READ_ATE_PORT32(port_num, ate_id, REG_ATE_CTL);
+    if ((ctl & REG_ATE_CTL_ACK_WIN_SEL) == 0)
     {
-        WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_ACK_2, cfg->ack_num);
-        WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_WINDOW_2, CONVERT_HW_WINDOW(cfg->window));
-        ctl |= EXANIC_ATE_CTL_CURR_BUF;
+        WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_ACK_2, cfg->ack_num);
+        WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_WINDOW_2, CONVERT_HW_WINDOW(cfg->window));
+        ctl |= REG_ATE_CTL_ACK_WIN_SEL;
     }
     else
     {
-        WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_ACK, cfg->ack_num);
-        WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_WINDOW, CONVERT_HW_WINDOW(cfg->window));
-        ctl &= ~EXANIC_ATE_CTL_CURR_BUF;
+        WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_ACK, cfg->ack_num);
+        WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_WINDOW, CONVERT_HW_WINDOW(cfg->window));
+        ctl &= ~REG_ATE_CTL_ACK_WIN_SEL;
     }
 
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_CTL, ctl);
-    WRITE_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_MAX_SEQ, cfg->max_seq_num);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_CTL, ctl);
+    WRITE_ATE_PORT32(port_num, ate_id, REG_ATE_MAX_SEQ, cfg->max_seq_num);
 
     return 0;
 }
@@ -178,11 +178,11 @@ void exanic_ate_regdump(struct exanic *exanic, unsigned port_num,
      * seq, max-seq, ack1, win1, ack2, win2, ctl */
     *cfg = (struct exanic_ate_regdump)
     {
-        .ack = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_ACK),
-        .ack2 = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_ACK_2),
-        .win = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_WINDOW),
-        .win2 = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_WINDOW_2),
-        .ctrl = READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_CTL),
+        .ack = READ_ATE_PORT32(port_num, ate_id, REG_ATE_ACK),
+        .ack2 = READ_ATE_PORT32(port_num, ate_id, REG_ATE_ACK_2),
+        .win = READ_ATE_PORT32(port_num, ate_id, REG_ATE_WINDOW),
+        .win2 = READ_ATE_PORT32(port_num, ate_id, REG_ATE_WINDOW_2),
+        .ctrl = READ_ATE_PORT32(port_num, ate_id, REG_ATE_CTL),
         .seq = exanic_ate_read_seq(exanic, port_num, ate_id)
     };
 }
@@ -190,7 +190,7 @@ void exanic_ate_regdump(struct exanic *exanic, unsigned port_num,
 uint32_t exanic_ate_read_seq(struct exanic* exanic, unsigned port_num,
                              int ate_id)
 {
-    return READ_ATE_PORT32(port_num, ate_id, EXANIC_ATE_REGS_SEQ);
+    return READ_ATE_PORT32(port_num, ate_id, REG_ATE_SEQ);
 }
 
 void exanic_ate_deliver_skb(struct sk_buff *skb)
