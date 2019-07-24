@@ -203,6 +203,11 @@ enum
      */
     REG_EXANIC_CLK_ADJ_EXT              = 17,
 
+    /*
+     * [WO] Flash LEDs for specified number of seconds.
+     */
+    REG_EXANIC_IDENTIFY_TIMER           = 18,
+
     /**
      * [RO] Per-port Accelerated TCP Engine availability. If a bit is
      * set, the corresponding port has ATE.
@@ -1210,6 +1215,7 @@ typedef enum
 
     EXANIC_CAP_HW_TIME_HI       = 0x00000100, /**< 64 bit time counter */
     EXANIC_CAP_CLK_ADJ_EXT      = 0x00000200, /**< Extended clock correction */
+    EXANIC_CAP_LED_ID           = 0x00000400, /**< Supports Identification by LED blinking */
 
     /** Bits which indicate that some kind of RX interrupt is available */
     EXANIC_CAP_RX_IRQ           = EXANIC_CAP_RX_MSI,

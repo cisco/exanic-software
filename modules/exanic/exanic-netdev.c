@@ -1620,6 +1620,37 @@ static int exanic_get_module_eeprom(struct net_device *ndev,
 
 #endif /* ETHTOOL_GMODULEINFO */
 
+#ifdef ETHTOOL_PHYS_ID
+
+int	exanic_netdev_set_phys_id(struct net_device *ndev,
+                              enum ethtool_phys_id_state state)
+{
+    struct exanic *exanic;
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    uint32_t seconds;
+
+    if (!priv)
+        return -ENODEV;
+
+    exanic = priv->exanic;
+    if (!exanic)
+        return -ENODEV;
+
+    if ((exanic->caps & EXANIC_CAP_LED_ID) == 0)
+        return -ENOTSUPP;
+
+    if (state == ETHTOOL_ID_ACTIVE || state == ETHTOOL_ID_ON)
+        seconds = 0xffffffff;
+    else
+        seconds = 0;
+
+    writel(seconds, exanic->regs_virt +
+                    REG_EXANIC_OFFSET(REG_EXANIC_IDENTIFY_TIMER));
+    return 0;
+}
+
+#endif /* ETHTOOL_PHYS_ID */
+
 static struct ethtool_ops exanic_ethtool_ops = {
     .get_drvinfo            = exanic_netdev_get_drvinfo,
     .get_link               = exanic_netdev_get_link,
@@ -1645,11 +1676,16 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_settings           = exanic_netdev_get_settings,
     .set_settings           = exanic_netdev_set_settings,
 #endif
+#if defined (ETHTOOL_PHYS_ID) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+    .set_phys_id            = exanic_netdev_set_phys_id,
+#endif
 };
 
-#if (defined(ETHTOOL_GET_TS_INFO) || defined(ETHTOOL_GMODULEINFO)) \
-     && LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
-/* RedHat 2.6.x backports place get_ts_info in ethtool_ops_ext */
+#if (defined(ETHTOOL_GET_TS_INFO) || defined(ETHTOOL_GMODULEINFO) ||\
+     defined(ETHTOOL_PHYS_ID)) && \
+     LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+/* RedHat 2.6.x backports place get_ts_info, among other things,
+ * in ethtool_ops_ext */
 static struct ethtool_ops_ext exanic_ethtool_ops_ext = {
     .size                   = sizeof(struct ethtool_ops_ext),
 #ifdef ETHTOOL_GET_TS_INFO
@@ -1658,6 +1694,9 @@ static struct ethtool_ops_ext exanic_ethtool_ops_ext = {
 #ifdef ETHTOOL_GMODULEINFO
     .get_module_info        = exanic_get_module_info,
     .get_module_eeprom      = exanic_get_module_eeprom,
+#endif
+#ifdef ETHTOOL_PHYS_ID
+    .set_phys_id            = exanic_netdev_set_phys_id,
 #endif
 };
 #define SET_ETHTOOL_OPS_EXT(ndev, ops) set_ethtool_ops_ext(ndev, ops)
