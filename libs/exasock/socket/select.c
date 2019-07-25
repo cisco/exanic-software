@@ -443,6 +443,12 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
         struct pollfd * restrict pollfd = &fds[i];
         struct exa_socket * restrict sock = exa_socket_get(pollfd->fd);
 
+        if (pollfd->fd < 0)
+        {
+            pollfd->revents = 0;
+            continue;
+        }
+
         if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
         {
             pollfd->revents = 0;
