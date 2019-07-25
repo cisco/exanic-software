@@ -46,10 +46,6 @@ MODULE_PARM_DESC(ate_win_limit_off, "Disable TCP window limitation in ATE");
 #define __GETNAME_NO_SOCKLEN_PARAM
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
-#define __HAS_OLD_SLEEP_FUNCS
-#endif
-
 struct exasock_tcp_conn_counters
 {
     bool        initialized;
@@ -316,21 +312,15 @@ static struct work_struct       ate_skb_proc_work;
 #define TCP_STATE_CMPXCHG(ts, old, new) \
                                        (cmpxchg(&(ts)->state, old, new) == old)
 
-/* on close(), we turn HW payload injection off and then
- * wait for all SW injected payload to make it from DMA
- * engine's blockram to the ATE.
+/* on closing an ATE connection, both hardware and software injected
+ * TCP payload are disabled. exasock_ate_wait_echo then waits
+ * for the hardware sequence number to stabilise.
  *
- * if the hw sequence number stays the same for 1ms, we
- * assume that ATE has seen all SW payloads */
-#ifdef __HAS_OLD_SLEEP_FUNCS
-#define ATE_HWSEQ_INTERVAL_MS   1
-#else
-#define ATE_HWSEQ_INTERVAL_LO   1000
-#define ATE_HWSEQ_INTERVAL_HI   1500
-#endif
+ * if the send sequence number register stays the same for 5ms,
+ * it is assumed that the hardware TCP engine has become idle. */
+#define ATE_HWSEQ_INTERVAL_MS   5
 
-
-/* after the HW sequence number stabalises, we wait for
+/* after the HW sequence number stabilises, we wait for
  * all mirrored TCP segments to come back. in the
  * unfortunate case that the last SW injected
  * payload is lost, wait at most 5 seconds
@@ -387,12 +377,12 @@ const char *tcp_state_text[EXA_TCP_TIME_WAIT + 1] =
     "EXA_TCP_TIME_WAIT",
 };
 
-#ifdef SESSION_DEBUG
+#ifdef EXASOCK_SESSION_DEBUG
 #define exasock_tcp_debug_log(tcp, fmt, ...) \
-    printk(KERN_INFO "[%hu, %hu] [%s] :" fmt, ntohs(tcp->local_port),\
-                                         ntohs(tcp->peer_port), \
-                                         tcp_state_text[tcp->user_page->p.tcp.state],\
-                                         __VA_ARGS__)
+    pr_info("[%hu, %hu] [%s] :" fmt, ntohs(tcp->local_port),\
+                                ntohs(tcp->peer_port),\
+                                tcp_state_text[tcp->user_page->p.tcp.state],\
+                                ##__VA_ARGS__)
 #else
 #define exasock_tcp_debug_log(x, y, ...)
 #endif
@@ -1093,16 +1083,12 @@ static int exasock_ate_wait_echo(struct exasock_tcp *tcp)
     uint32_t hwseq, hwseq_new;
     bool timeout;
 
-    /* wait for hwseq to stabalise, indicating
+    /* wait for hwseq to stabilise, indicating
      * that SW segments have been seen by ATE */
     do
     {
         hwseq = exasock_ate_read_seq(tcp);
-#ifdef __HAS_OLD_SLEEP_FUNCS
         msleep(ATE_HWSEQ_INTERVAL_MS);
-#else
-        usleep_range(ATE_HWSEQ_INTERVAL_LO, ATE_HWSEQ_INTERVAL_HI);
-#endif
         hwseq_new = exasock_ate_read_seq(tcp);
     }
     while (hwseq != hwseq_new);

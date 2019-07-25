@@ -53,16 +53,22 @@ int main (int argc, char *argv[])
     char buf[BUF_LEN];
     int err = 0;
 
+    const char *port_str;
+    const char *addr_str;
+
     /* Parse command line arguments */
 
     if (argc != 3)
         goto usage_error;
 
+    addr_str = argv[1];
+    port_str = argv[2];
+
     sa.sin_family = AF_INET;
-    if (inet_aton(argv[1], &sa.sin_addr) == 0)
+    if (inet_aton(addr_str, &sa.sin_addr) == 0)
         goto usage_error;
-    sa.sin_port = htons(strtol(argv[2], &p, 10));
-    if (*argv[2] == '\0' || *p != '\0')
+    sa.sin_port = htons(strtol(port_str, &p, 10));
+    if (port_str[0] == '\0' || *p != '\0')
         goto usage_error;
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -77,7 +83,6 @@ int main (int argc, char *argv[])
     ate_id = 0;
 #if USE_EXASOCK_ATE_CONNECT_HELPER
     err = exasock_ate_connect(fd, ate_id, (struct sockaddr *)&sa, sizeof(sa));
-    sa.sin_port = htons(strtol(argv[2], &p, 10) + 1);
 #else
     /* Enable ATE */
     err = setsockopt(fd, SOL_EXASOCK, SO_EXA_ATE, &ate_id, sizeof(ate_id));
@@ -98,8 +103,7 @@ int main (int argc, char *argv[])
         goto exit;
     }
 
-    fprintf(stderr, "Connected with %s:%u\n",
-            inet_ntoa(sa.sin_addr), ntohs(sa.sin_port));
+    fprintf(stderr, "Connected with %s:%s\n", addr_str, port_str);
 
     /* Receive and dump any data arriving on the connection */
     fprintf(stderr, "Receiving data:\n");

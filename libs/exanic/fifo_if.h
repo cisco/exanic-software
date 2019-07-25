@@ -164,6 +164,8 @@ struct tx_payload_metadata
 
     /**
      * DMA engine requires the whole structure to be at least 16 bytes long.
+     * The structure is padded out to 18-byte long to ease TCP packet
+     * formatting in ATE firmware.
      */
     uint8_t _reserved[14];
 

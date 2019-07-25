@@ -625,7 +625,6 @@ static int exanic_transmit_payload(struct exanic_netdev_tx* tx,
 
     writew(length, &chunk->length);
     writeb(EXANIC_TX_TYPE_TCP_ACCEL, &chunk->type);
-    writeb(connection_id, &chunk->flags);
     payload_metadata.csum = 0;
     payload_metadata.connection_id = connection_id;
     payload_ptr = chunk->payload + padding;
