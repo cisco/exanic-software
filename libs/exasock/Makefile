@@ -3,12 +3,16 @@ INCDIR=$(DESTDIR)$(PREFIX)/include
 LIBDIR=$(DESTDIR)$(PREFIX)/lib
 DEVLIBDIR=$(LIBDIR)
 
-CFLAGS=-fPIC -Wall -std=c99 -fvisibility=hidden -I.. -Iinclude
+ABSDIR=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+INCLUDES=$(ABSDIR)/.. $(ABSDIR)/include
+CFLAGS=-fPIC -Wall -std=c99 -fvisibility=hidden $(addprefix -I, $(INCLUDES))
 DEBUG_CFLAGS=-g
 RELEASE_CFLAGS=-O3 -DNDEBUG
 CC=gcc
 LDFLAGS=-shared
-LDLIBS=-ldl -lrt -lexanic -L../exanic
+LDPATH=$(ABSDIR)/../exanic
+LDLIBS=-ldl -lrt -lexanic $(addprefix -L, $(LDPATH))
 
 CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c warn.c
 SOCK_SRCS=socket/override.c socket/trace.c socket/socket.c socket/recv.c socket/send.c socket/select.c socket/signal.c socket/epoll.c socket/override_unsafe.c
