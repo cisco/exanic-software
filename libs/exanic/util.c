@@ -64,6 +64,16 @@ char *exanic_get_devkit_memory(exanic_t *exanic)
     return exanic->devkit_mem_region;
 }
 
+volatile uint32_t *exanic_get_extended_devkit_registers(exanic_t *exanic)
+{
+    return exanic->devkit_regs_ex_region;
+}
+
+char *exanic_get_extended_devkit_memory(exanic_t *exanic)
+{
+    return exanic->devkit_mem_ex_region;
+}
+
 int exanic_is_devkit_demo(exanic_t *exanic)
 {
     return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_DEMO_IMAGE)] == 1;

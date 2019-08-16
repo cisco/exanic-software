@@ -36,6 +36,8 @@ typedef struct exanic
     volatile struct exanic_info_page *info_page;
     volatile uint32_t   *devkit_regs_region;
     char                *devkit_mem_region;
+    volatile uint32_t   *devkit_regs_ex_region;
+    char                *devkit_mem_ex_region;
     volatile uint16_t   *tx_feedback_slots;
     char                *tx_buffer;
     size_t              tx_buffer_size;
@@ -43,6 +45,8 @@ typedef struct exanic
     size_t              filters_size;
     size_t              devkit_regs_size;
     size_t              devkit_mem_size;
+    size_t              devkit_regs_ex_size;
+    size_t              devkit_mem_ex_size;
     uint32_t            tick_hz;
     uint32_t            caps;
     int                 fd;

@@ -969,6 +969,22 @@ int exanic_get_num_ports(struct exanic *exanic)
 }
 
 /**
+ * Given bar 0 and bar 2 offset, compute usable devkit register and memory range.
+ */
+static size_t exanic_devkit_offset_to_size(unsigned int offset)
+{
+    /* Offset is decoded in firmware by inspecting the prefix
+     * therefore the size of a region is equal to 2^(ffs(offset)) */
+    unsigned long ffs =
+        find_first_bit((const unsigned long *)&offset, sizeof(offset) * 8);
+
+    if (unlikely(ffs == sizeof(offset) * 8))
+        return 0;
+
+    return 1ul << ffs;
+}
+
+/**
  * Device initialisation
  *
  * This function initialises the exanic identified by the pci_device_id
@@ -1531,11 +1547,14 @@ static int exanic_probe(struct pci_dev *pdev,
         if (exanic->devkit_regs_offset > 0 &&
                 exanic->devkit_mem_offset > 0)
         {
+            /* Configure Devkit register region */
+            exanic->devkit_regs_size =
+                exanic_devkit_offset_to_size(exanic->devkit_regs_offset);
             exanic->devkit_regs_phys = exanic->regs_phys +
                 exanic->devkit_regs_offset;
             exanic->devkit_regs_virt =
                 ioremap_nocache(exanic->devkit_regs_phys,
-                    exanic->devkit_regs_offset);
+                    exanic->devkit_regs_size);
             if (!exanic->devkit_regs_virt)
             {
                 dev_err(dev, "Devkit registers ioremap_nocache failed.\n");
@@ -1544,22 +1563,24 @@ static int exanic_probe(struct pci_dev *pdev,
             }
 
             dev_info(dev,
-                "Devkit regs at phys: 0x%pap, virt: 0x%p, size: %u bytes.\n",
+                "Devkit regs at phys: 0x%pap, virt: 0x%p, size: %zu bytes.\n",
                 &exanic->devkit_regs_phys, exanic->devkit_regs_virt,
-                    exanic->devkit_regs_offset);
+                    exanic->devkit_regs_size);
 
             /* Configure Devkit memory region */
             if (pci_resource_flags(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
                     & IORESOURCE_MEM)
             {
+                exanic->devkit_mem_size =
+                    exanic_devkit_offset_to_size(exanic->devkit_mem_offset);
                 exanic->devkit_mem_phys
                     = pci_resource_start(pdev, EXANIC_DEVKIT_MEMORY_REGION_BAR)
                         + exanic->devkit_mem_offset;
                 exanic->devkit_mem_virt =
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
-                    ioremap_wc(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
+                    ioremap_wc(exanic->devkit_mem_phys, exanic->devkit_mem_size);
 #else
-                    ioremap(exanic->devkit_mem_phys, exanic->devkit_mem_offset);
+                    ioremap(exanic->devkit_mem_phys, exanic->devkit_mem_size);
 #endif
 
                 if (!exanic->devkit_mem_virt)
@@ -1568,8 +1589,8 @@ static int exanic_probe(struct pci_dev *pdev,
                     err = -EIO;
                     goto err_devkit_mem_ioremap;
                 }
-                dev_info(dev, "Devkit memory at phys: 0x%pap, size: %u bytes.\n",
-                    &exanic->devkit_mem_phys, exanic->devkit_mem_offset);
+                dev_info(dev, "Devkit memory at phys: 0x%pap, size: %zu bytes.\n",
+                    &exanic->devkit_mem_phys, exanic->devkit_mem_size);
             }
             else
             {
@@ -1591,6 +1612,73 @@ static int exanic_probe(struct pci_dev *pdev,
         exanic->devkit_mem_phys = 0;
         exanic->devkit_regs_virt = NULL;
         exanic->devkit_mem_virt = NULL;
+        exanic->devkit_regs_size = 0;
+        exanic->devkit_mem_size = 0;
+    }
+
+    /* Set up and map the extended development kit memory if present. */
+    if ((exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4 ||
+            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
+            exanic->hw_id == EXANIC_HW_V5P || exanic->hw_id == EXANIC_HW_X25) &&
+                exanic->function_id == EXANIC_FUNCTION_DEVKIT)
+    {
+        /* Configure extended Devkit register region */
+        if (pci_resource_flags(pdev, EXANIC_DEVKIT_REGISTERS_EX_REGION_BAR) &
+                IORESOURCE_MEM)
+        {
+            exanic->devkit_regs_ex_size =
+                pci_resource_len(pdev, EXANIC_DEVKIT_REGISTERS_EX_REGION_BAR);
+            exanic->devkit_regs_ex_phys =
+                pci_resource_start(pdev, EXANIC_DEVKIT_REGISTERS_EX_REGION_BAR);
+            exanic->devkit_regs_ex_virt =
+                ioremap_nocache(exanic->devkit_regs_ex_phys, exanic->devkit_regs_ex_size);
+
+            if (!exanic->devkit_regs_ex_virt)
+            {
+                dev_err(dev, "Devkit extended registers ioremap_nocache failed.\n");
+                err = -EIO;
+                goto err_devkit_regs_ex_ioremap;
+            }
+
+            dev_info(dev,
+                "Devkit extended regs at phys: 0x%pap, virt: 0x%p, size: %zu bytes.\n",
+                &exanic->devkit_regs_ex_phys, exanic->devkit_regs_ex_virt,
+                    exanic->devkit_regs_ex_size);
+        }
+
+        /* Configure extended Devkit memory region */
+        if (pci_resource_flags(pdev, EXANIC_DEVKIT_MEMORY_EX_REGION_BAR) &
+                IORESOURCE_MEM)
+        {
+            exanic->devkit_mem_ex_size =
+                pci_resource_len(pdev, EXANIC_DEVKIT_MEMORY_EX_REGION_BAR);
+            exanic->devkit_mem_ex_phys =
+                pci_resource_start(pdev, EXANIC_DEVKIT_MEMORY_EX_REGION_BAR);
+            exanic->devkit_mem_ex_virt =
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
+                ioremap_wc(exanic->devkit_mem_ex_phys, exanic->devkit_mem_ex_size);
+#else
+                ioremap(exanic->devkit_mem_ex_phys, exanic->devkit_mem_ex_size);
+#endif
+
+            if (!exanic->devkit_mem_ex_virt)
+            {
+                dev_err(dev, "Devkit extended memory ioremap failed.\n");
+                err = -EIO;
+                goto err_devkit_mem_ex_ioremap;
+            }
+            dev_info(dev, "Devkit extended memory at phys: 0x%pap, size: %zu bytes.\n",
+                &exanic->devkit_mem_ex_phys, exanic->devkit_mem_ex_size);
+        }
+    }
+    else
+    {
+        exanic->devkit_regs_ex_virt = NULL;
+        exanic->devkit_regs_ex_phys = 0;
+        exanic->devkit_regs_ex_size = 0;
+        exanic->devkit_mem_ex_virt = NULL;
+        exanic->devkit_mem_ex_phys = 0;
+        exanic->devkit_mem_ex_size = 0;
     }
 
     /* Fill in ATE information */
@@ -1703,6 +1791,10 @@ err_miscdev:
 err_netdev:
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
         exanic_netdev_free(exanic->ndev[port_num]);
+    iounmap(exanic->devkit_mem_ex_virt);
+err_devkit_mem_ex_ioremap:
+    iounmap(exanic->devkit_regs_ex_virt);
+err_devkit_regs_ex_ioremap:
     iounmap(exanic->devkit_mem_virt);
 err_devkit_mem_ioremap:
     iounmap(exanic->devkit_regs_virt);
@@ -1834,6 +1926,12 @@ static void exanic_remove(struct pci_dev *pdev)
 
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);
+
+    if (exanic->devkit_regs_ex_virt != NULL)
+        iounmap(exanic->devkit_regs_ex_virt);
+
+    if (exanic->devkit_mem_ex_virt != NULL)
+        iounmap(exanic->devkit_mem_ex_virt);
 
 #if defined(CONFIG_PCIEAER)
     pci_disable_pcie_error_reporting(pdev);

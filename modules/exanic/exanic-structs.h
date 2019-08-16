@@ -81,12 +81,16 @@ struct exanic
     void *tx_region_virt;
     void *devkit_regs_virt;
     void *devkit_mem_virt;
+    void *devkit_regs_ex_virt;
+    void *devkit_mem_ex_virt;
     struct exanic_info_page *info_page;
     phys_addr_t regs_phys;
     phys_addr_t filters_phys;
     phys_addr_t tx_region_phys;
     phys_addr_t devkit_regs_phys;
     phys_addr_t devkit_mem_phys;
+    phys_addr_t devkit_regs_ex_phys;
+    phys_addr_t devkit_mem_ex_phys;
     dma_addr_t tx_feedback_dma;
 
     unsigned int dma_addr_bits;
@@ -107,7 +111,11 @@ struct exanic
     unsigned int function_id;
     unsigned int id;
     unsigned int devkit_regs_offset;
+    size_t       devkit_regs_size;
     unsigned int devkit_mem_offset;
+    size_t       devkit_mem_size;
+    size_t       devkit_regs_ex_size;
+    size_t       devkit_mem_ex_size;
     unsigned int num_ports;
     uint32_t caps;
 

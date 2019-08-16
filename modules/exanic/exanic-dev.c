@@ -106,35 +106,45 @@ static int exanic_map_registers(struct exanic *exanic, struct vm_area_struct *vm
 /**
  * Map the devkit register region.
  */
-static int exanic_map_devkit_regs(struct exanic *exanic, struct vm_area_struct *vma)
+static int exanic_map_devkit_regs(struct exanic *exanic,
+                                  struct vm_area_struct *vma, bool extended)
 {
     int err;
     struct device *dev = &exanic->pci_dev->dev;
     size_t map_size = vma->vm_end - vma->vm_start;
 
-    if (map_size > exanic->devkit_regs_offset)
+    phys_addr_t phys_addr = extended ? exanic->devkit_regs_ex_phys :
+                                       exanic->devkit_regs_phys;
+    size_t resource_size = extended ? exanic->devkit_regs_ex_size :
+                                      exanic->devkit_regs_size;
+
+    if (map_size > resource_size)
     {
         dev_err(dev, DRV_NAME
-            "%u: Tried to map devkit regs with wrong size %lu "
-            "(expected <=%u).\n", exanic->id, vma->vm_end - vma->vm_start,
-            (unsigned) exanic->devkit_regs_offset);
+            "%u: Tried to map %sdevkit regs with wrong size %lu "
+            "(expected <=%zu).\n",
+            exanic->id, extended ? "extended " : "",
+            vma->vm_end - vma->vm_start,
+            resource_size);
         return -EINVAL;
     }
 
     /* Do the mapping */
     err = remap_pfn_range(vma, vma->vm_start,
-            exanic->devkit_regs_phys >> PAGE_SHIFT, map_size,
+            phys_addr >> PAGE_SHIFT, map_size,
             pgprot_noncached(vma->vm_page_prot));
     if (err)
     {
         dev_err(dev, DRV_NAME
-            "%u: remap_pfn_range failed for devkit regs.\n", exanic->id);
+            "%u: remap_pfn_range failed for %sdevkit regs.\n",
+            exanic->id, extended ? "extended " : "");
     }
     else
     {
         dev_dbg(dev, DRV_NAME
-            "%u: Mapped devkit regs at phys: 0x%pap, virt: 0x%p.\n",
-            exanic->id, &exanic->devkit_regs_phys, (void *)vma->vm_start);
+            "%u: Mapped %sdevkit regs at phys: 0x%pap, virt: 0x%p.\n",
+            exanic->id, extended ? "extended " : "",
+            &phys_addr, (void *)vma->vm_start);
     }
 
     return err;
@@ -143,24 +153,32 @@ static int exanic_map_devkit_regs(struct exanic *exanic, struct vm_area_struct *
 /**
  * Map the devkit memory region.
  */
-static int exanic_map_devkit_mem(struct exanic *exanic, struct vm_area_struct *vma)
+static int exanic_map_devkit_mem(struct exanic *exanic,
+                                 struct vm_area_struct *vma, bool extended)
 {
     int err;
     struct device *dev = &exanic->pci_dev->dev;
     size_t map_size = vma->vm_end - vma->vm_start;
 
-    if (map_size > exanic->devkit_mem_offset)
+    phys_addr_t phys_addr = extended ? exanic->devkit_mem_ex_phys :
+                                       exanic->devkit_mem_phys;
+    size_t resource_size = extended ? exanic->devkit_mem_ex_size :
+                                      exanic->devkit_mem_size;
+
+    if (map_size > resource_size)
     {
         dev_err(dev, DRV_NAME
-            "%u: Tried to map devkit mem with wrong size %lu "
-            "(expected <=%u).\n", exanic->id, vma->vm_end - vma->vm_start,
-            (unsigned) exanic->devkit_mem_offset);
+            "%u: Tried to map %sdevkit mem with wrong size %lu "
+            "(expected <=%zu).\n",
+            exanic->id, extended ? "extended " : "",
+            vma->vm_end - vma->vm_start,
+            resource_size);
         return -EINVAL;
     }
 
     /* Do the mapping */
     err = remap_pfn_range(vma, vma->vm_start,
-            exanic->devkit_mem_phys >> PAGE_SHIFT, map_size,
+            phys_addr >> PAGE_SHIFT, map_size,
   #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29)
             pgprot_writecombine(vma->vm_page_prot)
   #else
@@ -170,13 +188,15 @@ static int exanic_map_devkit_mem(struct exanic *exanic, struct vm_area_struct *v
     if (err)
     {
         dev_err(dev, DRV_NAME
-            "%u: remap_pfn_range failed for devkit mem.\n", exanic->id);
+            "%u: remap_pfn_range failed for %sdevkit mem.\n",
+            exanic->id, extended ? "extended " : "");
     }
     else
     {
         dev_dbg(dev, DRV_NAME
-            "%u: Mapped devkit mem at phys: 0x%pap, virt: 0x%p.\n",
-            exanic->id, &exanic->devkit_mem_phys, (void *)vma->vm_start);
+            "%u: Mapped %sdevkit mem at phys: 0x%pap, virt: 0x%p.\n",
+            exanic->id, extended ? "extended " : "",
+            &phys_addr, (void *)vma->vm_start);
     }
 
     return err;
@@ -335,7 +355,7 @@ static int exanic_map_tx_feedback(struct exanic *exanic,
 }
 
 static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vma,
-                                unsigned port_num, unsigned buffer_num, 
+                                unsigned port_num, unsigned buffer_num,
                                 int check_numa_node)
 {
     int err;
@@ -347,7 +367,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
 
     if (buffer_num > 0)
     {
-        rx_region_virt = 
+        rx_region_virt =
           exanic->port[port_num].filter_buffers[buffer_num - 1].region_virt;
     }
     else
@@ -382,7 +402,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     if (buffer_num > exanic->max_filter_buffers)
     {
         dev_err(dev, DRV_NAME
-            "%u: Tried to map RX region for unknown filter buffer %u\n", 
+            "%u: Tried to map RX region for unknown filter buffer %u\n",
             exanic->id, buffer_num - 1);
         return -EINVAL;
     }
@@ -399,21 +419,21 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     /* Check that filter buffer has been allocated */
     if (buffer_num > 0)
     {
-        if (exanic->port[port_num].filter_buffers[buffer_num - 1].region_virt 
+        if (exanic->port[port_num].filter_buffers[buffer_num - 1].region_virt
                 == NULL)
         {
             dev_err(dev, DRV_NAME
-                "%u: Tried to map RX region on disabled filter buffer %u\n", 
+                "%u: Tried to map RX region on disabled filter buffer %u\n",
                 exanic->id, buffer_num - 1);
             return -EINVAL;
         }
     }
 
     /* Numa node check if required */
-    if (check_numa_node && 
-        ((buffer_num == 0 && exanic->port[port_num].numa_node != 
+    if (check_numa_node &&
+        ((buffer_num == 0 && exanic->port[port_num].numa_node !=
             numa_node_id()) ||
-        (buffer_num > 0 && 
+        (buffer_num > 0 &&
             exanic->port[port_num].filter_buffers[buffer_num - 1].numa_node
           != numa_node_id())))
     {
@@ -502,17 +522,19 @@ static int exanic_mmap(struct file *filp, struct vm_area_struct *vma)
     }
     else if (vma->vm_pgoff == EXANIC_PGOFF_DEVKIT_REGS)
     {
-        ret = exanic_map_devkit_regs(exanic, vma);
+        ret = exanic_map_devkit_regs(exanic, vma, false);
     }
     else if (vma->vm_pgoff == EXANIC_PGOFF_DEVKIT_MEM)
     {
-        ret = exanic_map_devkit_mem(exanic, vma);
+        ret = exanic_map_devkit_mem(exanic, vma, false);
     }
-    else if (vma->vm_pgoff == EXANIC_PGOFF_TX_REGION_EXT)
+    else if (vma->vm_pgoff >= EXANIC_PGOFF_TX_REGION_EXT &&
+             vma->vm_pgoff < EXANIC_PGOFF_RX_REGION_EXT)
     {
         ret = exanic_map_tx_region(exanic, vma);
-    } 
-    else if (vma->vm_pgoff >= EXANIC_PGOFF_RX_REGION_EXT)
+    }
+    else if (vma->vm_pgoff >= EXANIC_PGOFF_RX_REGION_EXT &&
+             vma->vm_pgoff < EXANIC_PGOFF_DEVKIT_REGS_EXT)
     {
         port_num = (vma->vm_pgoff - EXANIC_PGOFF_RX_REGION_EXT)
                                         / EXANIC_RX_DMA_NUM_PAGES;
@@ -524,6 +546,14 @@ static int exanic_mmap(struct file *filp, struct vm_area_struct *vma)
 
         ret = exanic_map_rx_region(exanic, vma, port_num, 0,
                 ctx->check_numa_node);
+    }
+    else if (vma->vm_pgoff == EXANIC_PGOFF_DEVKIT_REGS_EXT)
+    {
+        ret = exanic_map_devkit_regs(exanic, vma, true);
+    }
+    else if (vma->vm_pgoff == EXANIC_PGOFF_DEVKIT_MEM_EXT)
+    {
+        ret = exanic_map_devkit_mem(exanic, vma, true);
     }
     else
     {
@@ -970,8 +1000,19 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             {
                 struct exanicctl_devkit_info ctl;
 
-                ctl.regs_size = exanic->devkit_regs_offset;
-                ctl.mem_size = exanic->devkit_mem_offset;
+                ctl.regs_size = exanic->devkit_regs_size;
+                ctl.mem_size = exanic->devkit_mem_size;
+
+                if (copy_to_user((void *)arg, &ctl, sizeof(ctl)) != 0)
+                    return -EFAULT;
+
+                return 0;
+            }
+        case EXANICCTL_DEVKIT_INFO_EX:
+            {
+                struct exanicctl_devkit_info ctl;
+                ctl.regs_size = exanic->devkit_regs_ex_size;
+                ctl.mem_size = exanic->devkit_mem_ex_size;
 
                 if (copy_to_user((void *)arg, &ctl, sizeof(ctl)) != 0)
                     return -EFAULT;

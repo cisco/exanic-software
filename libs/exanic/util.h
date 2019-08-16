@@ -85,6 +85,26 @@ volatile uint32_t *exanic_get_devkit_registers(exanic_t *exanic);
 char *exanic_get_devkit_memory(exanic_t *exanic);
 
 /**
+ * \brief Get the extended devkit registers region.
+ *
+ * \param[in]   exanic
+ *      A valid ExaNIC handle
+ *
+ * \return A pointer to the extended registers on a devkit card.
+ */
+volatile uint32_t *exanic_get_extended_devkit_registers(exanic_t *exanic);
+
+/**
+ * \brief Get the extended devkit memory region.
+ *
+ * \param[in]   exanic
+ *      A valid ExaNIC handle
+ *
+ * \return A pointer to the extended memory region on a devkit card.
+ */
+char *exanic_get_extended_devkit_memory(exanic_t *exanic);
+
+/**
  * \brief Check if a devkit image is a time limited demo version.
  *
  * \param[in]   exanic

@@ -21,59 +21,65 @@
 enum
 {
     /** Registers are at this BAR */
-    EXANIC_REGS_BAR                 = 0,
+    EXANIC_REGS_BAR                         = 0,
 
     /** TX region is at this BAR */
-    EXANIC_TX_REGION_BAR            = 2,
+    EXANIC_TX_REGION_BAR                    = 2,
 
     /** The number of 4K pages for mapping the ExaNIC registers */
-    EXANIC_REGS_NUM_PAGES           = 2,
+    EXANIC_REGS_NUM_PAGES                   = 2,
 
     /** The number of 4K pages for the ExaNIC info region */
-    EXANIC_INFO_NUM_PAGES           = 1,
+    EXANIC_INFO_NUM_PAGES                   = 1,
 
     /** The number of 4K pages for a TX feedback region */
-    EXANIC_TX_FEEDBACK_NUM_PAGES    = 1,
+    EXANIC_TX_FEEDBACK_NUM_PAGES            = 1,
 
     /** The number of TX feedback slots per ExaNIC */
-    EXANIC_TX_FEEDBACK_NUM_SLOTS    = 256,
+    EXANIC_TX_FEEDBACK_NUM_SLOTS            = 256,
 
     /** The number of Accelerated TCP engines */
-    EXANIC_ATE_ENGINES_PER_PORT     = 512,
+    EXANIC_ATE_ENGINES_PER_PORT             = 512,
 
     /** The `matched filter` ID for reflected ATE transmissions */
-    EXANIC_ATE_FILTER_REFLECTED     = 1,
+    EXANIC_ATE_FILTER_REFLECTED             = 1,
 
     /** TX region size divided by the number of TX command FIFO entries */
-    EXANIC_TX_CMD_FIFO_SIZE_DIVISOR = 512,
+    EXANIC_TX_CMD_FIFO_SIZE_DIVISOR         = 512,
 
     /** The maximum number of 4K pages for a ExaNIC TX region. */
-    EXANIC_TX_REGION_MAX_NUM_PAGES  = 512,  /* 2M */
+    EXANIC_TX_REGION_MAX_NUM_PAGES          = 512,  /* 2M */
 
     /** Number of DWORDs for a filter component. */
-    EXANIC_FILTER_NUM_DWORDS        = 11,   /* 44 bytes */
+    EXANIC_FILTER_NUM_DWORDS                = 11,   /* 44 bytes */
 
     /** The size of an RX chunk including the metadata (in bytes) */
-    EXANIC_RX_CHUNK_SIZE            = 128,
+    EXANIC_RX_CHUNK_SIZE                    = 128,
 
     /** The size of an RX chunk without the metadata (in bytes) */
-    EXANIC_RX_CHUNK_PAYLOAD_SIZE    = 120,
+    EXANIC_RX_CHUNK_PAYLOAD_SIZE            = 120,
 
     /** The number of 4K pages for an RX DMA region */
-    EXANIC_RX_DMA_NUM_PAGES         = 512,  /* 2M */
+    EXANIC_RX_DMA_NUM_PAGES                 = 512,  /* 2M */
 
     /** The number of RX chunks in a RX DMA region. Must be a power of 2. */
-    EXANIC_RX_NUM_CHUNKS            = EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE /
-                                      EXANIC_RX_CHUNK_SIZE,
+    EXANIC_RX_NUM_CHUNKS                    = EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE /
+                                              EXANIC_RX_CHUNK_SIZE,
 
     /** Number of filters in each bank. */
-    EXANIC_NUM_FILTERS_PER_BANK     = 32,
+    EXANIC_NUM_FILTERS_PER_BANK             = 32,
 
     /** Number of filters in each filter region. */
-    EXANIC_NUM_FILTERS_PER_REGION   = 256,
+    EXANIC_NUM_FILTERS_PER_REGION           = 256,
 
     /** Devkit memory region is at this BAR. */
-    EXANIC_DEVKIT_MEMORY_REGION_BAR = 2,
+    EXANIC_DEVKIT_MEMORY_REGION_BAR         = 2,
+
+    /** Extended devkit register region is at this BAR. */
+    EXANIC_DEVKIT_REGISTERS_EX_REGION_BAR   = 1,
+
+    /** Extended devkit memory region is at this BAR. */
+    EXANIC_DEVKIT_MEMORY_EX_REGION_BAR      = 4,
 };
 
 /**
@@ -1416,48 +1422,53 @@ typedef enum
  * The ExaNIC memory regions are mapped to the user according to the following
  * configuration:
  *
- *            Page Offset 0  +---------------------+
- *                           |      Registers      |
- *                        3  +---------------------+
- *                           |        Info         |
- *                        4  +---------------------+
- *                           |       Filters       |
- *                        8  +---------------------+
- *                           |      TX region      |
- *                       256 +---------------------+
- *                           |     TX feedback     |
- *                       512 +---------------------+
- *                           |  RX region (port0)  |
- *                      1024 +---------------------+
- *                           |  RX region (port1)  |
- *                      1536 +---------------------+
- *                           |  RX region (port2)  |
- *                      2048 +---------------------+
- *                           |  RX region (port3)  |
- *                      2560 +---------------------+
- *                           |    Filter region    |
- *                    262144 +---------------------+
- *                           | Devkit user region  |
- *                    524288 +---------------------+
- *                           | Extended TX region  |
- *                    557056 +---------------------+
- *                           | Extended RX region  |
- *                           +---------------------+
+ *            Page Offset 0  +--------------------------+
+ *                           |         Registers        |
+ *                        3  +--------------------------+
+ *                           |           Info           |
+ *                        4  +--------------------------+
+ *                           |          Filters         |
+ *                        8  +--------------------------+
+ *                           |         TX region        |
+ *                       256 +--------------------------+
+ *                           |        TX feedback       |
+ *                       512 +--------------------------+
+ *                           |     RX region (port0)    |
+ *                      1024 +--------------------------+
+ *                           |     RX region (port1)    |
+ *                      1536 +--------------------------+
+ *                           |     RX region (port2)    |
+ *                      2048 +--------------------------+
+ *                           |     RX region (port3)    |
+ *                      2560 +--------------------------+
+ *                           |       Filter region      |
+ *                    262144 +--------------------------+
+ *                           |    Devkit user region    |
+ *                    524288 +--------------------------+
+ *                           |    Extended TX region    |
+ *                    557056 +--------------------------+
+ *                           |    Extended RX region    |
+ *                   1048576 +--------------------------+
+ *                           |  Extended devkit region  |
+ *                           +--------------------------+
  *
  */
 enum
 {
-    EXANIC_PGOFF_REGISTERS      = 0,
-    EXANIC_PGOFF_INFO           = 3,
-    EXANIC_PGOFF_FILTERS        = 4,
-    EXANIC_PGOFF_TX_REGION      = 8,
-    EXANIC_PGOFF_TX_FEEDBACK    = 256,
-    EXANIC_PGOFF_RX_REGION      = 512,
-    EXANIC_PGOFF_FILTER_REGION  = 2560,
-    EXANIC_PGOFF_DEVKIT_REGS    = 262144,
-    EXANIC_PGOFF_DEVKIT_MEM     = 262148,
-    EXANIC_PGOFF_TX_REGION_EXT  = 524288UL,
-    EXANIC_PGOFF_RX_REGION_EXT  = 557056UL,
+    EXANIC_PGOFF_REGISTERS          = 0,
+    EXANIC_PGOFF_INFO               = 3,
+    EXANIC_PGOFF_FILTERS            = 4,
+    EXANIC_PGOFF_TX_REGION          = 8,
+    EXANIC_PGOFF_TX_FEEDBACK        = 256,
+    EXANIC_PGOFF_RX_REGION          = 512,
+    EXANIC_PGOFF_FILTER_REGION      = 2560,
+    EXANIC_PGOFF_DEVKIT_REGS        = 262144,
+    EXANIC_PGOFF_DEVKIT_MEM         = 262148,
+    EXANIC_PGOFF_TX_REGION_EXT      = 524288UL,
+    EXANIC_PGOFF_RX_REGION_EXT      = 557056UL,
+    EXANIC_PGOFF_DEVKIT_REGS_EXT    = 1048576UL,
+    /* Leave 256MB of extended register region */
+    EXANIC_PGOFF_DEVKIT_MEM_EXT     = 1114112UL,
 };
 
 /**

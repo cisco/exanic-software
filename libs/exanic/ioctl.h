@@ -92,6 +92,9 @@ struct exaioc_ifinfo
 /** \brief Retrieve usage information about an Exanic */
 #define EXANICCTL_DEVICE_USAGE              _IOR(EXANICCTL_TYPE, 0xee, \
                                          struct exanicctl_usage_info)
+/** \brief Retrieve information about an ExaNIC devkit's extended regions */
+#define EXANICCTL_DEVKIT_INFO_EX            _IOR(EXANICCTL_TYPE, 0xef, \
+                                         struct exanicctl_devkit_info)
 
 /**
  * \brief Arguments for EXANICCTL_INFO
