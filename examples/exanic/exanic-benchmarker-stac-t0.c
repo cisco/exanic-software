@@ -32,6 +32,7 @@
 #include <exanic/time.h>
 #include <exanic/util.h>
 
+#include <sys/socket.h>
 #include <linux/in.h>
 #include <linux/ip.h>
 
@@ -65,8 +66,6 @@ int64_t data_size = 0;
 int64_t count = 1000;
 char message_type = 0;
 volatile int stop = 0;
-
-/* manipulate the sent index to trigger every time */
 int hammering = 0;
 
 int compare_txpkts(const void * a, const void * b)
@@ -83,6 +82,23 @@ static inline int little_endian(void)
     return lower_byte;
 }
 
+/* mask an index so that when interpreted
+ * as big-endian, it triggers the SUT */
+static uint64_t make_hammer(uint64_t index)
+{
+    if (little_endian())
+    {
+        uint64_t result = index;
+        char *bytes = (char *)&result;
+        bytes[7] = 0;
+        bytes[6] &= 0xfc;
+
+        return result;
+    }
+    else
+        return (index << 10);
+}
+
 /* current stac_t0 firmware expects to find the 2-byte
  * connection ID, in little endian order, in bytes 44 and 45 */
 void set_ate_id(char *packet, uint16_t ate_id)
@@ -94,22 +110,6 @@ void set_ate_id(char *packet, uint16_t ate_id)
         *(uint16_t*)(packet + 44) = ate_id;
     else
         *(uint16_t*)(packet + 44) = bswap_16(ate_id);
-}
-
-/* mask an index so that when interpreted as big-endian
- * by the STAC-T0 firmware, it always triggers the SUT */
-uint64_t make_hammer(uint64_t index)
-{
-    if (little_endian())
-    {
-        uint64_t result = index;
-        char *bytes = (char *)&result;
-        bytes[7] = 0;
-        bytes[6] &= 0xfc;
-        return result;
-    }
-    else
-        return (index << 10);
 }
 
 void init_packets(tx_packet_t* packets, const int data_size, const int count,
@@ -129,7 +129,6 @@ void init_packets(tx_packet_t* packets, const int data_size, const int count,
 
         if (hammering)
             packets[c].index = make_hammer(packets[c].index);
-
 
         /* Init the packet with junk */
         char* packet = packets[c].packet;
@@ -158,7 +157,7 @@ void init_packets(tx_packet_t* packets, const int data_size, const int count,
                 *(int64_t*)(packet + 14 + 20 + 8 + 233) = packets[c].index;
                 break;
             case 'B':
-                *(int64_t*)(packet + 14 + 20 + 8 + 6) = packets[c].index;
+                *(int64_t*)(packet + 14 + 20 + 8 + 5) = packets[c].index;
                 break;
         }
     }
@@ -286,9 +285,8 @@ int main(int argc, char *argv[])
     /* Configure sensible defaults */
     const char *device = NULL;
     const char *savefile = NULL;
-    int tx_port = 0;
+    int tx_port = 1;
     int rx_port = 0;
-
 
     /* No args supplied */
     if (argc < 2)
@@ -299,15 +297,8 @@ int main(int argc, char *argv[])
         switch (c)
         {
             case 'd':
-                {
-                    /*
-                    device = strdup(optarg);
-                    if (!device)
-                        goto usage_error;
-                        */
-                    device = optarg;
-                    break;
-                }
+                device = optarg;
+                break;
             case 'w':
                 savefile = optarg;
                 break;
@@ -350,12 +341,12 @@ int main(int argc, char *argv[])
     if(message_type == 'A' || message_type == 'a')
     {
         message_type = 'A';
-        data_size = 503 - 4;
+        data_size = 503;
     }
     else if(message_type == 'B' || message_type == 'b')
     {
         message_type = 'B';
-        data_size = 64 - 4;
+        data_size = 64;
     }
     else
     {
@@ -463,19 +454,30 @@ int main(int argc, char *argv[])
     err_acquire_handle: if (savefp != NULL) fclose(savefp);
     err_open_savefile: return err;
 
-    usage_error: fprintf(stderr, "Usage: %s -d device\n", argv[0]);
+    usage_error: fprintf(stderr, "Usage: %s -d device -M msgtype\n", argv[0]);
     fprintf(stderr,
-            "           [-p txport] [-P rxport] \n");
+            "           [-p txport] [-P rxport]\n");
     fprintf(stderr,
-            "           [-c count] [-H] [-h]\n\n");
+            "           [-w outfile] [-c count]\n");
+    fprintf(stderr,
+            "           [-H] [-h]\n\n");
     fprintf(stderr,
             "  -d: specify the ExaNIC device name (e.g. exanic0)\n");
+    fprintf(stderr,
+            "  -M: specify the STAC-T0 message type (A or B)\n");
+    fprintf(stderr,
+            "  -p: specify the port to use for sending the "
+            "UDP packets containing STAC-T0 indexes, default 1 \n");
+    fprintf(stderr,
+            "  -P: specify the port to use for receiving the TCP "
+            "packets containing echoed indexes from the SUT, default 0\n");
     fprintf(stderr,
             "  -w: write results to given file (- for stdout)\n");
     fprintf(stderr,
             "  -c: number of packets to send (default 1000)\n");
     fprintf(stderr,
-            "  -H: mask STAC-t0 index lower bits to stress test SUT response\n");
+            "  -H: manipulate sent STAC-T0 indexes to trigger the SUT with every packet, "
+            "for testing purposes only\n");
     fprintf(stderr,
             "  -h: print this usage information\n\n");
     return 1;
