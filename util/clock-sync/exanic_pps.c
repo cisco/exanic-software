@@ -98,17 +98,13 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
 
     /* Check for invalid settings */
     hw_id = exanic_get_hw_type(exanic);
-    if ((hw_id == EXANIC_HW_Z1 || hw_id == EXANIC_HW_Z10) &&
-            pps_type == PPS_SINGLE_ENDED)
+    if (!exanic->hw_info.flags.pps_single && pps_type == PPS_SINGLE_ENDED)
     {
         log_printf(LOG_WARNING, "%s: %s does not support single-ended PPS input",
                 state->name, exanic_hardware_id_str(hw_id));
         pps_type = PPS_DIFFERENTIAL;
     }
-    else if (((hw_id == EXANIC_HW_X10) || (hw_id == EXANIC_HW_X10_GM) ||
-                (hw_id == EXANIC_HW_X40 || (hw_id == EXANIC_HW_V5P) ||
-                (hw_id == EXANIC_HW_X10_HPT) || (hw_id == EXANIC_HW_X25)))
-            && pps_type == PPS_DIFFERENTIAL)
+    else if (!exanic->hw_info.flags.pps_diff && pps_type == PPS_DIFFERENTIAL)
     {
         log_printf(LOG_WARNING, "%s: %s does not support differential PPS input",
                 state->name, exanic_hardware_id_str(hw_id));
@@ -138,46 +134,33 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             state->interval);
 
     /* PPS settings */
-    if ((hw_id == EXANIC_HW_X4) || (hw_id == EXANIC_HW_X2))
+    if (!exanic->hw_info.flags.zcard)
     {
-        uint32_t reg;
-
-        reg = exanic_register_read(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS));
-
-        if (pps_type == PPS_SINGLE_ENDED)
-            reg |= EXANIC_HW_SERIAL_PPS_SINGLE;
-        else
-            reg &= ~EXANIC_HW_SERIAL_PPS_SINGLE;
+        uint32_t pps_reg =
+                exanic_register_read(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS));
 
         if (pps_edge == PPS_RISING_EDGE)
-            reg |= EXANIC_HW_SERIAL_PPS_EDGE_SEL;
+            pps_reg |= EXANIC_HW_SERIAL_PPS_EDGE_SEL;
         else
-            reg &= ~EXANIC_HW_SERIAL_PPS_EDGE_SEL;
+            pps_reg &= ~EXANIC_HW_SERIAL_PPS_EDGE_SEL;
 
-        exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), reg);
-    }
-    else if ((hw_id == EXANIC_HW_X10) || (hw_id == EXANIC_HW_X10_GM) ||
-            (hw_id == EXANIC_HW_X40) || (hw_id == EXANIC_HW_X10_HPT) ||
-            (hw_id == EXANIC_HW_V5P) || (hw_id == EXANIC_HW_X25))
-    {
+        /* PPS input electrical characteristics */
+        if (exanic->hw_info.flags.pps_single && pps_type == PPS_SINGLE_ENDED)
+            pps_reg |= EXANIC_HW_SERIAL_PPS_SINGLE;
+        else
+            pps_reg &= ~EXANIC_HW_SERIAL_PPS_SINGLE;
+
         /* PPS Termination Settings */
-        uint32_t reg;
-
-        reg = exanic_register_read(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS));
-
-        if (pps_termination_disable)
-            reg &= ~EXANIC_HW_SERIAL_PPS_TERM_EN;
+        if (exanic->hw_info.flags.pps_term && pps_termination_disable)
+            pps_reg &= ~EXANIC_HW_SERIAL_PPS_TERM_EN;
         else
-            reg |= EXANIC_HW_SERIAL_PPS_TERM_EN;
+            pps_reg |= EXANIC_HW_SERIAL_PPS_TERM_EN;
 
-        if (pps_edge == PPS_RISING_EDGE)
-            reg |= EXANIC_HW_SERIAL_PPS_EDGE_SEL;
-        else
-            reg &= ~EXANIC_HW_SERIAL_PPS_EDGE_SEL;
+        /* Disable PPS output */
+        if (exanic->hw_info.flags.periodic_out)
+            pps_reg &= ~EXANIC_HW_SERIAL_PPS_OUT_EN;
 
-        reg &= ~EXANIC_HW_SERIAL_PPS_OUT_EN;
-
-        exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), reg);
+        exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), pps_reg);
     }
 
     /* Don't allow too large adjustments as the algorithm cannot handle it */

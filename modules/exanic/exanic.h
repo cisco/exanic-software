@@ -191,16 +191,18 @@ void exanic_ate_client_unregister(exanic_ate_client_process_skb_cb cb);
 void exanic_ate_regdump(struct exanic *exanic, unsigned port_num,
                         int ate_id, struct exanic_ate_regdump *cfg);
 
-/* exanic-x4.c */
-int exanic_x4_x2_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN]);
-int exanic_x4_x2_poweron_port(struct exanic *exanic, unsigned port_num);
-int exanic_x4_x2_poweroff_port(struct exanic *exanic, unsigned port_num);
-int exanic_x4_x2_save_feature_cfg(struct exanic *exanic);
-int exanic_x4_x2_save_speed(struct exanic *exanic, unsigned port_number,
+/* exanic-i2c.c */
+int exanic_i2c_init(struct exanic *exanic);
+void exanic_i2c_exit(struct exanic *exanic);
+int exanic_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN]);
+int exanic_poweron_port(struct exanic *exanic, unsigned port_num);
+int exanic_poweroff_port(struct exanic *exanic, unsigned port_num);
+int exanic_save_feature_cfg(struct exanic *exanic);
+int exanic_save_speed(struct exanic *exanic, unsigned port_number,
                             unsigned speed);
-int exanic_x4_x2_save_autoneg(struct exanic *exanic, unsigned port_number,
+int exanic_save_autoneg(struct exanic *exanic, unsigned port_number,
                               bool autoneg);
-int exanic_x4_x2_set_speed(struct exanic *exanic, unsigned port_number,
+int exanic_set_speed(struct exanic *exanic, unsigned port_number,
                            unsigned old_speed, unsigned speed);
 
 int exanic_sfp_eeprom_read(struct exanic *exanic, int port_number,

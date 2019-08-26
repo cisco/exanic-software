@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <stdbool.h>
 
 #include "exanic.h"
 #include "pcie_if.h"
@@ -74,16 +75,18 @@ int exanic_port_mirror_supported(exanic_t *exanic, int port_number)
 {
     uint32_t caps = exanic_get_caps(exanic);
     exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
+    bool mirror_fw_avail = exanic->hw_info.flags.mirror_fw;
+    int mirror_output_port = exanic->num_ports ? exanic->num_ports - 1 : 0;
 
     /*
      * Check if firmware has mirroring support for a given port.
      * Always available on legacy 4-port cards regardless of capability bit.
      */
-    return (((hw_type == EXANIC_HW_X4 ||
-              hw_type == EXANIC_HW_Z10 ||
-              hw_type == EXANIC_HW_Z1) && (port_number < 3)) ||
-            ((hw_type == EXANIC_HW_X10) && (caps & EXANIC_CAP_MIRRORING) &&
-             (port_number < 1)));
+    return ((hw_type == EXANIC_HW_X4 ||
+             hw_type == EXANIC_HW_Z10 ||
+             hw_type == EXANIC_HW_Z1) ||
+            (mirror_fw_avail && (caps & EXANIC_CAP_MIRRORING))) &&
+            (port_number < mirror_output_port);
 }
 
 int exanic_port_rx_usable(exanic_t *exanic, int port_number)

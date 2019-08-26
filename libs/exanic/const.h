@@ -8,7 +8,7 @@
 enum
 {
     /** Number of ports on a ExaNIC. */
-    EXANIC_MAX_PORTS                = 8,
+    EXANIC_MAX_PORTS                = 16,
 };
 
 #endif /* EXANIC_CONST_H */

@@ -1,5 +1,5 @@
 /**
- * ExaNIC driver
+ * ExaNIC Z10 specific logic for backwards compatibility
  * Copyright (C) 2011-2013 Exablaze Pty Ltd and its licensors
  */
 

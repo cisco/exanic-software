@@ -34,6 +34,7 @@
 #include <exanic/sfp.h>
 #include <exanic/firewall.h>
 #include <exanic/x4/i2c.h>
+#include <exanic/hw_info.h>
 #include "../include/exanic_version.h"
 
 enum conf_option_types {
@@ -315,12 +316,14 @@ void show_device_info(const char *device, int port_number, int verbose)
     exanic_t *exanic;
     exanic_hardware_id_t hw_type;
     exanic_function_id_t function;
+    struct exanic_hw_info *hwinfo;
     time_t rev_date;
     int fd;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
 
     exanic = acquire_handle(device);
+    hwinfo = &exanic->hw_info;
     hw_type = exanic_get_hw_type(exanic);
     function = exanic_get_function_id(exanic);
     rev_date = exanic_get_hw_rev_date(exanic);
@@ -332,7 +335,7 @@ void show_device_info(const char *device, int port_number, int verbose)
 
     if (verbose)
     {
-        if (hw_type == EXANIC_HW_X25)
+        if (hwinfo->flags.dram_variant)
         {
             uint32_t ddr_fitted = exanic_register_read(exanic,
                     REG_EXANIC_INDEX(REG_EXANIC_FEATURE_CFG))
@@ -357,45 +360,51 @@ void show_device_info(const char *device, int port_number, int verbose)
     }
 
 
-    if (hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
-        hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
-        hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-        hw_type == EXANIC_HW_X40  || hw_type == EXANIC_HW_X10_HPT ||
-        hw_type == EXANIC_HW_V5P || hw_type == EXANIC_HW_X25)
+    if (hwinfo->hwid != -1)
     {
         uint32_t temp, vccint, vccaux;
         double temp_real=0, vccint_real=0, vccaux_real=0;
+        double temp_scal, temp_off, volt_scal;
+        unsigned temp_res, volt_res;
+
+        if (hwinfo->dev_family == EXANIC_XILINX_7)
+        {
+            temp_scal = 503.975;
+            temp_off = 273.15;
+            temp_res = 1024;
+            volt_scal = 3.0;
+            volt_res = 1024;
+        }
+        else if (hwinfo->dev_family == EXANIC_XILINX_US)
+        {
+            temp_scal = 503.975;
+            temp_off = 273.15;
+            temp_res = 4096;
+            volt_scal = 3.0;
+            volt_res = 4096;
+        }
+        else
+        {
+            temp_scal = 509.314;
+            temp_off = 280.231;
+            temp_res = 4096;
+            volt_scal = 3.0;
+            volt_res = 4096;
+        }
 
         temp = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_TEMPERATURE));
         vccint = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_VCCINT));
         vccaux = exanic_register_read(exanic, REG_HW_INDEX(REG_HW_VCCAUX));
 
-        if (hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10)
-        {
-            temp_real = temp * (503.975 / 1024.0) - 273.15;
-            vccint_real = vccint * 3.0 / 1024.0;
-            vccaux_real = vccaux * 3.0 / 1024.0;
-        }
-        else if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
-                    hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-                    hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT)
-        {
-            temp_real = temp * (503.975 / 4096.0) - 273.15;
-            vccint_real = vccint * 3.0 / 4096.0;
-            vccaux_real = vccaux * 3.0 / 4096.0;
-        }
-        else if (hw_type == EXANIC_HW_V5P || hw_type == EXANIC_HW_X25)
-        {
-            temp_real = temp * (509.314 / 4096.0) - 280.231;
-            vccint_real = vccint * 3.0 / 4096.0;
-            vccaux_real = vccaux * 3.0 / 4096.0;
-        }
+        temp_real = temp * (temp_scal / temp_res) - temp_off;
+        vccint_real = vccint * (volt_scal / volt_res);
+        vccaux_real = vccaux * (volt_scal / volt_res);
 
         printf("  Temperature: %.1f C   VCCint: %.2f V   VCCaux: %.2f V\n",
                 temp_real, vccint_real, vccaux_real);
     }
 
-    if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 || hw_type == EXANIC_HW_V5P)
+    if (hwinfo->flags.fan_rpm_sensor)
     {
         uint32_t reg, count, tick_hz;
         double rpm, divisor;
@@ -435,15 +444,14 @@ void show_device_info(const char *device, int port_number, int verbose)
         printf("  Customer version: %u (%x)\n", user_version, user_version);
     }
 
-    if (hw_type == EXANIC_HW_V5P)
+    if (hwinfo->flags.pwr_sense)
     {
         uint32_t ext_pwr = exanic_register_read(exanic,
                     REG_HW_INDEX(REG_HW_MISC_GPIO));
         printf("  External 12V power: %s\n", ext_pwr ? "detected" : "not detected");
     }
 
-    if (function == EXANIC_FUNCTION_NIC ||
-            function == EXANIC_FUNCTION_PTP_GM)
+    if (function == EXANIC_FUNCTION_NIC || function == EXANIC_FUNCTION_PTP_GM)
     {
         if (hw_type != EXANIC_HW_X4 && hw_type != EXANIC_HW_X2)
         {
@@ -478,7 +486,7 @@ void show_device_info(const char *device, int port_number, int verbose)
          * Always available on older cards regardless of capability bit
          */
         uint32_t caps = exanic_get_caps(exanic);
-        if (caps & EXANIC_CAP_BRIDGING ||
+        if ((caps & EXANIC_CAP_BRIDGING) ||
             hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
             hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2)
         {
@@ -540,9 +548,9 @@ void show_device_info(const char *device, int port_number, int verbose)
         printf("    Port speed: %u Mbps\n", exanic_get_port_speed(exanic, i));
 
         port_status = exanic_get_port_status(exanic, i);
-        if ((hw_type == EXANIC_HW_X40) || (hw_type == EXANIC_HW_V5P))
+        if (hwinfo->port_ff == EXANIC_PORT_QSFP || hwinfo->port_ff == EXANIC_PORT_QSFPDD)
         {
-            /* No signal detected pin on QSFP. */
+            /* No signal detected pin on QSFP or QSFPDD. */
             printf("    Port status: %s, %s, %s\n",
                     (port_status & EXANIC_PORT_STATUS_ENABLED) ?
                         "enabled" : "disabled",
@@ -602,10 +610,7 @@ void show_device_info(const char *device, int port_number, int verbose)
         {
             int loopback, promisc;
 
-            if (hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2 ||
-                    hw_type == EXANIC_HW_X10 || hw_type == EXANIC_HW_X10_GM ||
-                    hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_X10_HPT ||
-                    hw_type == EXANIC_HW_V5P || hw_type == EXANIC_HW_X25)
+            if (hw_type != EXANIC_HW_Z1 && hw_type != EXANIC_HW_Z10)
             {
                 if (verbose)
                 {
@@ -765,16 +770,15 @@ int show_sfp_status(const char *device, int port_number)
     int port_status;
     int channel;
     exanic_t *exanic;
+    struct exanic_hw_info *hwinfo;
     exanic_sfp_info_t sfp_info;
     exanic_sfp_diag_info_t sfp_diag_info;
     exanic_qsfp_info_t qsfp_info;
     exanic_qsfp_diag_info_t qsfp_diag_info;
-    exanic_hardware_id_t hw_type;
-
 
     exanic = acquire_handle(device);
+    hwinfo = &exanic->hw_info;
     port_status = exanic_get_port_status(exanic, port_number);
-    hw_type = exanic_get_hw_type(exanic);
 
     if ((port_status & EXANIC_PORT_STATUS_SFP) == 0)
     {
@@ -783,7 +787,8 @@ int show_sfp_status(const char *device, int port_number)
         return 1;
     }
 
-    if (hw_type == EXANIC_HW_X40 || hw_type == EXANIC_HW_V5P)
+    /* FIXME: implement qsfpdd diag and info decode */
+    if (hwinfo->port_ff == EXANIC_PORT_QSFP || hwinfo->port_ff == EXANIC_PORT_QSFPDD)
     {
         printf("Device %s port %d QSFP module %d status:\n", device,
                     port_number, port_number/4);
@@ -2028,7 +2033,7 @@ int ptp_command(const char *progname, const char *device,
     exanic = acquire_handle(device);
     hw_type = exanic_get_hw_type(exanic);
 
-    if (hw_type != EXANIC_HW_X10_GM)
+    if (!exanic->hw_info.flags.ptp_gm)
     {
         str = exanic_hardware_id_str(hw_type);
         printf("Device %s:\n", device);
@@ -2434,7 +2439,7 @@ int parse_device_glob(char* glob, char devices[][16], int max_devices, int* nmat
     return true;
 }
 
-int is_driver_loaded(void) 
+int is_driver_loaded(void)
 {
     DIR* handle = opendir(EXANIC_DRIVER_SYSFS_ENTRY);
     if (handle)
@@ -2455,13 +2460,13 @@ int main(int argc, char *argv[])
 
     if (!is_driver_loaded())
     {
-        fprintf(stderr, "Please load the exanic driver before using this tool\n");    
-        return 1; 
+        fprintf(stderr, "Please load the exanic driver before using this tool\n");
+        return 1;
     }
-    
+
     if (argc < 2 || (argc == 2 && (strcmp(argv[1], "-v") == 0)))
     {
-        int verbose = (argc == 2)? 1:0; 
+        int verbose = (argc == 2)? 1:0;
         int nnics;
         show_all_devices(verbose, &nnics);
         if (nnics == 0)

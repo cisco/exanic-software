@@ -19,6 +19,7 @@
 #include <stdlib.h>
 
 #include "const.h"
+#include "hw_info.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,31 +30,34 @@ extern "C" {
  */
 typedef struct exanic
 {
-    int                 ref_count;
-    struct exanic        *next;
+    int                     ref_count;
+    struct exanic           *next;
 
-    volatile uint32_t   *registers;
+    volatile uint32_t       *registers;
     volatile struct exanic_info_page *info_page;
-    volatile uint32_t   *devkit_regs_region;
-    char                *devkit_mem_region;
-    volatile uint32_t   *devkit_regs_ex_region;
-    char                *devkit_mem_ex_region;
-    volatile uint16_t   *tx_feedback_slots;
-    char                *tx_buffer;
-    size_t              tx_buffer_size;
-    volatile uint32_t   *filters;
-    size_t              filters_size;
-    size_t              devkit_regs_size;
-    size_t              devkit_mem_size;
-    size_t              devkit_regs_ex_size;
-    size_t              devkit_mem_ex_size;
-    uint32_t            tick_hz;
-    uint32_t            caps;
-    int                 fd;
-    char                name[16];
-    unsigned int        max_filter_buffers;
-    unsigned int        num_ports;
-    int                 if_index[EXANIC_MAX_PORTS];
+    volatile uint32_t       *devkit_regs_region;
+    char                    *devkit_mem_region;
+    volatile uint32_t       *devkit_regs_ex_region;
+    char                    *devkit_mem_ex_region;
+    volatile uint16_t       *tx_feedback_slots;
+    char                    *tx_buffer;
+    size_t                  tx_buffer_size;
+    volatile uint32_t       *filters;
+    size_t                  filters_size;
+    size_t                  devkit_regs_size;
+    size_t                  devkit_mem_size;
+    size_t                  devkit_regs_ex_size;
+    size_t                  devkit_mem_ex_size;
+    uint32_t                tick_hz;
+    uint32_t                caps;
+    int                     fd;
+    char                    name[16];
+    unsigned int            max_filter_buffers;
+    /* number of ethernet interfaces
+     * can differ from the number of physical ports */
+    unsigned int            num_ports;
+    int                     if_index[EXANIC_MAX_PORTS];
+    struct exanic_hw_info   hw_info;
 } exanic_t;
 
 /**

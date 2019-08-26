@@ -62,17 +62,6 @@ static u8 next_mac_addr[ETH_ALEN] = {
     0x64, 0x3F, 0x5F, 0x00, 0x00, 0x00
 };
 
-#define EXANIC_4_PORT(exanic)       ((exanic)->hw_id == EXANIC_HW_Z1     || \
-                                     (exanic)->hw_id == EXANIC_HW_Z10    || \
-                                     (exanic)->hw_id == EXANIC_HW_X4)
-
-#define EXANIC_2_PORT(exanic)       ((exanic)->hw_id == EXANIC_HW_X2     || \
-                                     (exanic)->hw_id == EXANIC_HW_X10    || \
-                                     (exanic)->hw_id == EXANIC_HW_X10_GM || \
-                                     (exanic)->hw_id == EXANIC_HW_X40    || \
-                                     (exanic)->hw_id == EXANIC_HW_X10_HPT|| \
-                                     (exanic)->hw_id == EXANIC_HW_X25)
-
 /* Mirroring support always available on legacy 4-port cards regardless of
  * capability bit */
 #define EXANIC_MIRRORING_SUPPORT(exanic) \
@@ -89,6 +78,9 @@ static u8 next_mac_addr[ETH_ALEN] = {
                                      (exanic)->hw_id == EXANIC_HW_X4      || \
                                      (exanic)->hw_id == EXANIC_HW_Z10     || \
                                      (exanic)->hw_id == EXANIC_HW_Z1)
+
+/* Breakout firmware available for qsfp and qsfpdd cards */
+#define EXANIC_BREAKOUT_SUPPORT(exanic) ((exanic)->hwinfo.port_ff != EXANIC_PORT_SFP)
 
 /**
  * Configure flow hashing for an ExaNIC port.
@@ -497,7 +489,7 @@ static bool exanic_port_needs_power(struct exanic *exanic, unsigned port_num)
     uint32_t cfg = readl(exanic->regs_virt +
                      REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
 
-    if (EXANIC_2_PORT(exanic))
+    if (exanic->hwinfo.nports == 2)
     {
         /* 2 port card */
         if (cfg & port_feature_bits_2port[port_num])
@@ -528,14 +520,8 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         int err = 0;
 
         /* Power off */
-        if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-                exanic->hw_id == EXANIC_HW_X10 ||
-                exanic->hw_id == EXANIC_HW_X10_GM ||
-                exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT ||
-                exanic->hw_id == EXANIC_HW_V5P ||
-                exanic->hw_id == EXANIC_HW_X25)
-            err = exanic_x4_x2_poweroff_port(exanic, port_num);
+        if (!exanic->hwinfo.flags.zcard)
+            err = exanic_poweroff_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweroff_port(exanic, port_num);
 
@@ -559,30 +545,17 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         uint32_t speed_reg = 0;
 
         /* Power on */
-        if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-                exanic->hw_id == EXANIC_HW_X10 ||
-                exanic->hw_id == EXANIC_HW_X10_GM ||
-                exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT ||
-                exanic->hw_id == EXANIC_HW_V5P ||
-                exanic->hw_id == EXANIC_HW_X25)
-            err = exanic_x4_x2_poweron_port(exanic, port_num);
+        if (!exanic->hwinfo.flags.zcard)
+            err = exanic_poweron_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweron_port(exanic, port_num);
 
         speed_reg = readl(exanic->regs_virt +
                                     REG_PORT_OFFSET(port_num, REG_PORT_SPEED));
-        if ((exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-                exanic->hw_id == EXANIC_HW_X10 ||
-                exanic->hw_id == EXANIC_HW_X10_GM ||
-                exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT ||
-                exanic->hw_id == EXANIC_HW_V5P ||
-                exanic->hw_id == EXANIC_HW_X25)
-              && (speed_reg == SPEED_100))
+        if (!exanic->hwinfo.flags.zcard && (speed_reg == SPEED_100))
         {
             msleep(100); /* Wait for PHY to power up. */
-            exanic_x4_x2_set_speed(exanic, port_num, 0, SPEED_100);
+            exanic_set_speed(exanic, port_num, 0, SPEED_100);
         }
 
         if (err == 0)
@@ -603,7 +576,7 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
 }
 
 /**
- * Enables a exanic port.  The DMA resources must be been allocated.
+ * Enables a exanic port.  The DMA resources must have been allocated.
  *
  * Called with the exanic mutex held.
  */
@@ -778,7 +751,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
         case EXANIC_MIRROR_RX:
             if (!EXANIC_MIRRORING_SUPPORT(exanic))
                 return -EINVAL;
-            if (EXANIC_4_PORT(exanic))
+            if (exanic->hwinfo.nports == 4)
             {
                 switch (port_num)
                 {
@@ -788,7 +761,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
                     default: return -EINVAL;
                 }
             }
-            else if (EXANIC_2_PORT(exanic))
+            else if (exanic->hwinfo.nports == 2)
             {
                 switch (port_num)
                 {
@@ -801,7 +774,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
         case EXANIC_MIRROR_TX:
             if (!EXANIC_MIRRORING_SUPPORT(exanic))
                 return -EINVAL;
-            if (EXANIC_4_PORT(exanic))
+            if (exanic->hwinfo.nports == 4)
             {
                 switch (port_num)
                 {
@@ -811,7 +784,7 @@ static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
                     default: return -EINVAL;
                 }
             }
-            else if (EXANIC_2_PORT(exanic))
+            else if (exanic->hwinfo.nports == 2)
             {
                 switch (port_num)
                 {
@@ -911,14 +884,8 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
         }
 
         /* Save new state */
-        if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-                exanic->hw_id == EXANIC_HW_X10 ||
-                exanic->hw_id == EXANIC_HW_X10_GM ||
-                exanic->hw_id == EXANIC_HW_X40 ||
-                exanic->hw_id == EXANIC_HW_X10_HPT ||
-                exanic->hw_id == EXANIC_HW_V5P ||
-                exanic->hw_id == EXANIC_HW_X25)
-            exanic_x4_x2_save_feature_cfg(exanic);
+        if (!exanic->hwinfo.flags.zcard)
+            exanic_save_feature_cfg(exanic);
     }
 
     return 0;
@@ -956,7 +923,7 @@ int exanic_get_num_ports(struct exanic *exanic)
     int port_idx;
     int port_status;
 
-    for (port_idx = 0; port_idx < 8; port_idx++)
+    for (port_idx = 0; port_idx < EXANIC_MAX_PORTS; port_idx++)
     {
         port_status = readl(exanic->regs_virt +
                       REG_PORT_OFFSET(port_idx, REG_PORT_STATUS));
@@ -1092,6 +1059,7 @@ static int exanic_probe(struct pci_dev *pdev,
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_FUNCTION_ID));
     exanic->caps =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CAPS));
+    exanic_get_hw_info(exanic->hw_id, &exanic->hwinfo);
 
     /* Capabilities register returns a bogus value on the Z10 */
     if (exanic->hw_id == EXANIC_HW_Z10)
@@ -1189,28 +1157,14 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_dma_mask;
     }
 
-    /* Determine number of ports */
-    switch (exanic->hw_id)
-    {
-        case EXANIC_HW_X2:
-        case EXANIC_HW_X25:
-        case EXANIC_HW_X10:
-        case EXANIC_HW_X10_GM:
-        case EXANIC_HW_X10_HPT:
-            exanic->num_ports = 2;
-            break;
-        case EXANIC_HW_Z1:
-        case EXANIC_HW_Z10:
-        case EXANIC_HW_X4:
-            exanic->num_ports = 4;
-            break;
-        case EXANIC_HW_X40:
-        case EXANIC_HW_V5P:
-            exanic->num_ports = exanic_get_num_ports(exanic);
-            break;
-        default:
-            exanic->num_ports = 0;
-    }
+    /* Determine number of ethernet interfaces
+     * equal to the number of physical ports unless breakout is possible */
+    if (EXANIC_BREAKOUT_SUPPORT(exanic))
+        exanic->num_ports = exanic_get_num_ports(exanic);
+    else if (exanic->hwinfo.hwid != -1)
+        exanic->num_ports = exanic->hwinfo.nports;
+    else
+        exanic->num_ports = 0;
 
     /* Configure TX region */
     if (pci_resource_flags(pdev, EXANIC_TX_REGION_BAR) & IORESOURCE_MEM)
@@ -1325,6 +1279,14 @@ static int exanic_probe(struct pci_dev *pdev,
         }
     }
 
+    /* allocate i2c busses */
+    err = exanic_i2c_init(exanic);
+    if (err)
+    {
+        dev_err(dev, "exanic_i2c_init failed: %d\n", err);
+        goto err_i2c_init;
+    }
+
     /* Allocate kernel info page */
     exanic->info_page = vmalloc_user(EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
     if (exanic->info_page == NULL)
@@ -1334,17 +1296,10 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Initial configuration */
-    if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2 ||
-            exanic->hw_id == EXANIC_HW_X10 ||
-            exanic->hw_id == EXANIC_HW_X10_GM ||
-            exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_X10_HPT ||
-            exanic->hw_id == EXANIC_HW_V5P ||
-            exanic->hw_id == EXANIC_HW_X25)
-
+    if (!exanic->hwinfo.flags.zcard)
     {
         /* Get serial number in EEPROM to use as MAC address */
-        if (exanic_x4_x2_get_serial(exanic, mac_addr) == 0)
+        if (exanic_get_serial(exanic, mac_addr) == 0)
         {
             dev_info(dev, "Serial number: %pM\n", mac_addr);
 
@@ -1439,7 +1394,7 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Configure flow steering. */
-    if (exanic->hw_id == EXANIC_HW_Z1 || exanic->hw_id == EXANIC_HW_Z10)
+    if (!exanic->hwinfo.flags.hw_filter)
         exanic->max_filter_buffers = 0;
     else
         exanic->max_filter_buffers =
@@ -1533,10 +1488,8 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Set up and map the development kit memory if present. */
-    if ((exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4 ||
-            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_V5P || exanic->hw_id == EXANIC_HW_X25) &&
-                exanic->function_id == EXANIC_FUNCTION_DEVKIT)
+    if (exanic->hwinfo.flags.devkit &&
+        exanic->function_id == EXANIC_FUNCTION_DEVKIT)
     {
         exanic->devkit_regs_offset =
             readl(exanic->regs_virt +
@@ -1617,10 +1570,8 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Set up and map the extended development kit memory if present. */
-    if ((exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4 ||
-            exanic->hw_id == EXANIC_HW_X10 || exanic->hw_id == EXANIC_HW_X40 ||
-            exanic->hw_id == EXANIC_HW_V5P || exanic->hw_id == EXANIC_HW_X25) &&
-                exanic->function_id == EXANIC_FUNCTION_DEVKIT)
+    if (exanic->hwinfo.flags.devkit &&
+        exanic->function_id == EXANIC_FUNCTION_DEVKIT)
     {
         /* Configure extended Devkit register region */
         if (pci_resource_flags(pdev, EXANIC_DEVKIT_REGISTERS_EX_REGION_BAR) &
@@ -1817,6 +1768,8 @@ err_flow_steering:
 err_interrupts:
     vfree(exanic->info_page);
 err_info_page_alloc:
+    exanic_i2c_exit(exanic);
+err_i2c_init:
     dma_free_coherent(&exanic->pci_dev->dev,
             EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
             exanic->tx_feedback_virt, exanic->tx_feedback_dma);
@@ -1923,6 +1876,8 @@ static void exanic_remove(struct pci_dev *pdev)
                           exanic->tx_feedback_virt, exanic->tx_feedback_dma);
     if (exanic->tx_region_virt != NULL)
         iounmap(exanic->tx_region_virt);
+
+    exanic_i2c_exit(exanic);
 
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);

@@ -1305,17 +1305,11 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
             (speed == SPEED_40000 && (caps & EXANIC_CAP_40G)))
         {
             /* Card specific updates */
-            if (priv->exanic->hw_id == EXANIC_HW_X4 ||
-                    priv->exanic->hw_id == EXANIC_HW_X2 ||
-                        priv->exanic->hw_id == EXANIC_HW_X10 ||
-                            priv->exanic->hw_id == EXANIC_HW_X10_GM ||
-                            priv->exanic->hw_id == EXANIC_HW_X40 ||
-                            priv->exanic->hw_id == EXANIC_HW_V5P ||
-                            priv->exanic->hw_id == EXANIC_HW_X25)
+            if (!priv->exanic->hwinfo.flags.zcard)
             {
-                if (exanic_x4_x2_set_speed(priv->exanic, priv->port, reg, speed))
+                if (exanic_set_speed(priv->exanic, priv->port, reg, speed))
                     return -EINVAL;
-                exanic_x4_x2_save_speed(priv->exanic, priv->port, speed);
+                exanic_save_speed(priv->exanic, priv->port, speed);
             }
 
             /* Change port speed, even if the port is up */
@@ -1342,14 +1336,8 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
         reg &= ~EXANIC_PORT_FLAG_AUTONEG_ENABLE;
     writel(reg, &priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_FLAGS)]);
 
-    if (priv->exanic->hw_id == EXANIC_HW_X4 ||
-            priv->exanic->hw_id == EXANIC_HW_X2 ||
-                priv->exanic->hw_id == EXANIC_HW_X10 ||
-                    priv->exanic->hw_id == EXANIC_HW_X10_GM ||
-                    priv->exanic->hw_id == EXANIC_HW_X40 ||
-                    priv->exanic->hw_id == EXANIC_HW_V5P ||
-                    priv->exanic->hw_id == EXANIC_HW_X25)
-        exanic_x4_x2_save_autoneg(priv->exanic, priv->port, autoneg_enable);
+    if (!priv->exanic->hwinfo.flags.zcard)
+        exanic_save_autoneg(priv->exanic, priv->port, autoneg_enable);
 
     return 0;
 }
@@ -1553,15 +1541,21 @@ static int exanic_get_module_info(struct net_device *ndev,
                                   struct ethtool_modinfo *minfo)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
-    bool is_qsfp_card = (priv->exanic->hw_id == EXANIC_HW_X40) || (priv->exanic->hw_id == EXANIC_HW_V5P);
+    struct exanic_hw_info *hwinfo = &priv->exanic->hwinfo;
     bool has_diag = false;
+    uint32_t reg;
 
-    if (is_qsfp_card)
+    /* check that a pluggable transceiver is plugged in */
+    reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_STATUS)]);
+    if ((reg & EXANIC_PORT_STATUS_SFP) == 0)
+        return -EOPNOTSUPP;
+
+    if (hwinfo->port_ff == EXANIC_PORT_QSFP)
     {
         minfo->type       = ETH_MODULE_SFF_8436;
         minfo->eeprom_len = ETH_MODULE_SFF_8436_LEN;
     }
-    else
+    else if (hwinfo->port_ff == EXANIC_PORT_SFP)
     {
         exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
         if (has_diag)
@@ -1574,6 +1568,11 @@ static int exanic_get_module_info(struct net_device *ndev,
             minfo->type       = ETH_MODULE_SFF_8079;
             minfo->eeprom_len = ETH_MODULE_SFF_8079_LEN;
         }
+    }
+    else
+    {
+        /* TODO: add qsfpdd support */
+        return -EOPNOTSUPP;
     }
     return 0;
 }

@@ -46,18 +46,6 @@ typedef struct timespec ptp_timespec_t;
 #define ktime_to_ptp_timespec_t(ktime) ktime_to_timespec(ktime)
 #endif
 
-#define EXANIC_SUPPORTS_PER_OUT(exanic) \
-    ((exanic)->hw_id == EXANIC_HW_X10 || \
-     (exanic)->hw_id == EXANIC_HW_X40 || \
-     (exanic)->hw_id == EXANIC_HW_X10_GM || \
-     (exanic)->hw_id == EXANIC_HW_X10_HPT || \
-     (exanic)->hw_id == EXANIC_HW_V5P || \
-     (exanic)->hw_id == EXANIC_HW_X25)
-
-#define EXANIC_SUPPORTS_PER_OUT_10M(exanic) \
-    ((exanic)->hw_id == EXANIC_HW_X10_GM || \
-     (exanic)->hw_id == EXANIC_HW_X10_HPT)
-
 static uint64_t exanic_ptp_read_hw_time(struct exanic *exanic);
 static uint64_t exanic_ptp_soft_extend_hw_time(struct exanic *exanic,
         uint32_t hw_time);
@@ -561,9 +549,9 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
             else
                 return -EINVAL;
 
-            /* 100ns period is only supported on X10-GM/X10-HPT */
+            /* Check feature flags for 100ns periodic output support */
             if (per_out_mode == PER_OUT_10M &&
-                    !EXANIC_SUPPORTS_PER_OUT_10M(exanic))
+                !exanic->hwinfo.flags.periodic_out_10m)
                 return -EINVAL;
         }
 
@@ -642,8 +630,8 @@ void exanic_ptp_init(struct exanic *exanic)
         exanic->ptp_clock_info.max_adj = 1953124;
     else
         exanic->ptp_clock_info.max_adj = 100000000;
-    /* Periodic output is only available on X10/X40/X10-GM/X10-HPT/V5P/X25 */
-    if (EXANIC_SUPPORTS_PER_OUT(exanic))
+    /* Check feature flag for periodic output */
+    if (exanic->hwinfo.flags.periodic_out)
         exanic->ptp_clock_info.n_per_out = 1;
     else
         exanic->ptp_clock_info.n_per_out = 0;
@@ -670,11 +658,12 @@ void exanic_ptp_init(struct exanic *exanic)
     dev_info(dev, "PTP hardware clock registered (ptp%i)",
             ptp_clock_index(exanic->ptp_clock));
 
-    if (EXANIC_SUPPORTS_PER_OUT(exanic))
+    if (exanic->hwinfo.flags.periodic_out)
     {
-        if ((exanic)->hw_id == EXANIC_HW_X10_GM)
+        /* PPS configs are restored from EEPROM on some cards
+         * following reset */
+        if (exanic->hwinfo.flags.periodic_out_eep)
         {
-            /* Read persisted values from ExaNIC GM  */
             reg = readl(exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
             if (reg & EXANIC_HW_PER_OUT_CONFIG_PPS)
                 exanic->per_out_mode = PER_OUT_1PPS;

@@ -11,6 +11,7 @@
 
 #include "exanic.h"
 #include "pcie_if.h"
+#include "hw_info.h"
 #include "ioctl.h"
 
 static exanic_t *exanic_list = NULL;
@@ -73,6 +74,11 @@ exanic_t * exanic_acquire_handle(const char *device_name)
 
     uint32_t caps = registers[REG_EXANIC_INDEX(REG_EXANIC_CAPS)];
     uint32_t tick_hz = registers[REG_EXANIC_INDEX(REG_EXANIC_CLK_HZ)];
+    uint32_t hwid = registers[REG_EXANIC_INDEX(REG_EXANIC_HW_ID)];
+
+    /* Find hardware information from device table */
+    struct exanic_hw_info hwinfo;
+    exanic_get_hw_info(hwid, &hwinfo);
 
     /* Map info page */
     struct exanic_info_page *info_page = mmap(NULL,
@@ -219,6 +225,7 @@ exanic_t * exanic_acquire_handle(const char *device_name)
     exanic->name[sizeof(exanic->name) - 1] = '\0';
     exanic->num_ports = (info.num_ports > EXANIC_MAX_PORTS) ?
                            EXANIC_MAX_PORTS : info.num_ports;
+    exanic->hw_info = hwinfo;
 
     for (i = 0; i < exanic->num_ports; i++)
         exanic->if_index[i] = info.if_index[i];

@@ -11,6 +11,7 @@
 #include <sys/time.h>
 #include <exanic/exanic.h>
 #include <exanic/util.h>
+#include <exanic/hw_info.h>
 #include "fwupdate/flash_access.h"
 #include "fwupdate/file_access.h"
 #include "fwupdate/hot_reload.h"
@@ -42,64 +43,58 @@ static void report_phase_done()
     printf("done (%.1fs)\n", time_taken);
 }
 
-
-/*
- * Functions to check firmware image against target hardware
- */
-
-static bool has_prefix(const char *firmware_id, const char *prefix)
+static bool check_target_hardware(const char *firmware_id, exanic_t *exanic)
 {
-    size_t prefixlen = strlen(prefix);
-    return (memcmp(firmware_id, prefix, prefixlen) == 0)
-          && ((firmware_id[prefixlen] == '_') || (firmware_id[prefixlen] == 0));
-}
+    bool found_match = false;
+    unsigned longest_prefix = 0;
+    int intended_hw_id = -1;
+    int i;
+    exanic_hardware_id_t device_hw_id = exanic_get_hw_type(exanic);
 
-static bool check_target_hardware(const char *firmware_id, exanic_hardware_id_t hw_id)
-{
-    bool ret;
-
-    if (!firmware_id)
-        firmware_id = "unknown";
-
-    switch (hw_id)
+    /* iterate the device table and find the device whose expected
+     * bitstream prefix and the firmware ID read from file produce
+     * the best match
+     * in this way, a bitstream starting with "exanic_x10_special"
+     * will pass the check for X10, but "exanic_x10_gm" will not */
+    for (i = 0;; i++)
     {
-        case EXANIC_HW_X4:
-            ret = has_prefix(firmware_id, "exanic_x4");
+        const struct exanic_hw_info *hwinfo = &exanic_hw_products[i];
+        if (hwinfo->hwid == -1)
             break;
-        case EXANIC_HW_X2:
-            ret = has_prefix(firmware_id, "exanic_x2");
-            break;
-        case EXANIC_HW_X10:
-            ret = has_prefix(firmware_id, "exanic_x10")
-                    && !has_prefix(firmware_id, "exanic_x10_gm")
-                    && !has_prefix(firmware_id, "exanic_x10_hpt");
-            break;
-        case EXANIC_HW_X10_GM:
-            ret = has_prefix(firmware_id, "exanic_x10_gm");
-            break;
-        case EXANIC_HW_X10_HPT:
-            ret = has_prefix(firmware_id, "exanic_x10_hpt");
-            break;
-        case EXANIC_HW_X40:
-            ret = has_prefix(firmware_id, "exanic_x40");
-            break;
-        case EXANIC_HW_V5P:
-            ret = has_prefix(firmware_id, "exanic_v5p");
-            break;
-        case EXANIC_HW_X25:
-            ret = has_prefix(firmware_id, "exanic_x25");
-            break;
-        default:
-            fprintf(stderr, "ERROR: card hardware unsupported by this software version\n");
-            return false;
+
+        if (hwinfo->bitstream_prf == NULL)
+            continue;
+
+        unsigned prflen = strlen(hwinfo->bitstream_prf);
+        if (memcmp(firmware_id, hwinfo->bitstream_prf, prflen))
+            continue;
+
+        if (firmware_id[prflen] && firmware_id[prflen] != '_')
+            continue;
+
+        found_match = true;
+        if (prflen > longest_prefix)
+        {
+            longest_prefix = prflen;
+            intended_hw_id = hwinfo->hwid;
+        }
     }
 
-    if (!ret)
-        fprintf(stderr, "ERROR: firmware ID %s does not appear to match target hardware %s\n",
-                        firmware_id, exanic_hardware_id_str(hw_id));
-    return ret;
-}
+    if (!found_match)
+    {
+        fprintf(stderr, "ERROR: card hardware unsupported by this software version\n");
+        return false;
+    }
 
+    if (intended_hw_id != (int)device_hw_id)
+    {
+        fprintf(stderr, "ERROR: firmware ID %s does not appear to match target hardware %s\n",
+                        firmware_id, exanic_hardware_id_str(device_hw_id));
+        return false;
+    }
+
+    return true;
+}
 
 /*
  * exanic-fwupdate main function
@@ -196,7 +191,7 @@ int main(int argc, char *argv[])
             goto error;
         report_phase_done();
 
-        if (!check_target_hardware(firmware_id, exanic_get_hw_type(exanic)))
+        if (!check_target_hardware(firmware_id, exanic))
             goto error;
 
         if (verify_only)
