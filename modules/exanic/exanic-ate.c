@@ -55,10 +55,10 @@ int exanic_ate_acquire(struct exanic *exanic,
     if (!(exanic->port[port_num].has_ate))
         return -EOPNOTSUPP;
 
-    err = down_interruptible(
+    err = down_trylock(
             &exanic->port[port_num].ate_lockbox[ate_id]);
     if (err)
-        return err;
+        return -EBUSY;
 
     return 0;
 }
