@@ -5,7 +5,9 @@ exasock-objs := exasock-main.o exasock-dst.o exasock-ip.o exasock-udp.o exasock-
 # detect kernel features that cannot be reliably detected by version
 HAS_RT_GENID_GETTER := ${shell grep -c 'rt_genid(' $(srctree)/include/net/net_namespace.h}
 HAS_RT_GENID_GETTER_IPV4 := ${shell grep -c 'rt_genid_ipv4(' $(srctree)/include/net/net_namespace.h}
-ccflags-y := -D__HAS_RT_GENID_GETTER=$(HAS_RT_GENID_GETTER) -D__HAS_RT_GENID_GETTER_IPV4=$(HAS_RT_GENID_GETTER_IPV4)
+HAS_SIPHASH := ${shell test -e $(srctree)/include/linux/siphash.h && echo 1 || echo 0}
+
+ccflags-y := -D__HAS_RT_GENID_GETTER=$(HAS_RT_GENID_GETTER) -D__HAS_RT_GENID_GETTER_IPV4=$(HAS_RT_GENID_GETTER_IPV4) -D__HAS_SIPHASH=$(HAS_SIPHASH)
 
 else # normal part makefile
 

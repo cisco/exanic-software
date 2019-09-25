@@ -16,10 +16,10 @@
 #include <linux/file.h>
 #include <net/checksum.h>
 #include <net/tcp.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
-#include "exasock-siphash.h"
-#else
+#if __HAS_SIPHASH
 #include <linux/siphash.h>
+#else
+#include "exasock-siphash.h"
 #endif
 
 #include "../../libs/exasock/kernel/api.h"
