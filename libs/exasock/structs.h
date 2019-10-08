@@ -323,21 +323,22 @@ exa_hashtable_insert(struct exa_hashtable * restrict ht,
     exa_unlock(&ht->write_lock);
 }
 
-static inline void
+static inline bool
 exa_hashtable_remove(struct exa_hashtable * restrict ht,
                      struct exa_socket * restrict remove_sock, int remove_fd,
                      struct exa_hashtable_key * restrict key)
 {
     uint32_t idx = EXA_HASHTABLE_IDX(key);
     int fd;
+    bool ret = false;
 
     exa_lock(&ht->write_lock);
 
     if (ht->table[idx] == remove_fd)
     {
         ht->table[idx] = remove_sock->hashtable_next_fd;
-        exa_unlock(&ht->write_lock);
-        return;
+        ret = true;
+        goto ht_unlock;
     }
 
     fd = ht->table[idx];
@@ -347,12 +348,14 @@ exa_hashtable_remove(struct exa_hashtable * restrict ht,
         if (sock->hashtable_next_fd == remove_fd)
         {
             sock->hashtable_next_fd = remove_sock->hashtable_next_fd;
-            exa_unlock(&ht->write_lock);
-            return;
+            ret = true;
+            goto ht_unlock;
         }
     }
 
-    assert(false);
+ht_unlock:
+    exa_unlock(&ht->write_lock);
+    return ret;
 }
 
 static inline void
@@ -369,7 +372,7 @@ exa_hashtable_ucast_insert(struct exa_hashtable * restrict ht, int fd)
     exa_hashtable_insert(ht, sock, fd, &key);
 }
 
-static inline void
+static inline bool
 exa_hashtable_ucast_remove(struct exa_hashtable * restrict ht, int fd)
 {
     struct exa_socket * restrict sock = exa_socket_get(fd);
@@ -380,7 +383,7 @@ exa_hashtable_ucast_remove(struct exa_hashtable * restrict ht, int fd)
     key.port[0] = sock->bind.ip.port.local;
     key.port[1] = sock->bind.ip.port.peer;
 
-    exa_hashtable_remove(ht, sock, fd, &key);
+    return exa_hashtable_remove(ht, sock, fd, &key);
 }
 
 static inline void
@@ -402,7 +405,7 @@ exa_hashtable_mcast_insert(struct exa_hashtable * restrict ht, int fd,
     exa_hashtable_insert(ht, sock, fd, &key);
 }
 
-static inline void
+static inline bool
 exa_hashtable_mcast_remove(struct exa_hashtable * restrict ht, int fd,
                            struct exa_mcast_endpoint * restrict mc_ep)
 {
@@ -414,7 +417,7 @@ exa_hashtable_mcast_remove(struct exa_hashtable * restrict ht, int fd,
     key.port[0] = sock->bind.ip.port.local;
     key.port[1] = 0;
 
-    exa_hashtable_remove(ht, sock, fd, &key);
+    return exa_hashtable_remove(ht, sock, fd, &key);
 }
 
 static inline int

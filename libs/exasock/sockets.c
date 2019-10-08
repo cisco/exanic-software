@@ -727,11 +727,11 @@ exa_socket_udp_target(struct exa_socket * restrict sock, in_addr_t dst_addr,
 }
 
 void
-exa_socket_udp_close(struct exa_socket * restrict sock)
+exa_socket_udp_remove(struct exa_socket * restrict sock)
 {
     int fd = exa_socket_fd(sock);
 
-    assert(exa_write_locked(&sock->lock));
+    assert(exa_read_locked(&sock->lock));
 
     if (sock->listen.mcast)
         exa_udp_mcast_remove(fd, &sock->ip_membership.mcast_ep);
@@ -740,6 +740,14 @@ exa_socket_udp_close(struct exa_socket * restrict sock)
 
     /* Wait for read critical section of socket to finish */
     exa_socket_reclaim_sync();
+}
+
+void
+exa_socket_udp_free(struct exa_socket * restrict sock)
+{
+    int fd = exa_socket_fd(sock);
+
+    assert(exa_write_locked(&sock->lock));
 
     exa_socket_release_interfaces(sock);
     exanic_udp_free(sock);
@@ -982,17 +990,25 @@ err_socket:
 }
 
 void
-exa_socket_tcp_close(struct exa_socket * restrict sock)
+exa_socket_tcp_remove(struct exa_socket * restrict sock)
 {
     int fd = exa_socket_fd(sock);
 
-    assert(exa_write_locked(&sock->lock));
+    assert(exa_read_locked(&sock->lock));
 
     if (exa_socket_holds_interfaces(sock))
         exa_tcp_remove(fd);
 
     /* Wait for read critical section of socket to finish */
     exa_socket_reclaim_sync();
+}
+
+void
+exa_socket_tcp_free(struct exa_socket * restrict sock)
+{
+    int fd = exa_socket_fd(sock);
+
+    assert(exa_write_locked(&sock->lock));
 
     exa_socket_release_interfaces(sock);
     exanic_tcp_free(sock);

@@ -125,6 +125,7 @@ close(int fd)
     struct exa_socket * restrict sock = exa_socket_get(fd);
     int linger_ret = 0, linger_errno = 0;
     int ret;
+    int gen_id;
 
     if (override_disabled)
         return LIBC(close, fd);
@@ -133,71 +134,80 @@ close(int fd)
     TRACE_LAST_ARG(INT, fd);
     TRACE_FLUSH();
 
-    if (sock != NULL)
+    if (sock == NULL)
+        goto native_close;
+
+    /* clean up exasock userspace metadata */
+    exa_read_lock(&sock->lock);
+    gen_id = sock->gen_id;
+
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE &&
+        sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+        sock->so_linger.l_onoff)
     {
-        int gen_id = sock->gen_id;
-
-        exa_write_lock(&sock->lock);
-
-        /* Remove any exa_notify memberships
-         * This must be done before the bypass flag is cleared */
-        exa_notify_remove_sock_all(sock);
-
-        if (sock->bypass_state == EXA_BYPASS_ACTIVE)
+        /* SO_LINGER is set */
+        linger_ret = linger_tcp(sock);
+        linger_errno = errno;
+        if ((linger_ret == -1) && (errno != EWOULDBLOCK))
         {
-            if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
-            {
-                if (sock->so_linger.l_onoff != 0)
-                {
-                    /* SO_LINGER is set */
-                    /* Convert to read lock before blocking operation */
-                    exa_rwlock_downgrade(&sock->lock);
-                    linger_ret = linger_tcp(sock);
-                    linger_errno = errno;
-                    if ((linger_ret == -1) && (errno != EWOULDBLOCK))
-                    {
-                        exa_read_unlock(&sock->lock);
-                        TRACE_RETURN(INT, -1);
-                        return -1;
-                    }
-
-                    /* Reacquire write lock - need to check that socket
-                     * is still valid afterwards */
-                    exa_read_unlock(&sock->lock);
-                    exa_write_lock(&sock->lock);
-                    if (gen_id != sock->gen_id)
-                    {
-                        exa_write_unlock(&sock->lock);
-                        errno = EBADF;
-                        TRACE_RETURN(INT, -1);
-                        return -1;
-                    }
-
-                    /* Reset the connection if it's not already closed */
-                    if (linger_errno == EWOULDBLOCK)
-                    {
-                        exa_lock(&sock->state->tx_lock);
-                        exanic_tcp_reset(sock);
-                        exa_unlock(&sock->state->tx_lock);
-                    }
-                }
-            }
-
-            if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
-                exa_socket_udp_close(sock);
-            else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
-                exa_socket_tcp_close(sock);
+            exa_read_unlock(&sock->lock);
+            TRACE_RETURN(INT, -1);
+            return -1;
         }
 
-        /* Free exa_notify struct for epoll sockets */
-        if (sock->notify)
-            exa_notify_free(sock->notify);
-
-        /* Clear the struct and then release the lock */
-        exa_socket_zero(sock);
-        exa_write_unlock(&sock->lock);
+        /* Reset the connection if it's not already closed */
+        if (linger_errno == EWOULDBLOCK)
+        {
+            exa_lock(&sock->state->tx_lock);
+            exanic_tcp_reset(sock);
+            exa_unlock(&sock->state->tx_lock);
+        }
     }
 
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
+    {
+        /* remove the UDP and TCP structures from the hashtables
+         * and block until the current exanic_poll call has finished
+         * then the socket's resources will be safe to reclaim */
+        if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
+            exa_socket_udp_remove(sock);
+        else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
+            exa_socket_tcp_remove(sock);
+    }
+
+    /* Upgrade to write lock - need to check that socket
+     * is still valid afterwards */
+    exa_read_unlock(&sock->lock);
+    exa_write_lock(&sock->lock);
+    if (gen_id != sock->gen_id)
+    {
+        exa_write_unlock(&sock->lock);
+        errno = EBADF;
+        TRACE_RETURN(INT, -1);
+        return -1;
+    }
+
+    /* Remove any exa_notify memberships
+     * This must be done before the bypass flag is cleared */
+    exa_notify_remove_sock_all(sock);
+
+    if (sock->bypass_state == EXA_BYPASS_ACTIVE)
+    {
+        if (sock->domain == AF_INET && sock->type == SOCK_DGRAM)
+            exa_socket_udp_free(sock);
+        else if (sock->domain == AF_INET && sock->type == SOCK_STREAM)
+            exa_socket_tcp_free(sock);
+    }
+
+    /* Free exa_notify struct for epoll sockets */
+    if (sock->notify)
+        exa_notify_free(sock->notify);
+
+    /* Clear the struct and then release the lock */
+    exa_socket_zero(sock);
+    exa_write_unlock(&sock->lock);
+
+native_close:
     ret = LIBC(close, fd);
 
     /* If we had a linger timeout on the way, make sure we inform about it */
