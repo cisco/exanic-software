@@ -32,6 +32,8 @@ exa_notify_kern_epoll_add(struct exa_notify * restrict no,
 {
     int fd = exa_socket_fd(sock);
 
+    assert(exa_write_locked(&sock->lock));
+
     exa_lock(&no->ep.lock);
     if (no->ep.ref_cnt++ == 0)
     {
@@ -43,7 +45,11 @@ exa_notify_kern_epoll_add(struct exa_notify * restrict no,
     }
     exa_unlock(&no->ep.lock);
 
-    return exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_ADD, fd);
+    if (exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_ADD, fd) < 0)
+        return -1;
+
+    sock->kern_epoll_member = true;
+    return 0;
 
 err_mmap:
     exa_sys_epoll_close(no->ep.fd);
@@ -59,10 +65,13 @@ exa_notify_kern_epoll_del(struct exa_notify * restrict no,
 {
     int ret;
 
+    assert(exa_write_locked(&sock->lock));
+
     ret = exa_sys_epoll_ctl(no->ep.fd, EXASOCK_EPOLL_CTL_DEL, fd);
     if (ret != 0)
         return ret;
 
+    sock->kern_epoll_member = false;
     exa_lock(&no->ep.lock);
 
     no->ep.ref_cnt--;
@@ -303,7 +312,8 @@ exa_notify_remove_sock(struct exa_notify * restrict no,
     /* Check if exasock kernel epoll instance needs to be updated/closed */
     if (sock->bypass_state == EXA_BYPASS_ACTIVE
         && sock->domain == AF_INET
-        && sock->type == SOCK_STREAM)
+        && sock->type == SOCK_STREAM
+        && sock->kern_epoll_member)
     {
         int ret = exa_notify_kern_epoll_del(no, sock, fd);
         if (ret != 0)

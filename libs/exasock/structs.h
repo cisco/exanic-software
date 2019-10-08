@@ -189,6 +189,9 @@ struct exa_socket
     /* Membership of exa_notify instances */
     struct exa_notify *notify_parent;
 
+    /* Membership status of notify_parent's kernel epoll instance */
+    bool kern_epoll_member;
+
     /* Warnings tracking */
     struct {
         bool mcast_bound;
