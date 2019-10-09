@@ -1,3 +1,25 @@
+2.3.1 [2019-10-09]
+* Basic support for extra ExaNIC FDK MMIO regions BAR 1 and BAR 4
+* libexanic: make ATE register names more descriptive
+* exasock: avoid accelerating DNS queries from libc to prevent userspace
+  and kernel file entry divergence
+* exasock: avoid invoking libc for poll() called with bypass sockets and
+  negative file descriptors
+* exasock: produce trace output to stderr instead of stdout
+* exasock: increase the maximum time to wait for ATE DMA echos from 1ms to
+  5ms
+* exasock: fix kernel siphash.h header availability check
+* exasock: fix hanging bug in close for sockets that belong to epoll instances
+  but have not been connected
+* exasock: fix deadlock between exasock_reclaim_sync and various operations
+  introduced in 2.3.0
+* exasock: kernel module compilation fix for Linux kernel versions 5.2 and later
+* driver: fix error handling when attempting to acquire the same ATE
+  connection multiple times from software
+* driver: ethtool -p support (physical identification) for compatible firmware
+* exanic-benchmarker-stac-t0: ATE connection ID and STAC-T0 spec compliance
+  fix
+
 2.3.0 [2019-05-03]
 * libexanic: avoid receiving partial frames after a software overflow
 * libexanic: fix throughput regression in exanic_transmit_frame introduced
