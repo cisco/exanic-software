@@ -66,6 +66,10 @@ static int exasock_genl_register_family(struct genl_family *family,
 #define genl_info_snd_portid(info)  info->snd_pid
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
+#define __GENL_POLICY_IN_FAMILY
+#endif
+
 struct exasock_stats_sock_list
 {
     struct list_head    list;
@@ -743,12 +747,16 @@ static struct genl_ops exasock_genl_ops[] =
     {
         .cmd    = EXASOCK_GENL_C_GET_SOCKLIST,
         .doit   = exasock_genl_cmd_get_socklist,
+#ifndef __GENL_POLICY_IN_FAMILY
         .policy = exasock_genl_policy,
+#endif
     },
     {
         .cmd    = EXASOCK_GENL_C_GET_SOCKET,
         .doit   = exasock_genl_cmd_get_socket,
+#ifndef __GENL_POLICY_IN_FAMILY
         .policy = exasock_genl_policy,
+#endif
     },
 };
 
@@ -766,6 +774,10 @@ static struct genl_family exasock_genl_family =
     .module     = THIS_MODULE,
     .ops        = exasock_genl_ops,
     .n_ops      = ARRAY_SIZE(exasock_genl_ops),
+#endif
+
+#ifdef __GENL_POLICY_IN_FAMILY
+    .policy     = exasock_genl_policy,
 #endif
 };
 
