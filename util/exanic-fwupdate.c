@@ -56,17 +56,14 @@ static bool check_target_hardware(const char *firmware_id, exanic_t *exanic)
      * the best match
      * in this way, a bitstream starting with "exanic_x10_special"
      * will pass the check for X10, but "exanic_x10_gm" will not */
-    for (i = 0;; i++)
+    for (i = 0; i < EXANIC_HW_TABLE_SIZE; i++)
     {
         const struct exanic_hw_info *hwinfo = &exanic_hw_products[i];
-        if (hwinfo->hwid == -1)
-            break;
-
         if (hwinfo->bitstream_prf == NULL)
             continue;
 
         unsigned prflen = strlen(hwinfo->bitstream_prf);
-        if (memcmp(firmware_id, hwinfo->bitstream_prf, prflen))
+        if (strncmp(firmware_id, hwinfo->bitstream_prf, prflen))
             continue;
 
         if (firmware_id[prflen] && firmware_id[prflen] != '_')

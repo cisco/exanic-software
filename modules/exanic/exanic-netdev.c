@@ -19,6 +19,7 @@
 #include "../../libs/exanic/fifo_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
+#include "exanic-i2c.h"
 #include "exanic-structs.h"
 
 /**
@@ -87,6 +88,36 @@ MODULE_PARM_DESC(txbuf_size_min,
 #ifndef ETH_MODULE_SFF_8436_LEN
 #define ETH_MODULE_SFF_8436_LEN         256
 #endif
+
+#ifndef ETH_MODULE_SFF_8436_MAX_LEN
+#define ETH_MODULE_SFF_8436_MAX_LEN     640
+#endif
+
+/* Provisional get_module_eeprom memory map for QSFP-DD
+ * defined for the purpose of exanic userspace utils
+ *
+ *  0-127   : lower page 00h
+ *  128-255 : upper page 00h
+ *  256-383 : upper page 01h
+ *  384-511 : upper page 10h
+ *  512-639 : upper page 11h
+ *
+ * TODO: migrate to new scheme once kernel support for CMIS
+ *       is available */
+
+#define ETH_MODULE_CMIS_QSFPDD          0x800000dd
+
+/* flat memory size for QSFP-DD (lower 00h and upper 00h) */
+#define ETH_MODULE_CMIS_QSFPDD_LEN      256
+#define ETH_MODULE_CMIS_QSFPDD_MAX_LEN  640
+
+/* Decode SFF-8024 identification byte to determine actual
+ * pluggable transceiver form factor */
+#define SFF_8024_ID_SFP(id)             ((id) == 0x03)
+#define SFF_8024_ID_QSFP(id)            ((id) == 0x0C || (id) == (0x0D) ||\
+                                         (id) == 0x11)
+#define SFF_8024_ID_QSFPDD(id)          ((id) == 0x18)
+
 
 /* Loop timeout when waiting for feedback. */
 #define FEEDBACK_TIMEOUT                10000
@@ -1305,7 +1336,7 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
             (speed == SPEED_40000 && (caps & EXANIC_CAP_40G)))
         {
             /* Card specific updates */
-            if (!priv->exanic->hwinfo.flags.zcard)
+            if (!(priv->exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
             {
                 if (exanic_set_speed(priv->exanic, priv->port, reg, speed))
                     return -EINVAL;
@@ -1336,7 +1367,7 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
         reg &= ~EXANIC_PORT_FLAG_AUTONEG_ENABLE;
     writel(reg, &priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_FLAGS)]);
 
-    if (!priv->exanic->hwinfo.flags.zcard)
+    if (!(priv->exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
         exanic_save_autoneg(priv->exanic, priv->port, autoneg_enable);
 
     return 0;
@@ -1537,91 +1568,245 @@ static int exanic_netdev_get_ts_info(struct net_device *ndev,
 
 #ifdef ETHTOOL_GMODULEINFO
 
-static int exanic_get_module_info(struct net_device *ndev,
-                                  struct ethtool_modinfo *minfo)
+static int
+exanic_netdev_get_module_info(struct net_device *ndev,
+                              struct ethtool_modinfo *minfo)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
-    struct exanic_hw_info *hwinfo = &priv->exanic->hwinfo;
-    bool has_diag = false;
+    uint8_t sff8024_id;
     uint32_t reg;
+    int err;
+
+    if (!priv)
+        return -ENODEV;
 
     /* check that a pluggable transceiver is plugged in */
     reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_STATUS)]);
     if ((reg & EXANIC_PORT_STATUS_SFP) == 0)
         return -EOPNOTSUPP;
 
-    if (hwinfo->port_ff == EXANIC_PORT_QSFP)
+    err = exanic_i2c_sfp_get_id(priv->exanic, priv->port, &sff8024_id);
+    if (err)
+        return err;
+
+    /* SFP interface or SFP module in adapter */
+    if (SFF_8024_ID_SFP(sff8024_id))
     {
-        minfo->type       = ETH_MODULE_SFF_8436;
-        minfo->eeprom_len = ETH_MODULE_SFF_8436_LEN;
+        bool has_diag = false;
+        err = exanic_i2c_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
+        if (err)
+            return err;
+
+        minfo->type = has_diag ? ETH_MODULE_SFF_8472 :
+                                 ETH_MODULE_SFF_8079;
+        minfo->eeprom_len = has_diag ? ETH_MODULE_SFF_8472_LEN :
+                                       ETH_MODULE_SFF_8079_LEN;
+        return 0;
     }
-    else if (hwinfo->port_ff == EXANIC_PORT_SFP)
+
+    if (SFF_8024_ID_QSFP(sff8024_id))
     {
-        exanic_sfp_has_diag_page(priv->exanic, priv->port, &has_diag);
-        if (has_diag)
-        {
-            minfo->type       = ETH_MODULE_SFF_8472;
-            minfo->eeprom_len = ETH_MODULE_SFF_8472_LEN;
-        }
-        else
-        {
-            minfo->type       = ETH_MODULE_SFF_8079;
-            minfo->eeprom_len = ETH_MODULE_SFF_8079_LEN;
-        }
+        bool has_upper_pages = false;
+        err = exanic_i2c_qsfp_has_upper_pages(priv->exanic, priv->port,
+                                              &has_upper_pages);
+        if (err)
+            return err;
+
+        minfo->type = ETH_MODULE_SFF_8436;
+        minfo->eeprom_len = has_upper_pages ? ETH_MODULE_SFF_8436_MAX_LEN:
+                                              ETH_MODULE_SFF_8436_LEN;
+        return 0;
     }
-    else
+
+    if (SFF_8024_ID_QSFPDD(sff8024_id))
     {
-        /* TODO: add qsfpdd support */
-        return -EOPNOTSUPP;
+        bool has_upper_pages = false;
+        err = exanic_i2c_qsfpdd_has_upper_pages(priv->exanic, priv->port,
+                                                &has_upper_pages);
+        if (err)
+            return err;
+
+        minfo->type = ETH_MODULE_CMIS_QSFPDD;
+        minfo->eeprom_len = has_upper_pages ? ETH_MODULE_CMIS_QSFPDD_MAX_LEN:
+                                              ETH_MODULE_CMIS_QSFPDD_LEN;
+        return 0;
     }
-    return 0;
+
+    return -EOPNOTSUPP;
 }
 
-static int exanic_get_module_eeprom(struct net_device *ndev,
+static int
+exanic_get_module_eeprom_sfp(struct exanic *exanic, int port,
+                             struct ethtool_eeprom *eep, u8 *data)
+{
+    size_t offset = eep->offset, len = eep->len;
+    size_t bytes_read = 0;
+    int err;
+    u8 *ptr = data;
+
+    if (offset + len > ETH_MODULE_SFF_8472_LEN)
+        return -EINVAL;
+
+    if (len == 0)
+        return -EINVAL;
+
+    if (offset >= ETH_MODULE_SFF_8079_LEN)
+        goto read_a2h;
+
+    /* read page A0h */
+    bytes_read = min(len, ETH_MODULE_SFF_8079_LEN - offset);
+    err = exanic_i2c_sfp_read(exanic, port, SFP_EEPROM_ADDR,
+                              (uint8_t)offset, ptr, bytes_read);
+    if (err)
+        return err;
+
+    if (len == bytes_read)
+        return 0;
+
+    len -= bytes_read;
+    ptr += bytes_read;
+    offset += bytes_read;
+
+read_a2h:
+    /* read page A2h */
+    return exanic_i2c_sfp_read(exanic, port, SFP_DIAG_ADDR,
+                               offset - ETH_MODULE_SFF_8079_LEN,
+                               ptr, len);
+}
+
+static int
+exanic_get_module_eeprom_paged(struct exanic *exanic, int port,
+                               struct ethtool_eeprom *eep, u8 *data,
+                               bool qsfpdd)
+{
+    size_t offset = eep->offset, len = eep->len;
+    size_t page_boundary = 0, bytes_rem = len;
+
+    int page_index = 0;
+    uint8_t qsfp_pages[] = {0, 1, 2, 3};
+    uint8_t qsfpdd_pages[] = {0, 1, 0x10, 0x11};
+
+    u8 *ptr = data;
+    int err = 0;
+
+    size_t page_size = qsfpdd ? ETH_MODULE_CMIS_QSFPDD_LEN :
+                                ETH_MODULE_SFF_8436_LEN;
+    size_t maxlen = qsfpdd ? ETH_MODULE_CMIS_QSFPDD_MAX_LEN :
+                             ETH_MODULE_SFF_8436_MAX_LEN;
+    if (offset + len > maxlen)
+        return -EINVAL;
+
+    if (len == 0)
+        return -EINVAL;
+
+    while (bytes_rem)
+    {
+        /* read the lower and upper pages in one go for page_index 0,
+         * otherwise read the upper page only */
+        size_t curr_page_len = page_index ? (page_size / 2): page_size;
+        size_t page_offset;
+        size_t bytes_read;
+        uint8_t page_reg = qsfpdd ?
+                            qsfpdd_pages[page_index % sizeof qsfpdd_pages] :
+                            qsfp_pages[page_index % sizeof qsfp_pages];
+
+        if (offset >= page_boundary + curr_page_len)
+            goto turn_page;
+
+        /* write page (and bank) registers */
+        err = qsfpdd ?
+            exanic_i2c_qsfpdd_page_select(exanic, port, 0, page_reg) :
+            exanic_i2c_qsfp_page_select(exanic, port, page_reg);
+        if (err)
+            goto page0_sel;
+
+        page_offset = offset - page_boundary;
+        bytes_read = min(bytes_rem, curr_page_len - page_offset);
+
+        /* apply upper page offset */
+        if (page_index)
+            page_offset += page_size / 2;
+
+        err = exanic_i2c_sfp_read(exanic, port, SFP_EEPROM_ADDR,
+                                  page_offset, ptr, bytes_read);
+        if (err)
+            goto page0_sel;
+
+        bytes_rem -= bytes_read;
+        ptr += bytes_read;
+        offset += bytes_read;
+
+turn_page:
+        page_boundary += curr_page_len;
+        page_index++;
+    }
+
+page0_sel:
+    if (qsfpdd)
+        exanic_i2c_qsfpdd_page_select(exanic, port, 0, 0);
+    else
+        exanic_i2c_qsfp_page_select(exanic, port, 0);
+
+    return err;
+}
+
+static int
+exanic_get_module_eeprom_qsfp(struct exanic *exanic, int port,
+                              struct ethtool_eeprom *eep, u8 *data)
+{
+    return exanic_get_module_eeprom_paged(exanic, port, eep, data, false);
+}
+
+static int
+exanic_get_module_eeprom_qsfpdd(struct exanic *exanic, int port,
+                                struct ethtool_eeprom *eep, u8 *data)
+{
+    /* TODO: migrate to new scheme once kernel support for CMIS
+     *       is available */
+    return exanic_get_module_eeprom_paged(exanic, port, eep, data, true);
+}
+
+static int exanic_netdev_get_module_eeprom(struct net_device *ndev,
                                     struct ethtool_eeprom *eeep, u8 *data)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
-    char stackbuff[SFP_ETHTOOL_SIZE] = {0}, *stackptr = &stackbuff[0];
-    size_t offset, len_remaining, eeprom_bytes;
+    uint8_t sff8024_id;
     int err;
+    uint32_t reg;
 
-    offset = eeep->offset;
-    len_remaining = eeep->len;
-    if (offset + len_remaining > SFP_ETHTOOL_SIZE)
-        return -EINVAL;
+    if (!priv)
+        return -ENODEV;
 
-    /* read EEPROM data from I2C address A0 */
-    if (offset < SFP_EEPROM_SIZE)
-    {
-        eeprom_bytes = min(len_remaining, SFP_EEPROM_SIZE-offset);
-        err = exanic_sfp_eeprom_read(priv->exanic, priv->port, (uint8_t)offset,
-                                     stackptr, eeprom_bytes);
-        if (err)
-            return -EIO;
+    /* check that a pluggable transceiver is plugged in */
+    reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_STATUS)]);
+    if ((reg & EXANIC_PORT_STATUS_SFP) == 0)
+        return -EOPNOTSUPP;
 
-        stackptr += eeprom_bytes;
-        offset += eeprom_bytes;
-        len_remaining -= eeprom_bytes;
-    }
+    err = exanic_i2c_sfp_get_id(priv->exanic, priv->port, &sff8024_id);
+    if (err)
+        return err;
 
-    /* read diagnostics data from I2C address A2 */
-    if (len_remaining > 0)
-    {
-        err = exanic_sfp_diag_read(priv->exanic, priv->port, (uint8_t)(offset-SFP_EEPROM_SIZE),
-                                   stackptr, len_remaining);
-        if (err)
-            return -EIO;
-    }
-    memcpy(data, stackbuff, (size_t)eeep->len);
-    return 0;
+    if (SFF_8024_ID_SFP(sff8024_id))
+        return exanic_get_module_eeprom_sfp(priv->exanic, priv->port,
+                                            eeep, data);
+
+    if (SFF_8024_ID_QSFP(sff8024_id))
+        return exanic_get_module_eeprom_qsfp(priv->exanic, priv->port,
+                                             eeep, data);
+
+    if (SFF_8024_ID_QSFPDD(sff8024_id))
+        return exanic_get_module_eeprom_qsfpdd(priv->exanic, priv->port,
+                                               eeep, data);
+
+    return -EOPNOTSUPP;
 }
 
 #endif /* ETHTOOL_GMODULEINFO */
 
 #ifdef ETHTOOL_PHYS_ID
 
-int	exanic_netdev_set_phys_id(struct net_device *ndev,
-                              enum ethtool_phys_id_state state)
+static int exanic_netdev_set_phys_id(struct net_device *ndev,
+                                     enum ethtool_phys_id_state state)
 {
     struct exanic *exanic;
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1631,11 +1816,8 @@ int	exanic_netdev_set_phys_id(struct net_device *ndev,
         return -ENODEV;
 
     exanic = priv->exanic;
-    if (!exanic)
-        return -ENODEV;
-
     if ((exanic->caps & EXANIC_CAP_LED_ID) == 0)
-        return -ENOTSUPP;
+        return -EOPNOTSUPP;
 
     if (state == ETHTOOL_ID_ACTIVE || state == ETHTOOL_ID_ON)
         seconds = 0xffffffff;
@@ -1649,6 +1831,65 @@ int	exanic_netdev_set_phys_id(struct net_device *ndev,
 
 #endif /* ETHTOOL_PHYS_ID */
 
+static int exanic_netdev_get_eeprom_len(struct net_device *ndev)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    if (!priv)
+        return -ENODEV;
+
+    if (!(priv->exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
+        return EXANIC_EEPROM_SIZE;
+
+    return -EOPNOTSUPP;
+}
+
+static int exanic_netdev_get_eeprom(struct net_device *ndev,
+			                        struct ethtool_eeprom *eeprom, u8 *bytes)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct exanic *exanic = priv->exanic;
+    uint8_t offset = eeprom->offset;
+    size_t len = eeprom->len;
+
+    if (!priv)
+        return -ENODEV;
+
+    if (priv->exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD)
+        return -EOPNOTSUPP;
+
+    if (eeprom->len == 0)
+        return -EINVAL;
+
+    eeprom->magic = exanic->pci_dev->vendor | (exanic->pci_dev->device << 16);
+
+    return exanic_i2c_eeprom_read(priv->exanic, offset, bytes, len);
+}
+
+static int exanic_netdev_set_eeprom(struct net_device *ndev,
+			                        struct ethtool_eeprom *eeprom, u8 *bytes)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct exanic *exanic = priv->exanic;
+    uint8_t offset = eeprom->offset;
+    size_t len = eeprom->len;
+
+    if (!priv)
+        return -ENODEV;
+
+    if (priv->exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD)
+        return -EOPNOTSUPP;
+
+    if (eeprom->len == 0)
+        return -EINVAL;
+
+    if (eeprom->magic !=
+        (exanic->pci_dev->vendor | (exanic->pci_dev->device << 16)))
+        return -EINVAL;
+
+    return exanic_i2c_eeprom_write(priv->exanic, offset, bytes, len);
+}
+
 static struct ethtool_ops exanic_ethtool_ops = {
     .get_drvinfo            = exanic_netdev_get_drvinfo,
     .get_link               = exanic_netdev_get_link,
@@ -1660,8 +1901,8 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .set_coalesce           = exanic_netdev_set_coalesce,
 
 #if defined(ETHTOOL_GMODULEINFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
-    .get_module_info        = exanic_get_module_info,
-    .get_module_eeprom      = exanic_get_module_eeprom,
+    .get_module_info        = exanic_netdev_get_module_info,
+    .get_module_eeprom      = exanic_netdev_get_module_eeprom,
 #endif
 #if defined(ETHTOOL_GET_TS_INFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .get_ts_info            = exanic_netdev_get_ts_info,
@@ -1677,6 +1918,9 @@ static struct ethtool_ops exanic_ethtool_ops = {
 #if defined (ETHTOOL_PHYS_ID) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .set_phys_id            = exanic_netdev_set_phys_id,
 #endif
+    .get_eeprom_len         = exanic_netdev_get_eeprom_len,
+    .get_eeprom             = exanic_netdev_get_eeprom,
+    .set_eeprom             = exanic_netdev_set_eeprom
 };
 
 #if (defined(ETHTOOL_GET_TS_INFO) || defined(ETHTOOL_GMODULEINFO) ||\
@@ -1690,8 +1934,8 @@ static struct ethtool_ops_ext exanic_ethtool_ops_ext = {
     .get_ts_info            = exanic_netdev_get_ts_info,
 #endif
 #ifdef ETHTOOL_GMODULEINFO
-    .get_module_info        = exanic_get_module_info,
-    .get_module_eeprom      = exanic_get_module_eeprom,
+    .get_module_info        = exanic_netdev_get_module_info,
+    .get_module_eeprom      = exanic_netdev_get_module_eeprom,
 #endif
 #ifdef ETHTOOL_PHYS_ID
     .set_phys_id            = exanic_netdev_set_phys_id,

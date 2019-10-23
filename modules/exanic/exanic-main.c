@@ -29,6 +29,7 @@
 #include "../../libs/exanic/pcie_if.h"
 #include "../../libs/exanic/ioctl.h"
 #include "exanic.h"
+#include "exanic-i2c.h"
 #include "exanic-structs.h"
 
 #if defined(__BYTE_ORDER) ? __BYTE_ORDER == __BIG_ENDIAN : defined(__BIG_ENDIAN)
@@ -521,7 +522,7 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         int err = 0;
 
         /* Power off */
-        if (!exanic->hwinfo.flags.zcard)
+        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
             err = exanic_poweroff_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweroff_port(exanic, port_num);
@@ -546,14 +547,16 @@ static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
         uint32_t speed_reg = 0;
 
         /* Power on */
-        if (!exanic->hwinfo.flags.zcard)
+        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
             err = exanic_poweron_port(exanic, port_num);
         else if (exanic->hw_id == EXANIC_HW_Z10)
             err = exanic_z10_poweron_port(exanic, port_num);
 
         speed_reg = readl(exanic->regs_virt +
                                     REG_PORT_OFFSET(port_num, REG_PORT_SPEED));
-        if (!exanic->hwinfo.flags.zcard && (speed_reg == SPEED_100))
+
+        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD) &&
+            (speed_reg == SPEED_100))
         {
             msleep(100); /* Wait for PHY to power up. */
             exanic_set_speed(exanic, port_num, 0, SPEED_100);
@@ -885,7 +888,7 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
         }
 
         /* Save new state */
-        if (!exanic->hwinfo.flags.zcard)
+        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
             exanic_save_feature_cfg(exanic);
     }
 
@@ -1308,6 +1311,14 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_i2c_init;
     }
 
+    /* initialise sysfs entries */
+    err = exanic_sysfs_init(exanic);
+    if (err)
+    {
+        dev_err(dev, "exanic_sysfs_init failed: %d\n", err);
+        goto err_sysfs_init;
+    }
+
     /* Allocate kernel info page */
     exanic->info_page = vmalloc_user(EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
     if (exanic->info_page == NULL)
@@ -1317,12 +1328,13 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Initial configuration */
-    if (!exanic->hwinfo.flags.zcard)
+    if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
     {
         /* Get serial number in EEPROM to use as MAC address */
         if (exanic_get_serial(exanic, mac_addr) == 0)
         {
             dev_info(dev, "Serial number: %pM\n", mac_addr);
+            memcpy(exanic->serial, mac_addr, ETH_ALEN);
 
             if (!is_valid_ether_addr(mac_addr))
             {
@@ -1415,7 +1427,7 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Configure flow steering. */
-    if (!exanic->hwinfo.flags.hw_filter)
+    if (exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD)
         exanic->max_filter_buffers = 0;
     else
         exanic->max_filter_buffers =
@@ -1511,7 +1523,7 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Set up and map the development kit memory if present. */
-    if (exanic->hwinfo.flags.devkit &&
+    if ((exanic->hwinfo.flags & EXANIC_HW_FLAG_DEVKIT) &&
         exanic->function_id == EXANIC_FUNCTION_DEVKIT)
     {
         exanic->devkit_regs_offset =
@@ -1593,7 +1605,7 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Set up and map the extended development kit memory if present. */
-    if (exanic->hwinfo.flags.devkit &&
+    if ((exanic->hwinfo.flags & EXANIC_HW_FLAG_DEVKIT) &&
         exanic->function_id == EXANIC_FUNCTION_DEVKIT)
     {
         /* Configure extended Devkit register region */
@@ -1791,6 +1803,8 @@ err_flow_steering:
 err_interrupts:
     vfree(exanic->info_page);
 err_info_page_alloc:
+    exanic_sysfs_exit(exanic);
+err_sysfs_init:
     exanic_i2c_exit(exanic);
 err_i2c_init:
     dma_free_coherent(&exanic->pci_dev->dev,
@@ -1899,7 +1913,8 @@ static void exanic_remove(struct pci_dev *pdev)
                           exanic->tx_feedback_virt, exanic->tx_feedback_dma);
     if (exanic->tx_region_virt != NULL)
         iounmap(exanic->tx_region_virt);
-
+    
+    exanic_sysfs_exit(exanic);
     exanic_i2c_exit(exanic);
 
     if (exanic->regs_virt != NULL)

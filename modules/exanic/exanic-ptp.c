@@ -551,7 +551,7 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
 
             /* Check feature flags for 100ns periodic output support */
             if (per_out_mode == PER_OUT_10M &&
-                !exanic->hwinfo.flags.periodic_out_10m)
+                !(exanic->hwinfo.flags & EXANIC_HW_FLAG_PER_OUT_10M))
                 return -EINVAL;
         }
 
@@ -631,7 +631,7 @@ void exanic_ptp_init(struct exanic *exanic)
     else
         exanic->ptp_clock_info.max_adj = 100000000;
     /* Check feature flag for periodic output */
-    if (exanic->hwinfo.flags.periodic_out)
+    if (exanic->hwinfo.flags & EXANIC_HW_FLAG_PER_OUT)
         exanic->ptp_clock_info.n_per_out = 1;
     else
         exanic->ptp_clock_info.n_per_out = 0;
@@ -658,11 +658,11 @@ void exanic_ptp_init(struct exanic *exanic)
     dev_info(dev, "PTP hardware clock registered (ptp%i)",
             ptp_clock_index(exanic->ptp_clock));
 
-    if (exanic->hwinfo.flags.periodic_out)
+    if (exanic->hwinfo.flags & EXANIC_HW_FLAG_PER_OUT)
     {
         /* PPS configs are restored from EEPROM on some cards
          * following reset */
-        if (exanic->hwinfo.flags.periodic_out_eep)
+        if (exanic->hwinfo.flags & EXANIC_HW_FLAG_PER_OUT_EEP)
         {
             reg = readl(exanic->regs_virt + REG_HW_OFFSET(REG_HW_PER_OUT_CONFIG));
             if (reg & EXANIC_HW_PER_OUT_CONFIG_PPS)

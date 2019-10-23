@@ -166,11 +166,10 @@ pcie_cfg_space_offset find_aer_mask(pcie_cfg_space *cfg_space, size_t sz)
  */
 exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
 {
-    char ifname[64];
-    char remove_path[256];
-    char device_path[256];
-    char resolved_path[PATH_MAX];
-    char parent_config_path[PATH_MAX];
+    char sysfs_path[PATH_MAX];
+    char attr_path[PATH_MAX + 256];
+    int len;
+
     int parent_config_fd;
     pcie_cfg_space parent_config_space;
     ssize_t parent_config_space_size;
@@ -182,28 +181,18 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
     pcie_cfg_space_offset aer_mask_offset = 0;
     uint32_t aer_mask, old_aer_mask;
 
-    /* Get the interface name of the first port on the device */
-    if (exanic_get_interface_name(exanic, 0, ifname, sizeof(ifname)) == -1)
+    /* get the sysfs path to the ExaNIC device */
+    len = exanic_get_sysfs_path(exanic, sysfs_path, sizeof sysfs_path);
+    if (len == -1)
     {
-        fprintf(stderr, "ERROR: could not get ExaNIC interface name\n");
-        exanic_release_handle(exanic);
-        return NULL;
-    }
-
-    /* Get the sysfs path (with symlinks) into the pci device section of our net interface */
-    snprintf(device_path, sizeof(device_path), "/sys/class/net/%s/device/net", ifname);
-
-    /* Remove the symlinks so that the path contains no references to the net interface (which may change) */
-    if (realpath(device_path, resolved_path) == NULL)
-    {
-        fprintf(stderr, "ERROR: unable to determine real path of %s\n", device_path);
-        exanic_release_handle(exanic);
+        fprintf(stderr, "ERROR: could not get ExaNIC sysfs path: %s\n",
+                        exanic_get_last_error());
         return NULL;
     }
 
     /* Attempt to mask surprise down event on parent bridge */
-    snprintf(parent_config_path, sizeof(parent_config_path), "/sys/class/net/%s/device/../config", ifname);
-    parent_config_fd = open(parent_config_path, O_RDWR);
+    snprintf(attr_path, sizeof(attr_path), "%s/../config", sysfs_path);
+    parent_config_fd = open(attr_path, O_RDWR);
     if (parent_config_fd != -1)
     {
         parent_config_space_size = read(parent_config_fd, parent_config_space.b, PCIE_CFG_SPACE_MAX_LEN);
@@ -220,13 +209,14 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         }
     }
 
-    snprintf(remove_path, sizeof(remove_path), "/sys/class/net/%s/device/remove", ifname);
+    snprintf(attr_path, sizeof(attr_path), "%s/remove", sysfs_path);
 
     exanic_register_write(exanic, REG_HW_INDEX(REG_HW_RELOAD_RESET_FPGA), 0x1);
     exanic_release_handle(exanic);
-    if (!write_1_to_file(remove_path))
+    if (!write_1_to_file(attr_path))
         return NULL;
 
+    snprintf(attr_path, sizeof(attr_path), "%s/net", sysfs_path);
     /* Wait for the firmware reload to trigger */
     sleep(1);
     report_progress();
@@ -241,7 +231,7 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         report_progress();
 
         /* Open the sysfs path corresponding to the PCI device we are using that we saved before */
-        dir = opendir(resolved_path);
+        dir = opendir(attr_path);
         if (dir != NULL)
             break;
     }
@@ -256,7 +246,7 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
 
     if (dir == NULL)
     {
-        fprintf(stderr, "ERROR: device did not reappear at %s after hot reload. If you cannot find the card in lspci, a host reboot or recovery mode boot may be required.\n", resolved_path);
+        fprintf(stderr, "ERROR: device did not reappear at %s after hot reload. If you cannot find the card in lspci, a host reboot or recovery mode boot may be required.\n", sysfs_path);
         return NULL;
     }
 
@@ -266,11 +256,10 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         if (strcmp(dirent->d_name, ".") && strcmp(dirent->d_name, "..") && dirent->d_type == DT_DIR)
             break;
     }
-    closedir(dir);
 
     if (dirent == NULL)
     {
-        fprintf(stderr, "ERROR: unable to find network interface in directory: %s\n", resolved_path);
+        fprintf(stderr, "ERROR: unable to find network interface in directory: %s\n", attr_path);
         return NULL;
     }
 
@@ -279,6 +268,7 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         fprintf(stderr, "ERROR: unable to get exanic device name for interface name: %s\n", dirent->d_name);
         return NULL;
     }
+    closedir(dir);
 
     /* Try to reacquire handle */
     if ((exanic = exanic_acquire_handle(new_device_name)) == NULL)

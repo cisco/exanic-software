@@ -2,7 +2,7 @@ PREFIX=/usr/local
 BINDIR=$(DESTDIR)$(PREFIX)/bin
 
 CC=gcc
-CFLAGS=-O3 -Wall -I../libs
+CFLAGS=-O3 -std=gnu99 -Wall -I../libs
 LDLIBS=-L../libs/exanic -lexanic
 
 HAVE_PTP_CLOCK_H:=${shell $(CC) $(CFLAGS) -include linux/ptp_clock.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}

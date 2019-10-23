@@ -98,13 +98,15 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
 
     /* Check for invalid settings */
     hw_id = exanic_get_hw_type(exanic);
-    if (!exanic->hw_info.flags.pps_single && pps_type == PPS_SINGLE_ENDED)
+    if (pps_type == PPS_SINGLE_ENDED &&
+        !(exanic->hw_info.flags & EXANIC_HW_FLAG_PPS_SINGLE))
     {
         log_printf(LOG_WARNING, "%s: %s does not support single-ended PPS input",
                 state->name, exanic_hardware_id_str(hw_id));
         pps_type = PPS_DIFFERENTIAL;
     }
-    else if (!exanic->hw_info.flags.pps_diff && pps_type == PPS_DIFFERENTIAL)
+    else if (pps_type == PPS_DIFFERENTIAL &&
+            !(exanic->hw_info.flags & EXANIC_HW_FLAG_PPS_DIFF))
     {
         log_printf(LOG_WARNING, "%s: %s does not support differential PPS input",
                 state->name, exanic_hardware_id_str(hw_id));
@@ -134,7 +136,7 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             state->interval);
 
     /* PPS settings */
-    if (!exanic->hw_info.flags.zcard)
+    if (!(exanic->hw_info.flags & EXANIC_HW_FLAG_ZCARD))
     {
         uint32_t pps_reg =
                 exanic_register_read(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS));
@@ -145,19 +147,21 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
             pps_reg &= ~EXANIC_HW_SERIAL_PPS_EDGE_SEL;
 
         /* PPS input electrical characteristics */
-        if (exanic->hw_info.flags.pps_single && pps_type == PPS_SINGLE_ENDED)
+        if (pps_type == PPS_SINGLE_ENDED &&
+            (exanic->hw_info.flags & EXANIC_HW_FLAG_PPS_SINGLE))
             pps_reg |= EXANIC_HW_SERIAL_PPS_SINGLE;
         else
             pps_reg &= ~EXANIC_HW_SERIAL_PPS_SINGLE;
 
         /* PPS Termination Settings */
-        if (exanic->hw_info.flags.pps_term && pps_termination_disable)
+        if (pps_termination_disable &&
+            (exanic->hw_info.flags & EXANIC_HW_FLAG_PPS_TERM))
             pps_reg &= ~EXANIC_HW_SERIAL_PPS_TERM_EN;
         else
             pps_reg |= EXANIC_HW_SERIAL_PPS_TERM_EN;
 
         /* Disable PPS output */
-        if (exanic->hw_info.flags.periodic_out)
+        if (exanic->hw_info.flags & EXANIC_HW_FLAG_PER_OUT)
             pps_reg &= ~EXANIC_HW_SERIAL_PPS_OUT_EN;
 
         exanic_register_write(state->exanic, REG_HW_INDEX(REG_HW_SERIAL_PPS), pps_reg);

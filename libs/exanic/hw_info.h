@@ -1,3 +1,9 @@
+/**
+ * \file
+ * \brief ExaNIC Device Table
+ *
+ * This file contains device-specific information for ExaNIC products
+ */
 #ifndef EXANIC_HW_INFO_H
 #define EXANIC_HW_INFO_H
 
@@ -20,39 +26,36 @@ typedef enum
     EXANIC_XILINX_USP,
 } exanic_device_family;
 
-struct exanic_hw_feature
-{
-    /* Legacy Z-card */
-    unsigned zcard              :1;
-    /* FPGA Development Kit available */
-    unsigned devkit             :1;
-    /* Periodic output available */
-    unsigned periodic_out       :1;
-    /* 10Mhz periodic output available */
-    unsigned periodic_out_10m   :1;
-    /* Periodic output configs restored from EEPROM */
-    unsigned periodic_out_eep   :1;
-    /* Differential PPS input */
-    unsigned pps_diff           :1;
-    /* Single-ended PPS input */
-    unsigned pps_single         :1;
-    /* PPS termination resistor on PCB */
-    unsigned pps_term           :1;
-    /* Port mirroring firmware available */
-    unsigned mirror_fw          :1;
-    /* Variant with on-board DRAM available */
-    unsigned dram_variant       :1;
-    /* Fan speed sensor available */
-    unsigned fan_rpm_sensor     :1;
-    /* External power supply input sense available */
-    unsigned pwr_sense          :1;
-    /* PTP grandmaster functionality */
-    unsigned ptp_gm             :1;
-    /* GPS input available */
-    unsigned gps                :1;
-    /* Hardware flow-steering supported */
-    unsigned hw_filter          :1;
-};
+/* A list of hardware feature flags for ExaNIC products */
+
+/* Legacy Z-card */
+#define EXANIC_HW_FLAG_ZCARD                     (1ull)
+/* FPGA Development Kit available */
+#define EXANIC_HW_FLAG_DEVKIT                    (1ull << 1)
+/* Periodic output available */
+#define EXANIC_HW_FLAG_PER_OUT                   (1ull << 2)
+/* 10Mhz periodic output available */
+#define EXANIC_HW_FLAG_PER_OUT_10M               (1ull << 3)
+/* Periodic output configs restored from EEPROM */
+#define EXANIC_HW_FLAG_PER_OUT_EEP               (1ull << 4)
+/* Differential PPS input */
+#define EXANIC_HW_FLAG_PPS_DIFF                  (1ull << 5)
+/* Single-ended PPS input */
+#define EXANIC_HW_FLAG_PPS_SINGLE                (1ull << 6)
+/* PPS termination resistor on PCB */
+#define EXANIC_HW_FLAG_PPS_TERM                  (1ull << 7)
+/* Port mirroring firmware available */
+#define EXANIC_HW_FLAG_MIRROR_FW                 (1ull << 8)
+/* Variant with on-board DRAM available */
+#define EXANIC_HW_FLAG_DRAM_VARIANT              (1ull << 9)
+/* Fan speed sensor available */
+#define EXANIC_HW_FLAG_FAN_RPM_SENSOR            (1ull << 10)
+/* External power supply input sense available */
+#define EXANIC_HW_FLAG_PWR_SENSE                 (1ull << 11)
+/* PTP grandmaster functionality */
+#define EXANIC_HW_FLAG_PTP_GM                    (1ull << 12)
+/* GPS input available */
+#define EXANIC_HW_FLAG_GPS                       (1ull << 13)
 
 struct exanic_hw_info
 {
@@ -70,137 +73,111 @@ struct exanic_hw_info
     /* Device FPGA family */
     exanic_device_family dev_family;
     /* Feature flags */
-    struct exanic_hw_feature flags;
+    uint64_t flags;
 };
 
 __attribute__((unused))
 static const struct exanic_hw_info exanic_hw_products[] =
 {
     {EXANIC_HW_Z1, NULL, 4, 0, 0, EXANIC_PORT_SFP, EXANIC_XILINX_7,
-    {
-        .zcard = 1,
-        .pps_diff = 1
-    }},
+        EXANIC_HW_FLAG_ZCARD |
+        EXANIC_HW_FLAG_PPS_DIFF
+    },
 
     {EXANIC_HW_Z10, NULL, 4, 0, 0, EXANIC_PORT_SFP, EXANIC_XILINX_7,
-    {
-        .zcard = 1,
-        .pps_diff = 1
-    }},
+        EXANIC_HW_FLAG_ZCARD |
+        EXANIC_HW_FLAG_PPS_DIFF
+    },
 
     {EXANIC_HW_X4, "exanic_x4", 4, 5, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
-    {
-        .devkit = 1,
-        .pps_single = 1,
-        .pps_diff = 1,
-        .fan_rpm_sensor = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_DIFF |
+        EXANIC_HW_FLAG_FAN_RPM_SENSOR
+    },
 
     {EXANIC_HW_X2, "exanic_x2", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
-    {
-        .devkit = 1,
-        .pps_single = 1,
-        .pps_diff = 1,
-        .fan_rpm_sensor = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_DIFF |
+        EXANIC_HW_FLAG_FAN_RPM_SENSOR
+    },
 
     {EXANIC_HW_X10, "exanic_x10", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
-    {
-        .devkit = 1,
-        .periodic_out = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .mirror_fw = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM |
+        EXANIC_HW_FLAG_MIRROR_FW
+    },
 
     {EXANIC_HW_X10_GM, "exanic_x10_gm", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
-    {
-        .periodic_out = 1,
-        .periodic_out_10m = 1,
-        .periodic_out_eep = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .ptp_gm = 1,
-        .gps = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PER_OUT_10M |
+        EXANIC_HW_FLAG_PER_OUT_EEP |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM |
+        EXANIC_HW_FLAG_PTP_GM |
+        EXANIC_HW_FLAG_GPS
+    },
 
     {EXANIC_HW_X40, "exanic_x40", 2, 4, 0xA0, EXANIC_PORT_QSFP, EXANIC_XILINX_US,
-    {
-        .devkit = 1,
-        .periodic_out = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM
+    },
 
     {EXANIC_HW_X10_HPT, "exanic_x10_hpt", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
-    {
-        .periodic_out = 1,
-        .periodic_out_10m = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PER_OUT_10M |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM
+    },
 
     {EXANIC_HW_V5P, "exanic_v5p", 2, 4, 0xA0, EXANIC_PORT_QSFP, EXANIC_XILINX_USP,
-    {
-        .devkit = 1,
-        .periodic_out = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .fan_rpm_sensor = 1,
-        .pwr_sense = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM |
+        EXANIC_HW_FLAG_FAN_RPM_SENSOR |
+        EXANIC_HW_FLAG_PWR_SENSE
+    },
 
     {EXANIC_HW_X25, "exanic_x25", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_USP,
-    {
-        .devkit = 1,
-        .periodic_out = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .dram_variant = 1,
-        .hw_filter = 1,
-    }},
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM |
+        EXANIC_HW_FLAG_DRAM_VARIANT
+    },
 
     {EXANIC_HW_V9P, "exanic_v9p", 2, 4, 0xA0, EXANIC_PORT_QSFPDD, EXANIC_XILINX_USP,
-    {
-        .devkit = 1,
-        .periodic_out = 1,
-        .pps_single = 1,
-        .pps_term = 1,
-        .hw_filter = 1,
-    }},
-
-    {.hwid = -1}
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM
+    },
 };
+
+#define EXANIC_HW_TABLE_SIZE (sizeof exanic_hw_products/sizeof exanic_hw_products[0])
 
 /* performs look-up in the device table above.
  * sets the hardware ID field to -1 and returns -1 on failure */
 static inline int
 exanic_get_hw_info(exanic_hardware_id_t hwid, struct exanic_hw_info *info)
 {
-    int i = 0;
-    while (1)
+    unsigned i;
+    for (i = 0; i < EXANIC_HW_TABLE_SIZE; i++)
     {
-        if (exanic_hw_products[i].hwid == -1)
-        {
-            info->hwid = -1;
-            break;
-        }
-
         if (exanic_hw_products[i].hwid == hwid)
         {
             *info = exanic_hw_products[i];
             return 0;
         }
-
-        i++;
     }
+
+    info->hwid = -1;
     return -1;
 }
 

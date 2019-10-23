@@ -13,7 +13,7 @@ csum_part(const void *buf, size_t len, uint64_t sum)
         /* 128 byte blocks */
         while (len >= 128)
         {
-            __asm volatile
+            asm volatile
             (
                 "ld    %%r15, 0(%4);"
                 "ld    %%r16, 8(%4);"
@@ -64,7 +64,7 @@ csum_part(const void *buf, size_t len, uint64_t sum)
         }
 
         /* Combine the four 64 bit sums into a single 33 bit sum */
-        __asm volatile
+        asm volatile
         (
             "addc   %1, %1, %3;"
             "addze  %1, %1;"

@@ -114,6 +114,23 @@ char *exanic_get_extended_devkit_memory(exanic_t *exanic);
  */
 int exanic_is_devkit_demo(exanic_t *exanic);
 
+/**
+ * \brief Return the sysfs path of an ExaNIC device
+ *
+ * \param[in]   exanic
+ *      A valid ExaNIC handle
+ *
+ * \param[out]  buf
+ *      Destination buffer
+ *
+ * \param[in]   len
+ *      Size of buf
+ *
+ * \return Length of sysfs path string if successful, -1 otherwise
+ */
+int exanic_get_sysfs_path(exanic_t *exanic, char *buf, size_t len);
+
+
 #ifdef __cplusplus
 }
 #endif

@@ -25,11 +25,6 @@
 #define PCI_DEVICE_ID_EXANIC_X25        0x0009
 #define PCI_DEVICE_ID_EXANIC_V9P        0x000B
 
-#define SFP_EEPROM_SIZE                 256
-#define SFP_DIAG_SIZE                   256
-#define SFP_DIAG_OFFSET                 SFP_EEPROM_SIZE
-#define SFP_ETHTOOL_SIZE                (SFP_DIAG_SIZE + SFP_EEPROM_SIZE)
-
 /* Interface to exanic_(get|set)_feature_cfg */
 enum exanic_feature
 {
@@ -192,28 +187,12 @@ void exanic_ate_client_unregister(exanic_ate_client_process_skb_cb cb);
 void exanic_ate_regdump(struct exanic *exanic, unsigned port_num,
                         int ate_id, struct exanic_ate_regdump *cfg);
 
-/* exanic-i2c.c */
-int exanic_i2c_init(struct exanic *exanic);
-void exanic_i2c_exit(struct exanic *exanic);
-int exanic_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN]);
-int exanic_poweron_port(struct exanic *exanic, unsigned port_num);
-int exanic_poweroff_port(struct exanic *exanic, unsigned port_num);
-int exanic_save_feature_cfg(struct exanic *exanic);
-int exanic_save_speed(struct exanic *exanic, unsigned port_number,
-                            unsigned speed);
-int exanic_save_autoneg(struct exanic *exanic, unsigned port_number,
-                              bool autoneg);
-int exanic_set_speed(struct exanic *exanic, unsigned port_number,
-                           unsigned old_speed, unsigned speed);
-
-int exanic_sfp_eeprom_read(struct exanic *exanic, int port_number,
-                           uint8_t regaddr, char *buffer, size_t size);
-int exanic_sfp_diag_read(struct exanic *exanic, int port_number,
-                         uint8_t regaddr, char *buffer, size_t size);
-int exanic_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_diag);
-
 /* exanic-z10.c */
 int exanic_z10_poweron_port(struct exanic *exanic, unsigned port_num);
 int exanic_z10_poweroff_port(struct exanic *exanic, unsigned port_num);
+
+/* exanic-sysfs.c */
+int exanic_sysfs_init(struct exanic *exanic);
+void exanic_sysfs_exit(struct exanic *exanic);
 
 #endif /* _EXANIC_H_ */

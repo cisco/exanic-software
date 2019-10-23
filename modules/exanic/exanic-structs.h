@@ -9,10 +9,8 @@
 #if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
 #include <linux/ptp_clock_kernel.h>
 #endif
+#include "../../libs/exanic/const.h"
 #include "../../libs/exanic/hw_info.h"
-#include <linux/i2c.h>
-#include <linux/i2c-mux.h>
-#include <linux/i2c-algo-bit.h>
 
 /**
  * A context is allocated for each open file descriptor and for each
@@ -70,24 +68,6 @@ enum per_out_mode
 };
 #endif
 
-struct exanic_i2c_data
-{
-    struct exanic *exanic;
-    /* i2c bus number */
-    int bus_number;
-    /* whether modsel toggle is needed */
-    bool toggle_modsel;
-    /* physical port */
-    int phys_port;
-    /* i2c adapter and algorithm data */
-    struct i2c_adapter adap;
-    struct i2c_algo_bit_data bit_data;
-
-    struct list_head link;
-    int (*xfer_wrapped)(struct i2c_adapter *,
-                        struct i2c_msg *, int);
-};
-
 struct exanic
 {
     struct miscdevice misc_dev;
@@ -142,6 +122,10 @@ struct exanic
     uint32_t caps;
 
     char name[10];
+
+    /* the port 0 MAC address stored in the EEPROM is treated as
+     * the device serial number */
+    uint8_t serial[ETH_ALEN];
 
     struct net_device *ndev[EXANIC_MAX_PORTS];
 

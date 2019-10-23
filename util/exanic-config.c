@@ -31,11 +31,41 @@
 #include <exanic/exanic.h>
 #include <exanic/config.h>
 #include <exanic/register.h>
-#include <exanic/sfp.h>
 #include <exanic/firewall.h>
-#include <exanic/x4/i2c.h>
 #include <exanic/hw_info.h>
+#include <exanic/transceiver.h>
+#include <exanic/eeprom.h>
 #include "../include/exanic_version.h"
+
+/* X2 and X4 legacy external PHY tuning options */
+static const struct
+{
+    const char *name;
+    uint8_t mask;
+} phy_params[] = {
+    { "rx-gain"       , 0x7f },
+    { "rx-preemphasis", 0x1f },
+    { "rx-offset"     , 0xff },
+    { "tx-gain"       , 0x07 },
+    { "tx-preemphasis", 0x1f },
+    { "tx-slewrate"   , 0x07 }
+};
+
+/* map command line argument to sysfs attribute */
+static const struct
+{
+    const char *param;
+    const char *attr;
+} phy_sysfs_attrs[] = {
+    {"rx-gain"       , "rx_gain"},
+    {"rx-preemphasis", "rx_preemphasis"},
+    {"rx-offset"     , "rx_offset"},
+    {"tx-gain"       , "tx_gain"},
+    {"tx-preemphasis", "tx_preemphasis"},
+    {"tx-slewrate"   , "tx_slewrate"},
+    {"loopback"      , "loopback"}
+};
+
 
 enum conf_option_types {
     CONF_TYPE_BOOLEAN,
@@ -47,39 +77,16 @@ enum conf_option_types {
     CONF_TYPE_UINT32
 };
 
-#define SERIAL_ADDRESS  0x00
-#define SERIAL_LEN      6
-
 #define CLOCKFD 3
 #define FD_TO_CLOCKID(fd) ((~(clockid_t)(fd) << 3) | CLOCKFD)
 
 #define EXANIC_DRIVER_SYSFS_ENTRY "/sys/bus/pci/drivers/exanic"
 
-int exanic_i2c_eeprom_read( exanic_t *exanic, uint8_t regaddr, char *buffer,
-        size_t size )
-{
-    switch( exanic_get_hw_type(exanic))
-    {
-        case EXANIC_HW_X2:
-        case EXANIC_HW_X10:
-        case EXANIC_HW_X10_GM:
-        case EXANIC_HW_X10_HPT:
-        case EXANIC_HW_X25:
-        case EXANIC_HW_X40:
-        case EXANIC_HW_V5P:
-            return exanic_x2_i2c_eeprom_read(exanic, regaddr, buffer, size );
-        case EXANIC_HW_X4:
-            return exanic_x4_i2c_eeprom_read(exanic, regaddr, buffer, size );
-        default:
-            return -1;
-    }
-}
-
 int parse_number(const char *str)
 {
     char *p;
     int num = strtol(str, &p, 0);
-    if (*p != '\0')
+    if (*p != '\0' && *p != '\n')
         return -1;
     else
         return num;
@@ -262,6 +269,7 @@ int ethtool_get_flag_names(int fd, char *ifname, char flag_names[32][ETH_GSTRING
 
     memset(flag_names, 0, 32 * ETH_GSTRING_LEN);
     memcpy(flag_names, strings->data, len * ETH_GSTRING_LEN);
+    free(strings);
 
     return 0;
 }
@@ -279,24 +287,72 @@ int ethtool_get_phc_index(int fd, char *ifname, int *phc_index)
     return 0;
 }
 
+/* return file descriptor to sysfs attributes that control
+ * external phy chip parameters */
+int x2_x4_open_phy_attr(exanic_t *exanic, int port_number,
+                        const char *param)
+{
+    char syspath[PATH_MAX] = {0};
+    char tmp[PATH_MAX + 256];
+    const char *sysfs_attr = NULL;
+    int fd = 0;
+
+    int i = 0;
+    while (i < sizeof phy_sysfs_attrs / sizeof phy_sysfs_attrs[0])
+    {
+        if (!strcmp(param, phy_sysfs_attrs[i].param))
+        {
+            sysfs_attr = phy_sysfs_attrs[i].attr;
+            break;
+        }
+        i++;
+    }
+
+    if (!sysfs_attr)
+        return -1;
+
+    if (exanic_get_sysfs_path(exanic, syspath, sizeof syspath) == -1)
+    {
+        fprintf(stderr, "%s sysfs path: %s\n",
+                        exanic->name, exanic_get_last_error());
+        return -1;
+    }
+
+    snprintf(tmp, sizeof tmp, "%s/port%d_phy/%s",
+                              syspath, port_number, sysfs_attr);
+    fd = open(tmp, O_RDWR);
+    if (fd == -1)
+    {
+        fprintf(stderr, "Failed to open \"%s\": %s\n",
+                        tmp, strerror(errno));
+        return -1;
+    }
+
+    return fd;
+}
+
 int get_local_loopback(exanic_t *exanic, int port_number)
 {
     exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
-    int loopback;
+    int loopback = 0;
 
     if ((hw_type == EXANIC_HW_X4) || (hw_type == EXANIC_HW_X2))
     {
-        char buf;
-        uint8_t reg_addr = 0x0A;
-
-        int port_status = exanic_get_port_status(exanic, port_number);
-        if (!(port_status & EXANIC_PORT_STATUS_ENABLED))
+        /* expect '0' or '1' */
+        char loopback_status[2];
+        int fd = x2_x4_open_phy_attr(exanic, port_number, "loopback");
+        if (fd == -1)
             return -1;
 
-        if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
-            return -1;
+        if (read(fd, loopback_status, 1) != 1)
+        {
+            loopback = -1;
+            goto fd_close;
+        }
 
-        loopback = (buf & 0x40) ? 0 : 1;
+        loopback = loopback_status[0] == '1' ? 1 : 0;
+fd_close:
+        close(fd);
     }
     else
     {
@@ -307,6 +363,44 @@ int get_local_loopback(exanic_t *exanic, int port_number)
     }
 
     return loopback;
+}
+
+void show_serial_number(exanic_t *exanic)
+{
+    char syspath[PATH_MAX] = {0};
+    char tmp[PATH_MAX + 256];
+    char serial[EXANIC_EEPROM_SERIAL_STRLEN + 1] = {0};
+    int fd;
+
+    if (exanic_get_sysfs_path(exanic, syspath, sizeof syspath) == -1)
+    {
+        fprintf(stderr, "%s sysfs path: %s\n",
+                        exanic->name, exanic_get_last_error());
+        return;
+    }
+
+    snprintf(tmp, sizeof tmp, "%s/serial", syspath);
+    fd = open(tmp, O_RDONLY);
+    if (fd == -1)
+    {
+        fprintf(stderr, "Failed to open \"%s\": %s\n",
+                        tmp, strerror(errno));
+        return;
+    }
+
+    /* read serial number from sysfs attribute */
+    if (read(fd, serial, sizeof(serial) - 1) !=
+        EXANIC_EEPROM_SERIAL_STRLEN)
+    {
+        fprintf(stderr, "Failed to read from \"%s\": %s\n",
+                        tmp, strerror(errno));
+        goto close_file;
+    }
+
+    printf("  Serial number: %s\n", serial);
+
+close_file:
+    close(fd);
 }
 
 void show_device_info(const char *device, int port_number, int verbose)
@@ -335,7 +429,7 @@ void show_device_info(const char *device, int port_number, int verbose)
 
     if (verbose)
     {
-        if (hwinfo->flags.dram_variant)
+        if (hwinfo->flags & EXANIC_HW_FLAG_DRAM_VARIANT)
         {
             uint32_t ddr_fitted = exanic_register_read(exanic,
                     REG_EXANIC_INDEX(REG_EXANIC_FEATURE_CFG))
@@ -343,22 +437,8 @@ void show_device_info(const char *device, int port_number, int verbose)
             printf("  DDR4 DRAM: %s\n", ddr_fitted ? "present" : "not present");
         }
 
-        uint8_t serial[SERIAL_LEN] = {0};
-        if (exanic_i2c_eeprom_read (exanic, SERIAL_ADDRESS, (char*) serial,
-                                    SERIAL_LEN) == -1)
-        {
-            fprintf (stderr, "%s: %s\n", device, exanic_get_last_error ());
-        }
-        else
-        {
-            printf ("  Serial number: ");
-            int i = 0;
-            for (i = 0; i < SERIAL_LEN; i++)
-                printf ("%02X", serial[i]);
-             printf ("\n");
-        }
+        show_serial_number(exanic);
     }
-
 
     if (hwinfo->hwid != -1)
     {
@@ -404,7 +484,7 @@ void show_device_info(const char *device, int port_number, int verbose)
                 temp_real, vccint_real, vccaux_real);
     }
 
-    if (hwinfo->flags.fan_rpm_sensor)
+    if (hwinfo->flags & EXANIC_HW_FLAG_FAN_RPM_SENSOR)
     {
         uint32_t reg, count, tick_hz;
         double rpm, divisor;
@@ -444,7 +524,7 @@ void show_device_info(const char *device, int port_number, int verbose)
         printf("  Customer version: %u (%x)\n", user_version, user_version);
     }
 
-    if (hwinfo->flags.pwr_sense)
+    if (hwinfo->flags & EXANIC_HW_FLAG_PWR_SENSE)
     {
         uint32_t ext_pwr = exanic_register_read(exanic,
                     REG_HW_INDEX(REG_HW_MISC_GPIO));
@@ -768,13 +848,11 @@ void reset_port_counters(const char *device, int port_number)
 int show_sfp_status(const char *device, int port_number)
 {
     int port_status;
-    int channel;
     exanic_t *exanic;
     struct exanic_hw_info *hwinfo;
-    exanic_sfp_info_t sfp_info;
-    exanic_sfp_diag_info_t sfp_diag_info;
-    exanic_qsfp_info_t qsfp_info;
-    exanic_qsfp_diag_info_t qsfp_diag_info;
+    exanic_xcvr_info_t xcvr_info;
+    exanic_xcvr_diag_info_t *xcvr_diag_info = NULL;
+    const char *xcvr_type_text;
 
     exanic = acquire_handle(device);
     hwinfo = &exanic->hw_info;
@@ -787,79 +865,57 @@ int show_sfp_status(const char *device, int port_number)
         return 1;
     }
 
-    /* FIXME: implement qsfpdd diag and info decode */
-    if (hwinfo->port_ff == EXANIC_PORT_QSFP || hwinfo->port_ff == EXANIC_PORT_QSFPDD)
+    xcvr_type_text = hwinfo->port_ff == EXANIC_PORT_SFP ? "SFP" :
+                     hwinfo->port_ff == EXANIC_PORT_QSFP ? "QSFP" : "QSFPDD";
+
+    if (exanic_get_xcvr_info(exanic, port_number, &xcvr_info) == 0)
     {
-        printf("Device %s port %d QSFP module %d status:\n", device,
-                    port_number, port_number/4);
+        printf("  Vendor: %16.16s PN: %16.16s  rev: %4.4s\n",
+               xcvr_info.vendor_name, xcvr_info.vendor_pn,
+               xcvr_info.vendor_rev);
+        printf("                           SN: %16.16s date: %8.8s\n",
+               xcvr_info.vendor_sn, xcvr_info.date_code);
 
-        if (exanic_get_qsfp_info(exanic, port_number, &qsfp_info) == 0)
-        {
-            printf("  Vendor: %16.16s PN: %16.16s  rev: %4.4s\n",
-                   qsfp_info.vendor_name, qsfp_info.vendor_pn,
-                    qsfp_info.vendor_rev);
-            printf("                           SN: %16.16s date: %8.8s\n",
-                    qsfp_info.vendor_sn, qsfp_info.date_code);
+        if (xcvr_info.wavelength)
+            printf("  Wavelength: %d nm\n", xcvr_info.wavelength);
 
-            printf("  Wavelength: %d nm\n", qsfp_info.wavelength);
-            printf("  Nominal bit rate: %d Mbps\n", qsfp_info.bit_rate);
-        }
-        else
-        {
-            printf("  SFP EEPROM not available\n");
-        }
-
-        if (exanic_get_qsfp_diag_info(exanic, port_number, &qsfp_diag_info)
-                    == 0)
-        {
-            for (channel = 0; channel < 4; channel++)
-            {
-                printf("  Channel %d Rx power: %.1f dBm (%.2f mW)\n", channel,
-                        log10(qsfp_diag_info.rx_power[channel]) * 10,
-                            qsfp_diag_info.rx_power[channel]);
-                printf("             Tx bias: %.2f mA\n",
-                            qsfp_diag_info.tx_bias[channel]);
-            }
-            printf("  Temperature: %.1f C\n", qsfp_diag_info.temp);
-        }
-        else
-        {
-            printf("  SFP diagnostics not available\n");
-        }
+        if (xcvr_info.bit_rate)
+            printf("  Nominal bit rate: %d Mbps\n", xcvr_info.bit_rate);
     }
     else
+        printf("  %s EEPROM not available\n", xcvr_type_text);
+
+    if (exanic_get_xcvr_diag_info(exanic, port_number, &xcvr_diag_info) == 0)
     {
-        printf("Device %s port %d SFP status:\n", device, port_number);
+        int i;
+        for (i = 0; i < xcvr_diag_info->num_lanes; i++)
+        {
+            int prefix_len;
+            if (xcvr_diag_info->num_lanes > 1)
+                prefix_len = printf("  Channel %d ", i);
+            else
+                prefix_len = printf("  ");
 
-        if (exanic_get_sfp_info(exanic, port_number, &sfp_info) == 0)
-        {
-            printf("  Vendor: %16.16s PN: %16.16s  rev: %4.4s\n",
-                   sfp_info.vendor_name, sfp_info.vendor_pn,
-                    sfp_info.vendor_rev);
-            printf("                           SN: %16.16s date: %8.8s\n",
-                    sfp_info.vendor_sn, sfp_info.date_code);
+            double rx_pwr = xcvr_diag_info->lanes[i].rx_power * 0.001,
+                   tx_pwr = xcvr_diag_info->lanes[i].tx_power * 0.001;
 
-            printf("  Wavelength: %d nm\n", sfp_info.wavelength);
-            printf("  Nominal bit rate: %d Mbps\n", sfp_info.bit_rate);
-        }
-        else
-        {
-            printf("  SFP EEPROM not available\n");
+            printf("Rx power: %.1f dBm (%.2f mW)\n",
+                   log10(rx_pwr) * 10, rx_pwr);
+
+            printf("%*sTx bias: %.2f mA\n",
+                   prefix_len, "",
+                   xcvr_diag_info->lanes[i].tx_bias * 0.001);
+
+            printf("%*sTx power: %.1f dBm (%.2f mW)\n",
+                   prefix_len, "",
+                   log10(tx_pwr) * 10, tx_pwr);
         }
 
-        if (exanic_get_sfp_diag_info(exanic, port_number, &sfp_diag_info) == 0)
-        {
-            printf("  Rx power: %.1f dBm (%.2f mW)\n",
-                    log10(sfp_diag_info.rx_power) * 10, sfp_diag_info.rx_power);
-            printf("  Tx power: %.1f dBm (%.2f mW)\n",
-                    log10(sfp_diag_info.tx_power) * 10, sfp_diag_info.tx_power);
-            printf("  Temperature: %.1f C\n", sfp_diag_info.temp);
-        }
-        else
-        {
-            printf("  SFP diagnostics not available\n");
-        }
+        printf("  Temperature: %.1f C\n", xcvr_diag_info->temp);
+        free(xcvr_diag_info);
     }
+    else
+        printf("  %s diagnostics not available\n", xcvr_type_text);
 
     release_handle(exanic);
     return 0;
@@ -1141,28 +1197,32 @@ int set_local_loopback(const char * device, int port_number, int enable)
 
     if ((hw_type == EXANIC_HW_X4) || (hw_type == EXANIC_HW_X2))
     {
-        char buf;
-        uint8_t reg_addr = 0x0A;
+        char loopback_command[2] = {0};
+        int fd;
 
         int port_status = exanic_get_port_status(exanic, port_number);
         if (!(port_status & EXANIC_PORT_STATUS_ENABLED))
         {
             fprintf(stderr, "%s:%d: cannot enable loopback on disabled port\n", device, port_number);
-            goto out;
+            goto err_release_handle;
         }
 
-        if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+        fd = x2_x4_open_phy_attr(exanic, port_number, "loopback");
+        if (fd == -1)
+            goto err_release_handle;
+
+        loopback_command[0] = enable ? '1' : '0';
+        if (write(fd, loopback_command, sizeof loopback_command) !=
+            sizeof loopback_command)
         {
-            fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
-            goto out;
+            fprintf(stderr, "%s: error %s loopback: %s\n",
+                            device, enable ? "enabling" : "disabling",
+                            strerror(errno));
+            close(fd);
+            goto err_release_handle;
         }
 
-        buf = enable ? buf & (~0x40) : buf | 0x40;
-        if (exanic_x4_i2c_phy_write(exanic, port_number, reg_addr, &buf, 1) != 0)
-        {
-            fprintf(stderr, "%s:%d: error writing to PHY\n", device, port_number);
-            goto out;
-        }
+        close(fd);
     }
     else
     {
@@ -1170,18 +1230,19 @@ int set_local_loopback(const char * device, int port_number, int enable)
         flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number,
                                      REG_PORT_FLAGS));
         if (enable)
-            flags = flags | EXANIC_PORT_FLAG_LOOPBACK;
+            flags |= EXANIC_PORT_FLAG_LOOPBACK;
         else
-            flags = flags & (~EXANIC_PORT_FLAG_LOOPBACK);
+            flags &= ~EXANIC_PORT_FLAG_LOOPBACK;
 
         exanic_register_write(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS), flags);
     }
 
     loopback = get_local_loopback(exanic, port_number);
-    if ((loopback == -1) || (enable && !loopback) || (!enable && loopback))
+    if (loopback == -1 || enable != loopback)
     {
-        fprintf(stderr, "%s:%d: failed to update loopback mode: not supported by firmware?\n", device, port_number);
-        goto out;
+        fprintf(stderr, "%s:%d: failed to update loopback mode:"
+                        " not supported by firmware?\n", device, port_number);
+        goto err_release_handle;
     }
 
     printf("%s:%d: local-loopback mode %s\n", device, port_number,
@@ -1189,104 +1250,118 @@ int set_local_loopback(const char * device, int port_number, int enable)
     release_handle(exanic);
     return 0;
 
-out:
+err_release_handle:
     release_handle(exanic);
     return 1;
 }
 
-static const struct phy_parameter {
-    const char *name;
-    uint8_t reg_addr;
-    uint8_t mask;
-} phy_parameters[] = {
-    { "rx-gain",        0x10, 0x7f },
-    { "rx-preemphasis", 0x11, 0x1f },
-    { "rx-offset",      0x12, 0xff },
-    { "tx-gain",        0x16, 0x07 },
-    { "tx-preemphasis", 0x17, 0x1f },
-    { "tx-slewrate",    0x18, 0x07 }
-};
-
-void set_phy_parameter(const char *device, int port_number,
-                       const char *parameter_name, const char *value_string)
+int set_phy_parameter(const char *device, int port_number,
+                      const char *parameter_name, const char *value_string)
 {
     exanic_t *exanic = acquire_handle(device);
-    uint8_t reg_addr = 0;
-    uint8_t mask = 0;
-    char buf;
-    int i;
+    char buf[16] = {0};
+    int err = 0;
 
-    for (i = 0; i < sizeof(phy_parameters)/sizeof(struct phy_parameter); i++)
-    {
-        if (strcmp(parameter_name, phy_parameters[i].name) == 0)
-        {
-            reg_addr = phy_parameters[i].reg_addr;
-            mask = phy_parameters[i].mask;
-        }
-    }
-
-    if (!mask)
-    {
-        fprintf(stderr, "%s:%d: invalid parameter name %s\n", device,
-                port_number, parameter_name);
-        goto out;
-    }
+    int fd = x2_x4_open_phy_attr(exanic, port_number, parameter_name);
+    if (fd == -1)
+        goto handle_release;
 
     if (value_string)
     {
-        int value = parse_number(value_string);
-        if ((value < 0) || (value > mask))
+        int val = parse_number(value_string);
+        size_t len;
+        if (val == -1)
         {
             fprintf(stderr, "%s:%d: invalid value specified for %s\n", device,
                     port_number, parameter_name);
-            goto out;
+            err = 1;
+            goto fd_close;
         }
 
-        buf = value;
-        if (exanic_x4_i2c_phy_write(exanic, port_number, reg_addr, &buf, 1) != 0)
+        len = snprintf(buf, sizeof buf, "0x%hhx", (uint8_t)val);
+        if (write(fd, buf, len + 1) == -1)
         {
-            fprintf(stderr, "%s:%d: error writing to PHY\n", device, port_number);
-            goto out;
+            fprintf(stderr, "%s:%d: failed to write phy parameter: %s\n",
+                            device, port_number, strerror(errno));
+            err = 1;
+            goto fd_close;
         }
     }
     else
     {
-        if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+        int val;
+        if (read(fd, buf, sizeof(buf) - 1) == -1)
         {
-            fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
-            goto out;
+            fprintf(stderr, "%s: %d: failed to read phy parameter: %s\n",
+                            device, port_number, strerror(errno));
+            err = 1;
+            goto fd_close;
         }
+
+        val = parse_number(buf);
+        if (val == -1)
+        {
+            fprintf(stderr, "%s: invalid value returned from driver: \"%s\"\n",
+                            device, buf);
+            err = 1;
+            goto fd_close;
+        }
+
+        printf("%s:%d: %s = %hhu\n", device, port_number,
+                                     parameter_name, (uint8_t)val);
     }
-    printf("%s:%d: %s = %u (range 0..%u)\n", device, port_number,
-                                                  parameter_name, buf, mask);
-out:
+
+fd_close:
+    close(fd);
+handle_release:
     release_handle(exanic);
+    return err;
 }
 
-void show_phy_parameters(const char *device, int port_number)
+int show_phy_parameters(const char *device, int port_number)
 {
     exanic_t *exanic = acquire_handle(device);
-    const char *parameter_name;
-    uint8_t reg_addr;
-    uint8_t mask;
-    char buf;
-    int i;
+    char buf[16] = {0};
+    int err = 0;
 
-    for (i = 0; i < sizeof(phy_parameters)/sizeof(struct phy_parameter); i++)
+    int i;
+    for (i = 0; i < sizeof phy_params/sizeof phy_params[0]; i++)
     {
-        parameter_name = phy_parameters[i].name;
-        reg_addr = phy_parameters[i].reg_addr;
-        mask = phy_parameters[i].mask;
-        if (exanic_x4_i2c_phy_read(exanic, port_number, reg_addr, &buf, 1) != 0)
+        const char *param = phy_params[i].name;
+        uint8_t mask = phy_params[i].mask;
+        int val;
+        int fd = x2_x4_open_phy_attr(exanic, port_number, param);
+        if (fd == -1)
         {
-            fprintf(stderr, "%s:%d: error reading from PHY\n", device, port_number);
-            break;
+            err = 1;
+            goto handle_release;
         }
 
-        printf("%s:%d: %s = %u (range 0..%u)\n", device, port_number,
-                                                  parameter_name, buf, mask);
+        if (read(fd, buf, sizeof(buf) - 1) == -1)
+        {
+            fprintf(stderr, "%s:%d: error reading phy parameter \"%s\": %s\n",
+                            device, port_number, param, strerror(errno));
+            goto fd_close;
+        }
+
+        val = parse_number(buf);
+        if (val == -1)
+        {
+            fprintf(stderr, "%s: invalid value returned from driver: \"%s\"\n",
+                            device, buf);
+            goto fd_close;
+        }
+
+        printf("%s:%d: %s = %hhu (range 0..%u)\n", device, port_number,
+                                                   param, (uint8_t)val, mask);
+
+fd_close:
+        close(fd);
     }
+
+handle_release:
     release_handle(exanic);
+    return err;
 }
 
 void show_firewall_filters(const char *device)
@@ -1806,38 +1881,44 @@ uint32_t ptp_read_conf(const char *device, const struct ptp_conf_option *opt)
     return val;
 }
 
-void ptp_save_conf(const char *device)
+int ptp_save_conf(const char *device)
 {
     exanic_t *exanic;
-    int i, j;
-    uint32_t reg;
-    unsigned char buffer[4];
+    exanic_eeprom_t *eeprom;
     int addresses[] = { 0x20, 0x24, 0x28, 0x2C };
     int registers[] = { REG_PTP_IP_ADDR, REG_PTP_CONF0,
                         REG_PTP_CONF1, REG_PTP_CONF2 };
+    int i;
+    int err = 0;
 
     exanic = acquire_handle(device);
+    eeprom = exanic_eeprom_acquire(exanic);
+    if (eeprom == NULL)
+    {
+        fprintf(stderr, "%s: error acquiring eeprom: %s\n",
+                        device, exanic_get_last_error());
+        return -1;
+    }
 
     for (i = 0; i < sizeof(addresses)/sizeof(int); i++)
     {
-        reg = exanic_register_read(exanic, REG_PTP_INDEX(registers[i]));
-        memcpy(buffer, (char*)&reg, sizeof(uint32_t));
-
-        for (j=0; j < sizeof(uint32_t); j++)
+        uint32_t reg = exanic_register_read(exanic, REG_PTP_INDEX(registers[i]));
+        err = exanic_eeprom_write(eeprom, addresses[i], sizeof reg,
+                                  (const uint8_t *)&reg);
+        if (err)
         {
-            if (exanic_x2_i2c_eeprom_write(exanic, addresses[i] + j,
-                    (char *)buffer + j, 1) == -1)
-            {
-                fprintf(stderr, "%s: error saving PTP configuration: %s\n",
-                        device, exanic_get_last_error());
-                release_handle(exanic);
-                exit(1);
-            }
+            fprintf(stderr, "%s: error saving PTP configuration: %s\n",
+                    device, exanic_get_last_error());
+            goto handle_release;
         }
     }
 
     printf("%s: PTP configuration saved to EEPROM\n", device);
+
+handle_release:
+    exanic_eeprom_free(eeprom);
     release_handle(exanic);
+    return err;
 }
 
 int ptp_read_profile(const char *device)
@@ -2033,7 +2114,7 @@ int ptp_command(const char *progname, const char *device,
     exanic = acquire_handle(device);
     hw_type = exanic_get_hw_type(exanic);
 
-    if (!exanic->hw_info.flags.ptp_gm)
+    if (!(exanic->hw_info.flags & EXANIC_HW_FLAG_PTP_GM))
     {
         str = exanic_hardware_id_str(hw_type);
         printf("Device %s:\n", device);
@@ -2065,8 +2146,7 @@ int ptp_command(const char *progname, const char *device,
     }
     else if ((argc == 1) && strcmp(argv[0], "save") == 0)
     {
-        ptp_save_conf(device);
-        return 0;
+        return ptp_save_conf(device);
     }
     else if ((argc == 2) && strcmp(argv[0], "ip-address") == 0)
     {
@@ -2355,8 +2435,7 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
     else if (argc == 3 && strcmp(argv[2], "show-phy-param") == 0 &&
                 port_number != -1)
     {
-        show_phy_parameters(device, port_number);
-        return 0;
+        return show_phy_parameters(device, port_number);
     }
     else if (argc == 4 && strcmp(argv[2], "local-loopback") == 0 &&
                 port_number != -1)

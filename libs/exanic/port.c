@@ -75,7 +75,7 @@ int exanic_port_mirror_supported(exanic_t *exanic, int port_number)
 {
     uint32_t caps = exanic_get_caps(exanic);
     exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
-    bool mirror_fw_avail = exanic->hw_info.flags.mirror_fw;
+    bool mirror_fw_avail = (exanic->hw_info.flags & EXANIC_HW_FLAG_MIRROR_FW) != 0;
     int mirror_output_port = exanic->num_ports ? exanic->num_ports - 1 : 0;
 
     /*
@@ -181,7 +181,7 @@ int exanic_fake_auto_neg(exanic_t *exanic, unsigned int port_number)
 {
     uint32_t flags;
 
-    if (port_number < 0 || port_number >= exanic->num_ports)
+    if (port_number >= exanic->num_ports)
     {
         exanic_err_printf("invalid port number");
         return -1;
