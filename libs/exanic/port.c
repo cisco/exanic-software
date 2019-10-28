@@ -9,7 +9,6 @@
 #include "ioctl.h"
 #include "port.h"
 #include "util.h"
-#include "z1/port.h"
 
 static int check_network_interface(exanic_t *exanic)
 {
@@ -80,11 +79,9 @@ int exanic_port_mirror_supported(exanic_t *exanic, int port_number)
 
     /*
      * Check if firmware has mirroring support for a given port.
-     * Always available on legacy 4-port cards regardless of capability bit.
+     * Always available on the legacy 4-port card regardless of capability bit.
      */
-    return ((hw_type == EXANIC_HW_X4 ||
-             hw_type == EXANIC_HW_Z10 ||
-             hw_type == EXANIC_HW_Z1) ||
+    return ((hw_type == EXANIC_HW_X4) ||
             (mirror_fw_avail && (caps & EXANIC_CAP_MIRRORING))) &&
             (port_number < mirror_output_port);
 }
@@ -148,58 +145,11 @@ int exanic_get_promiscuous_mode(exanic_t *exanic, int port_number)
         return 0;
 }
 
-int exanic_set_port_speed(exanic_t *exanic, int port_number, unsigned speed)
-{
-    if (check_network_interface(exanic) == -1)
-        return -1;
-    if (check_port_rx_usable(exanic, port_number) == -1)
-        return -1;
-    if (exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_ENABLED)])
-    {
-        exanic_err_printf("cannot change speed when port is enabled");
-        return -1;
-    }
-
-    switch (exanic_get_hw_type(exanic))
-    {
-        case EXANIC_HW_Z1:
-            return z1_set_port_speed(exanic, port_number, speed);
-        default:
-            exanic_err_printf("port speed configuration not supported");
-            return -1;
-    }
-}
-
 unsigned exanic_get_port_speed(exanic_t *exanic, int port_number)
 {
     if (check_port_configurable(exanic, port_number) == -1)
         return -1;
     return exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_SPEED)];
-}
-
-int exanic_fake_auto_neg(exanic_t *exanic, unsigned int port_number)
-{
-    uint32_t flags;
-
-    if (port_number >= exanic->num_ports)
-    {
-        exanic_err_printf("invalid port number");
-        return -1;
-    }
-
-    if (exanic_get_hw_type(exanic) != EXANIC_HW_Z1)
-    {
-        exanic_err_printf("only valid for Z1");
-        return -1;
-    }
-
-    flags = exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_FLAGS)];
-    /* do a bit transition to trigger fake auto-neg control chars to be sent */
-    flags |= EXANIC_PORT_FLAG_AUTONEG_TX;
-    exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_FLAGS)] = flags;
-    flags &= ~EXANIC_PORT_FLAG_AUTONEG_TX;
-    exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_FLAGS)] = flags;
-    return 0;
 }
 
 int exanic_get_mac_addr(exanic_t *exanic, int port_number, uint8_t *mac_addr)
@@ -208,12 +158,7 @@ int exanic_get_mac_addr(exanic_t *exanic, int port_number, uint8_t *mac_addr)
         return -1;
     if (check_port_rx_usable(exanic, port_number) == -1)
         return -1;
-    uint32_t addr;
-    if (exanic_get_hw_type(exanic) == EXANIC_HW_Z1 ||
-            exanic_get_hw_type(exanic) == EXANIC_HW_Z10)
-        addr = exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_MAC_ADDR_OUI)];
-    else
-        addr = exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_MAC_ADDR_OUI)];
+    uint32_t addr = exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_MAC_ADDR_OUI)];
     memcpy(mac_addr, &addr, 3);
     addr = exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_MAC_ADDR_NIC)];
     memcpy(mac_addr + 3, &addr, 3);

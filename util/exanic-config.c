@@ -567,7 +567,6 @@ void show_device_info(const char *device, int port_number, int verbose)
          */
         uint32_t caps = exanic_get_caps(exanic);
         if ((caps & EXANIC_CAP_BRIDGING) ||
-            hw_type == EXANIC_HW_Z1 || hw_type == EXANIC_HW_Z10 ||
             hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2)
         {
             uint32_t pl_cfg = exanic_get_bridging_config(exanic);
@@ -690,28 +689,26 @@ void show_device_info(const char *device, int port_number, int verbose)
         {
             int loopback, promisc;
 
-            if (hw_type != EXANIC_HW_Z1 && hw_type != EXANIC_HW_Z10)
+            if (verbose)
             {
-                if (verbose)
-                {
-                    int mac_rules = exanic_register_read(exanic,
-                                        REG_EXTENDED_PORT_INDEX(i,
-                                          REG_EXTENDED_PORT_NUM_MAC_FILTER_RULES));
-                    int ip_rules = exanic_register_read(exanic,
-                                        REG_EXTENDED_PORT_INDEX(i,
-                                          REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
-                    int tx_size = exanic_register_read(exanic,
-                                        REG_PORT_INDEX(i,
-                                          REG_PORT_TX_REGION_SIZE)) / 1024;
-                    printf("    MAC filters: %d", mac_rules);
-                    printf("  IP filters: %d\n", ip_rules);
-                    printf("    TX buffer size: %dkB\n", tx_size);
-                }
-
-                loopback = get_local_loopback(exanic, i);
-                if ((loopback != -1) && (loopback || verbose))
-                    printf("    Loopback mode: %s\n", loopback ? "on" : "off");
+                int mac_rules = exanic_register_read(exanic,
+                                    REG_EXTENDED_PORT_INDEX(i,
+                                      REG_EXTENDED_PORT_NUM_MAC_FILTER_RULES));
+                int ip_rules = exanic_register_read(exanic,
+                                    REG_EXTENDED_PORT_INDEX(i,
+                                      REG_EXTENDED_PORT_NUM_IP_FILTER_RULES));
+                int tx_size = exanic_register_read(exanic,
+                                    REG_PORT_INDEX(i,
+                                      REG_PORT_TX_REGION_SIZE)) / 1024;
+                printf("    MAC filters: %d", mac_rules);
+                printf("  IP filters: %d\n", ip_rules);
+                printf("    TX buffer size: %dkB\n", tx_size);
             }
+
+            loopback = get_local_loopback(exanic, i);
+            if ((loopback != -1) && (loopback || verbose))
+                printf("    Loopback mode: %s\n", loopback ? "on" : "off");
+
             promisc = exanic_get_promiscuous_mode(exanic, i);
             if ((promisc != -1) && (promisc || verbose))
                 printf("    Promiscuous mode: %s\n", promisc ? "on" : "off");

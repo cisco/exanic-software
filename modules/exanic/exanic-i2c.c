@@ -42,31 +42,11 @@
 #define EXANIC_EEPROM_SPEED_1G          0x01
 #define EXANIC_EEPROM_SPEED_10G         0x02
 
-/* Fields in pluggable transceiver memory map */
-
-#define SFF_8024_ID_BYTE                0
-
-#define SFP_DIAG_MON_BYTE               92
-#define SFP_DIAG_MON_BIT                6
-
-#define QSFP_FLAT_MEM_BYTE              2
-#define QSFP_FLAT_MEM_BIT               2
-#define QSFP_PAGE_SEL_BYTE              127
-
-#define CMIS_FLAT_MEM_BYTE              2
-#define CMIS_FLAT_MEM_BIT               7
-
-#define CMIS_REV_COMP_BYTE              1
-#define CMIS_BANK_SEL_BYTE              126
-#define CMIS_PAGE_SEL_BYTE              127
-
-#define CMIS_REV_BYTE(M, m)             (((M) << 4)|(m))
-
 /* x4 and x2 phy chip addresses */
 static struct {
     int bus;
     int devaddr;
-} x2_x4_phy_i2c[] = {
+} x2_x4_ext_phy_i2c[] = {
     { 4, 0x86 },    /* PHY 0 */
     { 4, 0x88 },    /* PHY 1 */
     { 5, 0x86 },    /* PHY 2 */
@@ -136,7 +116,7 @@ exanic_i2c_reset(struct exanic_i2c_data *data)
         exanic_bit_setscl(data, 1);
     }
 
-    return -ETIMEDOUT;
+    return -EIO;
 }
 
 /* some firmware versions do not support scl sensing */
@@ -152,16 +132,16 @@ static bool exanic_supports_scl_sense(struct exanic *exanic)
 }
 
 static struct i2c_adapter *
-exanic_sfp_i2c_adapter(struct exanic *exanic, unsigned port_num)
+exanic_xcvr_i2c_adapter(struct exanic *exanic, unsigned port_num)
 {
     if (port_num >= exanic->num_ports)
         return NULL;
 
-    return exanic->sfp_i2c_adapters[port_num];
+    return exanic->xcvr_i2c_adapters[port_num];
 }
 
 static struct i2c_adapter *
-exanic_phy_i2c_adapter(struct exanic *exanic, unsigned port_num)
+exanic_ext_phy_i2c_adapter(struct exanic *exanic, unsigned port_num)
 {
     if (exanic->hw_id != EXANIC_HW_X2 && exanic->hw_id != EXANIC_HW_X4)
         return NULL;
@@ -169,7 +149,7 @@ exanic_phy_i2c_adapter(struct exanic *exanic, unsigned port_num)
     if (port_num >= exanic->num_ports)
         return NULL;
 
-    return exanic->phy_i2c_adapters[port_num];
+    return exanic->ext_phy_i2c_adapters[port_num];
 }
 
 static struct i2c_adapter *
@@ -210,10 +190,10 @@ exanic_to_phys_port(struct exanic *exanic, int port_num)
 }
 
 /* return i2c bus numbers of pluggable transceivers and
- * off-chip serdes given ethernet interface number */
+ * external phy given ethernet interface number */
 
 static int
-exanic_i2c_sfp_bus_number(struct exanic *exanic, int port_num)
+exanic_i2c_xcvr_bus_number(struct exanic *exanic, int port_num)
 {
     if (port_num < 0 || port_num >= exanic->num_ports)
         return -1;
@@ -228,12 +208,12 @@ exanic_i2c_sfp_bus_number(struct exanic *exanic, int port_num)
 }
 
 static int
-exanic_i2c_phy_bus_number(struct exanic *exanic, int port_num)
+exanic_i2c_ext_phy_bus_number(struct exanic *exanic, int port_num)
 {
     if (exanic->hw_id != EXANIC_HW_X2 && exanic->hw_id != EXANIC_HW_X4)
         return -1;
 
-    return x2_x4_phy_i2c[port_num].bus;
+    return x2_x4_ext_phy_i2c[port_num].bus;
 }
 
 /* expect "8-bit" device addresses, i.e. with the r/w bit attached */
@@ -310,6 +290,43 @@ exanic_i2c_seq_write(struct i2c_adapter *adap, uint8_t devaddr,
                                   i2c_transfer);
 }
 
+static int exanic_i2c_write(struct i2c_adapter *adap, uint8_t devaddr,
+                            uint8_t regaddr, uint8_t *buffer, size_t size)
+{
+    uint8_t *ptr = buffer;
+    size_t rem = size;
+    uint8_t curr_addr = regaddr;
+    int ret;
+
+    struct exanic_i2c_data *data =
+            container_of(adap, struct exanic_i2c_data, adap);
+
+    /* no limit, write whole thing in one go */
+    if (data->write_len == 0)
+        return exanic_i2c_seq_write(adap, devaddr, regaddr, buffer, size);
+
+    while (rem)
+    {
+        uint8_t page_offset = curr_addr & (data->page_len - 1);
+        size_t page_rem = data->page_len - page_offset;
+        size_t wrsize;
+
+        if (data->page_len)
+            wrsize = min3(rem, page_rem, data->write_len);
+        else
+            wrsize = min(rem, data->write_len);
+
+        if ((ret = exanic_i2c_seq_write(adap, devaddr, curr_addr, ptr, wrsize)))
+            return ret;
+
+        ptr += wrsize;
+        curr_addr += wrsize;
+        rem -= wrsize;
+    }
+
+    return 0;
+}
+
 /* custom i2c algorithm, wraps over i2c_algo_bit */
 static int
 exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
@@ -366,7 +383,7 @@ exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
     /* select page and bank in the same MODSEL bracket */
     if (exanic_data_qsfp->flags.fields.qsfp)
     {
-        ret = __exanic_i2c_seq_write(adap, SFP_EEPROM_ADDR, QSFP_PAGE_SEL_BYTE,
+        ret = __exanic_i2c_seq_write(adap, XCVR_EEPROM_ADDR, QSFP_PAGE_SEL_BYTE,
                                      &exanic_data_qsfp->page, 1,
                                      exanic_data->xfer_wrapped);
     }
@@ -377,14 +394,14 @@ exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 
         /* CMIS rev 4 requires page and bank select in the same transaction */
         if (exanic_data_qsfp->flags.fields.cmis_4)
-            ret = __exanic_i2c_seq_write(adap, SFP_EEPROM_ADDR, CMIS_BANK_SEL_BYTE,
+            ret = __exanic_i2c_seq_write(adap, XCVR_EEPROM_ADDR, CMIS_BANK_SEL_BYTE,
                                          page_switch_bytes, 2,
                                          exanic_data->xfer_wrapped);
         else
-            ret = __exanic_i2c_seq_write(adap, SFP_EEPROM_ADDR, CMIS_BANK_SEL_BYTE,
+            ret = __exanic_i2c_seq_write(adap, XCVR_EEPROM_ADDR, CMIS_BANK_SEL_BYTE,
                                          &page_switch_bytes[0], 1,
                                          exanic_data->xfer_wrapped) ||
-                  __exanic_i2c_seq_write(adap, SFP_EEPROM_ADDR, CMIS_PAGE_SEL_BYTE,
+                  __exanic_i2c_seq_write(adap, XCVR_EEPROM_ADDR, CMIS_PAGE_SEL_BYTE,
                                          &page_switch_bytes[1], 1,
                                          exanic_data->xfer_wrapped);
     }
@@ -492,14 +509,14 @@ exanic_i2c_bus_register(struct exanic *exanic, int port,
         case EXANIC_I2C_ADAP_QSFPDD:
         case EXANIC_I2C_ADAP_SFP:
             snprintf(adap->name, sizeof adap->name,
-                     "%s:%d-sfp", exanic->name, port);
+                     "%s:%d-xcvr", exanic->name, port);
             /* avoid sequential write as much as possible
              * setting write_len to 2 for compatibility with marvell phy */
             data->write_len = 2;
             data->page_len = 128;
             break;
 
-        case EXANIC_I2C_ADAP_PHY:
+        case EXANIC_I2C_ADAP_EXT_PHY:
             /* no TWI transaction limits
              * see VSC8479 datasheet */
             data->write_len = 0;
@@ -563,7 +580,7 @@ int exanic_i2c_init(struct exanic *exanic)
 {
     int ret = 0;
     int i = 0;
-    bool offchip_phy = false;
+    bool external_phy = false;
     bool scl_sense = exanic_supports_scl_sense(exanic);
     int busno;
     struct i2c_adapter *bus;
@@ -572,10 +589,10 @@ int exanic_i2c_init(struct exanic *exanic)
     mutex_init(&exanic->i2c_lock);
     INIT_LIST_HEAD(&exanic->i2c_list);
 
-    /* older ExaNIC cards have external serdes controlled by i2c
+    /* older ExaNIC cards have external phy controlled by i2c
      * whereas newer designs use on-chip gigabit transceivers */
     if (exanic->hw_id == EXANIC_HW_X2 || exanic->hw_id == EXANIC_HW_X4)
-        offchip_phy = true;
+        external_phy = true;
 
     /* register all pluggable transceiver busses */
     xcvr_type =
@@ -585,26 +602,26 @@ int exanic_i2c_init(struct exanic *exanic)
 
     for (i = 0; i < exanic->num_ports; ++i)
     {
-        busno = exanic_i2c_sfp_bus_number(exanic, i);
+        busno = exanic_i2c_xcvr_bus_number(exanic, i);
         ret = exanic_i2c_bus_register(exanic, i, busno,
                                       xcvr_type, scl_sense, &bus);
         if (ret)
         {
             dev_err(&exanic->pci_dev->dev,
-                    "Failed to register port %d SFP i2c bus\n", i);
+                    "Failed to register port %d pluggable transceiver i2c bus\n", i);
             goto err_i2c_bus;
         }
 
-        exanic->sfp_i2c_adapters[i] = bus;
+        exanic->xcvr_i2c_adapters[i] = bus;
     }
 
-    /* register all external serdes busses */
-    if (offchip_phy)
+    /* register all external phy busses */
+    if (external_phy)
         for (i = 0; i < exanic->num_ports; ++i)
         {
-            busno = exanic_i2c_phy_bus_number(exanic, i);
+            busno = exanic_i2c_ext_phy_bus_number(exanic, i);
             ret = exanic_i2c_bus_register(exanic, i, busno,
-                                          EXANIC_I2C_ADAP_PHY, scl_sense, &bus);
+                                          EXANIC_I2C_ADAP_EXT_PHY, scl_sense, &bus);
             if (ret)
             {
                 dev_err(&exanic->pci_dev->dev,
@@ -612,7 +629,7 @@ int exanic_i2c_init(struct exanic *exanic)
                 goto err_i2c_bus;
             }
 
-            exanic->phy_i2c_adapters[i] = bus;
+            exanic->ext_phy_i2c_adapters[i] = bus;
         }
 
     /* register ExaNIC EEPROM bus */
@@ -640,249 +657,12 @@ void exanic_i2c_exit(struct exanic *exanic)
     exanic_i2c_unregister_all(exanic);
 }
 
-static int exanic_i2c_write(struct i2c_adapter *adap, uint8_t devaddr,
-                            uint8_t regaddr, uint8_t *buffer, size_t size)
-{
-    uint8_t *ptr = buffer;
-    size_t rem = size;
-    uint8_t curr_addr = regaddr;
-    int ret;
-
-    struct exanic_i2c_data *data =
-            container_of(adap, struct exanic_i2c_data, adap);
-
-    /* no limit, write whole thing in one go */
-    if (data->write_len == 0)
-        return exanic_i2c_seq_write(adap, devaddr, regaddr, buffer, size);
-
-    while (rem)
-    {
-        uint8_t page_offset = curr_addr & (data->page_len - 1);
-        size_t page_rem = data->page_len - page_offset;
-        size_t wrsize;
-
-        if (data->page_len)
-            wrsize = min3(rem, page_rem, data->write_len);
-        else
-            wrsize = min(rem, data->write_len);
-
-        if ((ret = exanic_i2c_seq_write(adap, devaddr, curr_addr, ptr, wrsize)))
-            return ret;
-
-        ptr += wrsize;
-        curr_addr += wrsize;
-        rem -= wrsize;
-    }
-
-    return 0;
-}
-
-/* these functions perform I2C read and write on the external serdes,
- * eeprom and pluggable transceiver busses
- * sfp_write and sfp_read take devaddr because a transceiver presents
- * multiple devices on its bus */
-
-static int sfp_read(struct exanic *exanic, int port_number,
-                    uint8_t devaddr, uint8_t regaddr, uint8_t *buffer, size_t size)
-{
-    struct i2c_adapter *sfp_adap = exanic_sfp_i2c_adapter(exanic, port_number);
-    if (!sfp_adap)
-        return -ENODEV;
-    return exanic_i2c_read(sfp_adap, devaddr, regaddr, buffer, size);
-}
-
-static int sfp_write(struct exanic *exanic, int port_number,
-                     uint8_t devaddr, uint8_t regaddr, uint8_t *buffer, size_t size)
-{
-    struct i2c_adapter *sfp_adap = exanic_sfp_i2c_adapter(exanic, port_number);
-    if (!sfp_adap)
-        return -ENODEV;
-    return exanic_i2c_write(sfp_adap, devaddr, regaddr, buffer, size);
-}
-
-static void exanic_marvell_reset(struct exanic *exanic, unsigned port_number)
-{
-    volatile uint32_t *registers = exanic_registers(exanic);
-
-    /* Turn off the SFP TX */
-    registers[REG_HW_INDEX(REG_HW_POWERDOWN)] &=
-        ~(1 << (EXANIC_SFP_TXDIS0 + port_number) );
-    msleep(10);
-    /* Turn on the SFP TX */
-    registers[REG_HW_INDEX(REG_HW_POWERDOWN)] |=
-        (1 << (EXANIC_SFP_TXDIS0 + port_number) );
-}
-
-static void exanic_marvell_enable_fast_ethernet(struct exanic *exanic, unsigned port_number)
-{
-    /* Per Finisar AN-2036 */
-    uint16_t data;
-    data = htons(0x0000);
-    sfp_write(exanic, port_number, 0xAC, 0x16, (uint8_t *)&data, 2);
-
-    /* Extended PHY Specific Status Register */
-    sfp_read(exanic, port_number, 0xAC, 0x1B, (uint8_t *)&data, 2);
-    /* "SGMII without clock with SGMII auto-neg to copper" */
-    data = (data & ~htons(0x000F)) | htons(0x0004);
-    sfp_write(exanic, port_number, 0xAC, 0x1B, (uint8_t *)&data, 2);
-
-    /* Control Register (Copper) */
-    sfp_read(exanic, port_number, 0xAC, 0x00, (uint8_t *)&data, 2);
-    /* Reset bit */
-    data |= htons(0x8000);
-    sfp_write(exanic, port_number, 0xAC, 0x00, (uint8_t *)&data, 2);
-
-    /* 1000BASE-T Control Register */
-    sfp_read(exanic, port_number, 0xAC, 0x09, (uint8_t *)&data, 2);
-    /* Do not advertise 1000BASE-T */
-    data &= ~htons(0x0300);
-    sfp_write(exanic, port_number, 0xAC, 0x09, (uint8_t *)&data, 2);
-
-    /* Auto-Negotiation Advertisement Register (Copper) */
-    sfp_read(exanic, port_number, 0xAC, 0x04, (uint8_t *)&data, 2);
-    /* Advertise 100BASE-TX Full-Duplex and Half-Duplex */
-    data = (data & ~htons(0x03E0)) | htons(0x0180);
-    sfp_write(exanic, port_number, 0xAC, 0x04, (uint8_t *)&data, 2);
-
-    /* Control Register (Copper) */
-    sfp_read(exanic, port_number, 0xAC, 0x00, (uint8_t *)&data, 2);
-    /* 100Mbps */
-    data = (data & ~htons(0x2040)) | htons(0x2000);
-    /* Reset bit */
-    data |= htons(0x8000);
-    /* Full-duplex */
-    data |= htons(0x0100);
-    /* Enable autonegotiation */
-    data |= htons(0x1000);
-    sfp_write(exanic, port_number, 0xAC, 0x00, (uint8_t *)&data, 2);
-
-    /* LED Control Register */
-    sfp_read(exanic, port_number, 0xAC, 0x18, (uint8_t *)&data, 2);
-    /* LED_Link = 001 (use LED_LINK1000 pin as global link indicator) */
-    data = (data & htons(0x0038)) | htons(0x0008);
-    sfp_write(exanic, port_number, 0xAC, 0x18, (uint8_t *)&data, 2);
-}
-
-static int exanic_is_sfp_marvell(struct exanic *exanic, unsigned port_number)
-{
-    uint16_t data = 0;
-
-    /* PHY Identifier */
-    sfp_read(exanic, port_number, 0xAC, 0x02, (uint8_t *)&data, 2);
-    if (data != htons(0x0141))
-        return 0;
-
-    /* PHY Identifier */
-    sfp_read(exanic, port_number, 0xAC, 0x03, (uint8_t *)&data, 2);
-    if ((data & htons(0xFFF0)) != htons(0x0CC0))
-        return 0;
-
-    return 1;
-}
-
-static int exanic_optimize_phy_parameters(struct exanic *exanic, unsigned int port_number)
-{
-    /* conservative default parameters */
-    char rx_param[] = { 0x50, 0x14, 0x00 };
-    char tx_param[] = { 0x04, 0x0C, 0x05 };
-    char cable_type, cable_length;
-    int ret;
-
-    /* optimise parameters based on cable type and length */
-    if ((sfp_read(exanic, port_number, SFP_EEPROM_ADDR, 8, &cable_type, 1) == 0)
-        && (cable_type & 4))
-    {
-        if (sfp_read(exanic, port_number, SFP_EEPROM_ADDR, 18, &cable_length, 1) == 0
-            && (cable_length < 5))
-        {
-            /* short passive cable */
-            /* apply some extra analog gain and pre-boost settings */
-            rx_param[0] = 0x58 + 8*cable_length;
-            rx_param[1] = 0x16 + 2*cable_length;
-            tx_param[1] = 0x0E + 2*cable_length;
-            dev_info(exanic_dev(exanic), DRV_NAME "%u: Port %u detected passive cable (%um).\n",
-                        exanic->id, port_number, cable_length);
-        }
-        else
-        {
-            /* very long passive cable >= 5m */
-            /* apply most aggressive analog gain and pre-boost settings */
-            rx_param[0] = 0x7F;
-            rx_param[1] = 0x1E;
-            tx_param[1] = 0x16;
-            dev_info(exanic_dev(exanic), DRV_NAME "%u: Port %u detected passive cable (long).\n",
-                        exanic->id, port_number);
-        }
-    }
-
-    if ((ret = exanic_i2c_phy_write(exanic, port_number, EXANIC_PHY_RXGAIN_OFFSET,
-                                    rx_param, 3)))
-        return ret;
-    if ((ret = exanic_i2c_phy_write(exanic, port_number, EXANIC_PHY_TXODSW_OFFSET,
-                                    tx_param, 3)))
-        return ret;
-
-    return 0;
-}
-
 /* external functions */
 
 int exanic_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN])
 {
     return exanic_i2c_eeprom_read(exanic, EXANIC_EEPROM_ADDR_SERIAL,
                                   serial, ETH_ALEN);
-}
-
-int exanic_poweron_port(struct exanic *exanic, unsigned port_number)
-{
-    volatile uint32_t *registers = exanic_registers(exanic);
-
-    char reg_val = 0;
-    char init_regs[12] = {
-        0xFF, 0xFB, 0xFF, 0xFB, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x15, 0xE5, 0x3F
-    };
-    int ret;
-
-    if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2)
-    {
-        /* Turn on the PHY */
-        registers[REG_HW_INDEX(REG_HW_POWERDOWN)] &= ~(1 << port_number);
-    }
-
-    /* Turn on the SFP TX */
-    registers[REG_HW_INDEX(REG_HW_POWERDOWN)] |=
-        (1 << (EXANIC_SFP_TXDIS0 + port_number) );
-
-    if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2)
-    {
-        /* Initialise the PHY */
-        reg_val = 0;
-        if ((ret = exanic_i2c_phy_write(exanic, port_number, EXANIC_PHY_RESET_OFFSET,
-                                        &reg_val, 1)))
-            return ret;
-        if ((ret = exanic_i2c_phy_write(exanic, port_number, 0x00, init_regs, 12)))
-            return ret;
-        return exanic_optimize_phy_parameters(exanic, port_number);
-    }
-
-    return 0;
-}
-
-int exanic_poweroff_port(struct exanic *exanic, unsigned port_number)
-{
-    volatile uint32_t *registers = exanic_registers(exanic);
-
-    /* Turn off the SFP TX */
-    registers[REG_HW_INDEX(REG_HW_POWERDOWN)] &=
-        ~(1 << (EXANIC_SFP_TXDIS0 + port_number) );
-
-    if (exanic->hw_id == EXANIC_HW_X4 || exanic->hw_id == EXANIC_HW_X2)
-    {
-        /* Turn off the PHY */
-        registers[REG_HW_INDEX(REG_HW_POWERDOWN)] |= (1 << port_number);
-    }
-    return 0;
 }
 
 int exanic_save_feature_cfg(struct exanic *exanic)
@@ -946,35 +726,37 @@ int exanic_save_autoneg(struct exanic *exanic, unsigned port_number,
     return exanic_i2c_eeprom_write(exanic, regaddr, &new, 1);
 }
 
-int exanic_set_speed(struct exanic *exanic, unsigned port_number,
-                     unsigned old_speed, unsigned speed)
+int exanic_i2c_xcvr_read(struct exanic *exanic, int port_number,
+                        uint8_t devaddr, uint8_t regaddr, uint8_t *buffer,
+                        size_t size)
 {
-    if (speed == SPEED_100)
-    {
-        if (!exanic_is_sfp_marvell(exanic, port_number))
-            return -EOPNOTSUPP;
-
-        exanic_marvell_enable_fast_ethernet(exanic, port_number);
-        return 0;
-    }
-    else if (old_speed == SPEED_100)
-    {
-        exanic_marvell_reset(exanic, port_number);
-    }
-    return 0;
+    struct i2c_adapter *xcvr_adap = exanic_xcvr_i2c_adapter(exanic, port_number);
+    if (!xcvr_adap)
+        return -ENODEV;
+    return exanic_i2c_read(xcvr_adap, devaddr, regaddr, buffer, size);
 }
 
-int exanic_i2c_sfp_get_id(struct exanic *exanic, int port, uint8_t *id)
+int exanic_i2c_xcvr_write(struct exanic *exanic, int port_number,
+                         uint8_t devaddr, uint8_t regaddr, uint8_t *buffer,
+                         size_t size)
 {
-    return sfp_read(exanic, port, SFP_EEPROM_ADDR,
-                    SFF_8024_ID_BYTE, id, 1);
+    struct i2c_adapter *xcvr_adap = exanic_xcvr_i2c_adapter(exanic, port_number);
+    if (!xcvr_adap)
+        return -ENODEV;
+    return exanic_i2c_write(xcvr_adap, devaddr, regaddr, buffer, size);
+}
+
+int exanic_i2c_xcvr_sff8024_id(struct exanic *exanic, int port, uint8_t *id)
+{
+    return exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
+                                SFF_8024_ID_BYTE, id, 1);
 }
 
 int exanic_i2c_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_diag)
 {
     char diag_mon_type;
-    int ret = exanic_i2c_sfp_read(exanic, port_number, SFP_EEPROM_ADDR,
-                                  SFP_DIAG_MON_BYTE, &diag_mon_type, 1);
+    int ret = exanic_i2c_xcvr_read(exanic, port_number, XCVR_EEPROM_ADDR,
+                                   SFP_DIAG_MON_BYTE, &diag_mon_type, 1);
     if (ret)
         return ret;
 
@@ -982,76 +764,61 @@ int exanic_i2c_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *h
     return 0;
 }
 
-int exanic_i2c_qsfp_has_upper_pages(struct exanic *exanic, int port, bool *has_pages)
+int exanic_i2c_qsfp_flat_mem(struct exanic *exanic, int port, bool *flat)
 {
     char status_byte;
-    int ret = exanic_i2c_sfp_read(exanic, port, SFP_EEPROM_ADDR,
-                                  QSFP_FLAT_MEM_BYTE, &status_byte, 1);
+    int ret = exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
+                                   QSFP_FLAT_MEM_BYTE, &status_byte, 1);
     if (ret)
         return ret;
 
-    *has_pages = (status_byte & (1 << QSFP_FLAT_MEM_BIT)) == 0;
+    *flat = (status_byte & (1 << QSFP_FLAT_MEM_BIT)) != 0;
     return 0;
 }
 
 /* reset to page 0 */
 static int
-exanic_i2c_qsfp_page_reset(struct exanic *exanic, int port)
+exanic_i2c_qsfp_page_rst(struct exanic *exanic, int port)
 {
     uint8_t page = 0;
-    return sfp_write(exanic, port, SFP_EEPROM_ADDR,
-                     QSFP_PAGE_SEL_BYTE, &page, 1);
+    return exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
+                                 QSFP_PAGE_SEL_BYTE, &page, 1);
 }
 
-int exanic_i2c_qsfp_page_select(struct exanic *exanic, int port,
-                                uint8_t page)
+int exanic_i2c_qsfp_page_sel(struct exanic *exanic, int port, uint8_t page)
 {
     struct exanic_i2c_data *i2c_data;
-    struct exanic_i2c_data_qsfp_common *i2c_data_qsfpdd;
-    struct i2c_adapter *sfp_adap;
+    struct exanic_i2c_data_qsfp_common *i2c_data_cmis;
+    struct i2c_adapter *xcvr_adap;
 
-    sfp_adap = exanic_sfp_i2c_adapter(exanic, port);
-    if (!sfp_adap)
+    xcvr_adap = exanic_xcvr_i2c_adapter(exanic, port);
+    if (!xcvr_adap)
         return -ENODEV;
 
-    i2c_data = container_of(sfp_adap, struct exanic_i2c_data, adap);
+    i2c_data = container_of(xcvr_adap, struct exanic_i2c_data, adap);
     if (i2c_data->type != EXANIC_I2C_ADAP_QSFP &&
         i2c_data->type != EXANIC_I2C_ADAP_QSFPDD)
         return -ENODEV;
 
-    i2c_data_qsfpdd = (struct exanic_i2c_data_qsfp_common *)i2c_data;
-    i2c_data_qsfpdd->flags.data = 0;
+    i2c_data_cmis = (struct exanic_i2c_data_qsfp_common *)i2c_data;
+    i2c_data_cmis->flags.data = 0;
 
     /* send i2c transactions now if selecting default page */
     if (page == 0)
-        return exanic_i2c_qsfp_page_reset(exanic, port);
+        return exanic_i2c_qsfp_page_rst(exanic, port);
 
     /* record upper page for later transactions */
-    i2c_data_qsfpdd->flags.fields.page_switch = 1;
-    i2c_data_qsfpdd->flags.fields.qsfp = 1;
-    i2c_data_qsfpdd->page = page;
+    i2c_data_cmis->flags.fields.page_switch = 1;
+    i2c_data_cmis->flags.fields.qsfp = 1;
+    i2c_data_cmis->page = page;
     return 0;
 }
 
-int exanic_i2c_qsfpdd_has_upper_pages(struct exanic *exanic, int port,
-                                      bool *has_pages)
-{
-    char status_byte;
-    int ret = exanic_i2c_sfp_read(exanic, port, SFP_EEPROM_ADDR,
-                                  CMIS_FLAT_MEM_BYTE, &status_byte, 1);
-    if (ret)
-        return ret;
-
-    *has_pages = (status_byte & (1 << CMIS_FLAT_MEM_BIT)) == 0;
-    return 0;
-}
-
-static int
-exanic_i2c_qsfpdd_cmis_rev(struct exanic *exanic, int port, uint8_t *rev)
+int exanic_i2c_cmis_rev(struct exanic *exanic, int port, uint8_t *rev)
 {
     uint8_t cmis_rev;
-    int err = sfp_read(exanic, port, SFP_EEPROM_ADDR,
-                       CMIS_REV_COMP_BYTE, &cmis_rev, 1);
+    int err = exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
+                                   CMIS_REV_COMP_BYTE, &cmis_rev, 1);
     if (err)
         return err;
 
@@ -1059,9 +826,21 @@ exanic_i2c_qsfpdd_cmis_rev(struct exanic *exanic, int port, uint8_t *rev)
     return 0;
 }
 
+int exanic_i2c_cmis_flat_mem(struct exanic *exanic, int port, bool *flat)
+{
+    char status_byte;
+    int ret = exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
+                                   CMIS_FLAT_MEM_BYTE, &status_byte, 1);
+    if (ret)
+        return ret;
+
+    *flat = (status_byte & (1 << CMIS_FLAT_MEM_BIT)) != 0;
+    return 0;
+}
+
 /* reset to page 0 bank 0 */
 static int
-exanic_i2c_qsfpdd_page_reset(struct exanic *exanic, int port, bool cmis_4)
+exanic_i2c_cmis_page_rst(struct exanic *exanic, int port, bool cmis_4)
 {
     uint8_t page = 0, bank = 0;
     int err;
@@ -1070,99 +849,89 @@ exanic_i2c_qsfpdd_page_reset(struct exanic *exanic, int port, bool cmis_4)
     if (cmis_4)
     {
         uint8_t bytes[] = {bank, page};
-        return sfp_write(exanic, port, SFP_EEPROM_ADDR,
-                         CMIS_BANK_SEL_BYTE, bytes, 2);
+        return exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
+                                     CMIS_BANK_SEL_BYTE, bytes, 2);
     }
 
     /* separate transactions for bank/page sel */
-    err = sfp_write(exanic, port, SFP_EEPROM_ADDR,
-                    CMIS_BANK_SEL_BYTE, &bank, 1);
-    err |= sfp_write(exanic, port, SFP_EEPROM_ADDR,
-                     CMIS_PAGE_SEL_BYTE, &page, 1);
-    return err;
+    err = exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
+                                CMIS_BANK_SEL_BYTE, &bank, 1);
+    if (err)
+        return err;
+
+    return exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
+                                 CMIS_PAGE_SEL_BYTE, &page, 1);
 }
 
-int exanic_i2c_qsfpdd_page_select(struct exanic *exanic, int port,
-                                  uint8_t bank, uint8_t page)
+int exanic_i2c_cmis_page_sel(struct exanic *exanic, int port,
+                             uint8_t bank, uint8_t page)
 {
     struct exanic_i2c_data *i2c_data;
-    struct exanic_i2c_data_qsfp_common *i2c_data_qsfpdd;
-    struct i2c_adapter *sfp_adap;
+    struct exanic_i2c_data_qsfp_common *i2c_data_cmis;
+    struct i2c_adapter *xcvr_adap;
     uint8_t cmis_rev;
     bool cmis_4;
     int err;
 
-    sfp_adap = exanic_sfp_i2c_adapter(exanic, port);
-    if (!sfp_adap)
+    xcvr_adap = exanic_xcvr_i2c_adapter(exanic, port);
+    if (!xcvr_adap)
         return -ENODEV;
 
-    i2c_data = container_of(sfp_adap, struct exanic_i2c_data, adap);
+    i2c_data = container_of(xcvr_adap, struct exanic_i2c_data, adap);
     if (i2c_data->type != EXANIC_I2C_ADAP_QSFPDD)
         return -ENODEV;
 
-    i2c_data_qsfpdd = (struct exanic_i2c_data_qsfp_common *)i2c_data;
+    i2c_data_cmis = (struct exanic_i2c_data_qsfp_common *)i2c_data;
 
-    err = exanic_i2c_qsfpdd_cmis_rev(exanic, port, &cmis_rev);
+    err = exanic_i2c_cmis_rev(exanic, port, &cmis_rev);
     if (err)
         return err;
 
-    i2c_data_qsfpdd->flags.data = 0;
-    /* send i2c transactions now if selecting default bank and page */
+    i2c_data_cmis->flags.data = 0;
     cmis_4 = cmis_rev >= CMIS_REV_BYTE(4, 0);
+    /* send i2c transactions now if selecting default bank and page */
     if (bank == 0 && page == 0)
-        return exanic_i2c_qsfpdd_page_reset(exanic, port, cmis_4);
+        return exanic_i2c_cmis_page_rst(exanic, port, cmis_4);
 
     /* record upper page and bank for later transactions */
-    i2c_data_qsfpdd->flags.fields.page_switch = 1;
-    i2c_data_qsfpdd->flags.fields.cmis_4 = cmis_4;
-    i2c_data_qsfpdd->page = page;
-    i2c_data_qsfpdd->bank = bank;
+    i2c_data_cmis->flags.fields.page_switch = 1;
+    i2c_data_cmis->flags.fields.cmis_4 = cmis_4;
+    i2c_data_cmis->page = page;
+    i2c_data_cmis->bank = bank;
     return 0;
 }
 
-int exanic_i2c_sfp_read(struct exanic *exanic, int port_number, uint8_t devaddr,
-                        uint8_t regaddr, uint8_t *buffer, size_t size)
-{
-    return sfp_read(exanic, port_number, devaddr, regaddr, buffer, size);
-}
-
-int exanic_i2c_sfp_write(struct exanic *exanic, int port_number, uint8_t devaddr,
-                         uint8_t regaddr, uint8_t *buffer, size_t size)
-{
-    return sfp_write(exanic, port_number, devaddr, regaddr, buffer, size);
-}
-
-int exanic_i2c_phy_write(struct exanic *exanic, int phy_number,
-                         uint8_t regaddr, uint8_t *buffer, size_t size)
+int exanic_i2c_ext_phy_write(struct exanic *exanic, int phy_number,
+                             uint8_t regaddr, uint8_t *buffer, size_t size)
 {
     uint8_t slave_addr;
     struct i2c_adapter *phy_adap;
     if (phy_number >=
-        sizeof(x2_x4_phy_i2c) / sizeof(x2_x4_phy_i2c[0]))
+        sizeof(x2_x4_ext_phy_i2c) / sizeof(x2_x4_ext_phy_i2c[0]))
         return -EINVAL;
 
-    phy_adap = exanic_phy_i2c_adapter(exanic, phy_number);
+    phy_adap = exanic_ext_phy_i2c_adapter(exanic, phy_number);
     if (!phy_adap)
         return -ENODEV;
 
-    slave_addr = x2_x4_phy_i2c[phy_number].devaddr;
+    slave_addr = x2_x4_ext_phy_i2c[phy_number].devaddr;
     return exanic_i2c_write(phy_adap, slave_addr, regaddr, buffer, size);
 }
 
-int exanic_i2c_phy_read(struct exanic *exanic, int phy_number,
-                        uint8_t regaddr, uint8_t *buffer, size_t size)
+int exanic_i2c_ext_phy_read(struct exanic *exanic, int phy_number,
+                            uint8_t regaddr, uint8_t *buffer, size_t size)
 {
     uint8_t slave_addr;
     struct i2c_adapter *phy_adap;
     if (phy_number >=
-        sizeof(x2_x4_phy_i2c) / sizeof(x2_x4_phy_i2c[0]))
+        sizeof(x2_x4_ext_phy_i2c) / sizeof(x2_x4_ext_phy_i2c[0]))
         return -EINVAL;
 
-    phy_adap = exanic_phy_i2c_adapter(exanic, phy_number);
+    phy_adap = exanic_ext_phy_i2c_adapter(exanic, phy_number);
     if (!phy_adap)
         return -ENODEV;
 
-    slave_addr = x2_x4_phy_i2c[phy_number].devaddr;
+    slave_addr = x2_x4_ext_phy_i2c[phy_number].devaddr;
     return exanic_i2c_read(phy_adap, slave_addr, regaddr, buffer, size);
 }
 
@@ -1171,6 +940,8 @@ int exanic_i2c_eeprom_read(struct exanic *exanic, uint8_t regaddr,
 {
     uint8_t slave_addr = exanic->hwinfo.eep_addr;
     struct i2c_adapter *eep_adap = exanic_eeprom_i2c_adapter(exanic);
+    if (!eep_adap)
+        return -ENODEV;
     return exanic_i2c_read(eep_adap, slave_addr, regaddr, buffer, size);
 }
 
@@ -1179,12 +950,17 @@ int exanic_i2c_eeprom_write(struct exanic *exanic, uint8_t regaddr,
 {
     uint8_t slave_addr = exanic->hwinfo.eep_addr;
     struct i2c_adapter *eep_adap = exanic_eeprom_i2c_adapter(exanic);
-    int ret = exanic_i2c_write(eep_adap, slave_addr, regaddr, buffer, size);
-    unsigned long deadline = jiffies + EEPROM_WRITE_TIMEOUT;
+    unsigned long deadline;
+    int ret;
 
+    if (!eep_adap)
+        return -ENODEV;
+
+    ret = exanic_i2c_write(eep_adap, slave_addr, regaddr, buffer, size);
     if (ret)
         return ret;
 
+    deadline = jiffies + EEPROM_WRITE_TIMEOUT;
     /* wait for the write cycle to finish */
     while (!time_after(jiffies, deadline))
     {
@@ -1194,5 +970,5 @@ int exanic_i2c_eeprom_write(struct exanic *exanic, uint8_t regaddr,
             return 0;
     }
 
-    return -ETIMEDOUT;
+    return -EIO;
 }

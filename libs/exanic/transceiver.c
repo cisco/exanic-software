@@ -167,7 +167,7 @@ static void exanic_get_xcvr_info_sfp(struct ethtool_eeprom *eep,
 {
     char *data = (char *)eep->data;
     /* see SFP MSA for EEPROM format definition,
-     * and see exanic-netdev.c for ethtool interface memory map */
+     * and see exanic-phyops.c for ethtool interface memory map */
 
     /* Vendor name: bytes 20-35 */
     strncpy(info->vendor_name, data + 20, 16);
@@ -201,7 +201,7 @@ static void exanic_get_xcvr_info_qsfp(struct ethtool_eeprom *eep,
 {
     char *data = (char *)eep->data;
     /* see SFP MSA for EEPROM format definition,
-     * and see exanic-netdev.c for ethtool interface memory map */
+     * and see exanic-phyops.c for ethtool interface memory map */
 
     /* Vendor name: bytes 148 to 163 */
     strncpy(info->vendor_name, data + 148, 16);
@@ -236,7 +236,7 @@ static void exanic_get_xcvr_info_qsfpdd(struct ethtool_eeprom *eep,
 {
     char *data = (char *)eep->data;
     /* see QSFP-DD MSA for EEPROM format definition,
-     * and see exanic-netdev.c for ethtool interface memory map
+     * and see exanic-phyops.c for ethtool interface memory map
      * TODO: migrate to new scheme once kernel support for
      *       CMIS connectors is available */
 
@@ -380,7 +380,7 @@ exanic_get_xcvr_diag_info_sfp(struct ethtool_eeprom *eep,
     }
 
     /* see SFP MSA for EEPROM page A2h format definition,
-     * and see exanic-netdev.c for ethtool interface memory map */
+     * and see exanic-phyops.c for ethtool interface memory map */
     size_t a2h_off = ETH_MODULE_SFF_8079_LEN;
 
     /* module temperature slope, offset and raw value */
@@ -428,7 +428,7 @@ exanic_get_xcvr_diag_info_qsfp(struct ethtool_eeprom *eep, int lane_start,
                                exanic_xcvr_diag_info_t *info)
 {
     /* see QSFP MSA for EEPROM format definition,
-     * and see exanic-netdev.c for ethtool interface memory map */
+     * and see exanic-phyops.c for ethtool interface memory map */
 
     int16_t temp_raw = OFFSET_TO_S16(eep->data, 22);
     info->temp = (double)temp_raw / 256;
@@ -460,7 +460,7 @@ exanic_get_xcvr_diag_info_qsfpdd(struct ethtool_eeprom *eep, int lane_start,
     }
 
     /* see QSFP-DD MSA for EEPROM format definition,
-     * and see exanic-netdev.c for ethtool interface memory map
+     * and see exanic-phyops.c for ethtool interface memory map
      * TODO: migrate to new scheme once kernel support for
      *       CMIS connectors is available */
 

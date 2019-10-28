@@ -42,8 +42,7 @@ int exanic_port_tx_usable(exanic_t *exanic, int port_number);
 /**
  * \brief Return whether a port is configurable.
  *
- * Ports may be configurable but not usable, such as the mirroring port
- * on the Z10.
+ * Ports may be configurable but not usable
  *
  * \return 1 if port is configurable, 0 if not configurable
  */
@@ -105,17 +104,6 @@ int exanic_set_port_speed(exanic_t *exanic, int port_number, unsigned speed);
  */
 unsigned exanic_get_port_speed(exanic_t *exanic, int port_number);
 
-/**
- * \brief Triggers a fake auto negotiation process on a port
- *
- * \param[in]   exanic
- *      A valid ExaNIC handle
- * \param[in]   port_number
- *      The port number
- *
- * \return 0 on success, or -1 if an error occurred
- */
-int exanic_fake_auto_neg(exanic_t *exanic, unsigned int port_number);
 
 /**
  * \brief Get the MAC address of a port on the ExaNIC

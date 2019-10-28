@@ -28,34 +28,34 @@ typedef enum
 
 /* A list of hardware feature flags for ExaNIC products */
 
-/* Legacy Z-card */
-#define EXANIC_HW_FLAG_ZCARD                     (1ull)
 /* FPGA Development Kit available */
-#define EXANIC_HW_FLAG_DEVKIT                    (1ull << 1)
+#define EXANIC_HW_FLAG_DEVKIT                    (1ull)
 /* Periodic output available */
-#define EXANIC_HW_FLAG_PER_OUT                   (1ull << 2)
+#define EXANIC_HW_FLAG_PER_OUT                   (1ull << 1)
 /* 10Mhz periodic output available */
-#define EXANIC_HW_FLAG_PER_OUT_10M               (1ull << 3)
+#define EXANIC_HW_FLAG_PER_OUT_10M               (1ull << 2)
 /* Periodic output configs restored from EEPROM */
-#define EXANIC_HW_FLAG_PER_OUT_EEP               (1ull << 4)
+#define EXANIC_HW_FLAG_PER_OUT_EEP               (1ull << 3)
 /* Differential PPS input */
-#define EXANIC_HW_FLAG_PPS_DIFF                  (1ull << 5)
+#define EXANIC_HW_FLAG_PPS_DIFF                  (1ull << 4)
 /* Single-ended PPS input */
-#define EXANIC_HW_FLAG_PPS_SINGLE                (1ull << 6)
+#define EXANIC_HW_FLAG_PPS_SINGLE                (1ull << 5)
 /* PPS termination resistor on PCB */
-#define EXANIC_HW_FLAG_PPS_TERM                  (1ull << 7)
+#define EXANIC_HW_FLAG_PPS_TERM                  (1ull << 6)
 /* Port mirroring firmware available */
-#define EXANIC_HW_FLAG_MIRROR_FW                 (1ull << 8)
+#define EXANIC_HW_FLAG_MIRROR_FW                 (1ull << 7)
 /* Variant with on-board DRAM available */
-#define EXANIC_HW_FLAG_DRAM_VARIANT              (1ull << 9)
+#define EXANIC_HW_FLAG_DRAM_VARIANT              (1ull << 8)
 /* Fan speed sensor available */
-#define EXANIC_HW_FLAG_FAN_RPM_SENSOR            (1ull << 10)
+#define EXANIC_HW_FLAG_FAN_RPM_SENSOR            (1ull << 9)
 /* External power supply input sense available */
-#define EXANIC_HW_FLAG_PWR_SENSE                 (1ull << 11)
+#define EXANIC_HW_FLAG_PWR_SENSE                 (1ull << 10)
 /* PTP grandmaster functionality */
-#define EXANIC_HW_FLAG_PTP_GM                    (1ull << 12)
+#define EXANIC_HW_FLAG_PTP_GM                    (1ull << 11)
 /* GPS input available */
-#define EXANIC_HW_FLAG_GPS                       (1ull << 13)
+#define EXANIC_HW_FLAG_GPS                       (1ull << 12)
+/* FPGA firmware stored in serial NOR flash */
+#define EXANIC_HW_FLAG_FW_SPI_NOR                (1ull << 13)
 
 struct exanic_hw_info
 {
@@ -79,16 +79,6 @@ struct exanic_hw_info
 __attribute__((unused))
 static const struct exanic_hw_info exanic_hw_products[] =
 {
-    {EXANIC_HW_Z1, NULL, 4, 0, 0, EXANIC_PORT_SFP, EXANIC_XILINX_7,
-        EXANIC_HW_FLAG_ZCARD |
-        EXANIC_HW_FLAG_PPS_DIFF
-    },
-
-    {EXANIC_HW_Z10, NULL, 4, 0, 0, EXANIC_PORT_SFP, EXANIC_XILINX_7,
-        EXANIC_HW_FLAG_ZCARD |
-        EXANIC_HW_FLAG_PPS_DIFF
-    },
-
     {EXANIC_HW_X4, "exanic_x4", 4, 5, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PPS_SINGLE |

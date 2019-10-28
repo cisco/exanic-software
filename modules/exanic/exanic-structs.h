@@ -9,6 +9,9 @@
 #if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
 #include <linux/ptp_clock_kernel.h>
 #endif
+
+#include "exanic-phyops.h"
+
 #include "../../libs/exanic/const.h"
 #include "../../libs/exanic/hw_info.h"
 
@@ -54,6 +57,9 @@ struct exanic_port
 
     bool has_ate;
     struct semaphore ate_lockbox[EXANIC_ATE_ENGINES_PER_PORT];
+
+    /* phy operations associated with this port */
+    struct exanic_phy_ops phy_ops;
 
     /* MAC address before any user changes */
     unsigned char orig_mac_addr[ETH_ALEN];
@@ -153,8 +159,8 @@ struct exanic
     struct list_head i2c_list;
     struct mutex i2c_lock;
 
-    struct i2c_adapter *sfp_i2c_adapters[EXANIC_MAX_PORTS];
-    struct i2c_adapter *phy_i2c_adapters[EXANIC_MAX_PORTS];
+    struct i2c_adapter *xcvr_i2c_adapters[EXANIC_MAX_PORTS];
+    struct i2c_adapter *ext_phy_i2c_adapters[EXANIC_MAX_PORTS];
     struct i2c_adapter *eep_i2c_adapter;
 };
 

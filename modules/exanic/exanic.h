@@ -11,8 +11,6 @@
 #define DRV_VERSION EXANIC_VERSION_TEXT
 #define DRV_NAME    "exanic"
 
-#define PCI_DEVICE_ID_EXANIC_OLD        0x2B00
-
 #define PCI_VENDOR_ID_EXABLAZE          0x1CE4
 #define PCI_DEVICE_ID_EXANIC_X4         0x0001
 #define PCI_DEVICE_ID_EXANIC_X2         0x0002
@@ -186,10 +184,6 @@ int exanic_ate_client_register(exanic_ate_client_process_skb_cb cb);
 void exanic_ate_client_unregister(exanic_ate_client_process_skb_cb cb);
 void exanic_ate_regdump(struct exanic *exanic, unsigned port_num,
                         int ate_id, struct exanic_ate_regdump *cfg);
-
-/* exanic-z10.c */
-int exanic_z10_poweron_port(struct exanic *exanic, unsigned port_num);
-int exanic_z10_poweroff_port(struct exanic *exanic, unsigned port_num);
 
 /* exanic-sysfs.c */
 int exanic_sysfs_init(struct exanic *exanic);

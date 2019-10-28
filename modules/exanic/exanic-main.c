@@ -37,7 +37,6 @@
 #endif
 
 static struct pci_device_id exanic_pci_ids[] = {
-    { PCI_DEVICE(PCI_VENDOR_ID_XILINX, PCI_DEVICE_ID_EXANIC_OLD) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X4) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X2) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X10) },
@@ -68,8 +67,6 @@ static u8 next_mac_addr[ETH_ALEN] = {
  * capability bit */
 #define EXANIC_MIRRORING_SUPPORT(exanic) \
                                     ((exanic)->caps & EXANIC_CAP_MIRRORING || \
-                                     (exanic)->hw_id == EXANIC_HW_Z1       || \
-                                     (exanic)->hw_id == EXANIC_HW_Z10      || \
                                      (exanic)->hw_id == EXANIC_HW_X4)
 
 /* Bridging support always available on older cards regardless of
@@ -77,9 +74,7 @@ static u8 next_mac_addr[ETH_ALEN] = {
 #define EXANIC_BRIDGING_SUPPORT(exanic) \
                                     ((exanic)->caps & EXANIC_CAP_BRIDGING || \
                                      (exanic)->hw_id == EXANIC_HW_X2      || \
-                                     (exanic)->hw_id == EXANIC_HW_X4      || \
-                                     (exanic)->hw_id == EXANIC_HW_Z10     || \
-                                     (exanic)->hw_id == EXANIC_HW_Z1)
+                                     (exanic)->hw_id == EXANIC_HW_X4)
 
 /* Breakout firmware available for qsfp and qsfpdd cards */
 #define EXANIC_BREAKOUT_SUPPORT(exanic) ((exanic)->hwinfo.port_ff != EXANIC_PORT_SFP)
@@ -512,55 +507,34 @@ static bool exanic_port_needs_power(struct exanic *exanic, unsigned port_num)
  * Called with the exanic mutex held.
  */
 static bool exanic_set_port_power(struct exanic *exanic, unsigned port_num,
-                                     bool power)
+                                  bool power)
 {
     struct exanic_port *port = &exanic->port[port_num];
     struct device *dev = &exanic->pci_dev->dev;
 
     if (port->power && !power)
     {
-        int err = 0;
-
         /* Power off */
-        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
-            err = exanic_poweroff_port(exanic, port_num);
-        else if (exanic->hw_id == EXANIC_HW_Z10)
-            err = exanic_z10_poweroff_port(exanic, port_num);
+        exanic_phyops_poweroff(exanic, port_num);
 
-        if (err == 0)
-        {
-            port->power = power;
-            dev_info(dev, DRV_NAME
-                "%u: Port %u powered off.\n", exanic->id, port_num);
-            return true;
-        }
-        else
-        {
-            dev_err(dev, DRV_NAME
-                "%u: Port %u power off failed.\n", exanic->id, port_num);
-            return false;
-        }
+        port->power = power;
+        dev_info(dev, DRV_NAME
+            "%u: Port %u powered off.\n", exanic->id, port_num);
+        return true;
     }
     else if (!port->power && power)
     {
-        int err = 0;
-        uint32_t speed_reg = 0;
-
         /* Power on */
-        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
-            err = exanic_poweron_port(exanic, port_num);
-        else if (exanic->hw_id == EXANIC_HW_Z10)
-            err = exanic_z10_poweron_port(exanic, port_num);
+        int err = exanic_phyops_poweron(exanic, port_num);
 
-        speed_reg = readl(exanic->regs_virt +
-                                    REG_PORT_OFFSET(port_num, REG_PORT_SPEED));
+        /* wait for PHY to power up */
+        msleep(100);
 
-        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD) &&
-            (speed_reg == SPEED_100))
-        {
-            msleep(100); /* Wait for PHY to power up. */
-            exanic_set_speed(exanic, port_num, 0, SPEED_100);
-        }
+        /* update PHY operations associated with port */
+        exanic_phyops_init_fptrs(exanic, port_num, true);
+
+        /* perform initial PHY configuration */
+        err |= exanic_phyops_init(exanic, port_num);
 
         if (err == 0)
         {
@@ -694,24 +668,11 @@ enum { MIN_SUPPORTED_PCIE_IF_VER = 1, MAX_SUPPORTED_PCIE_IF_VER = 1 };
 int exanic_get_mac_addr_regs(struct exanic *exanic, unsigned port_num,
                              u8 mac_addr[ETH_ALEN])
 {
-    uint32_t r;
-
-    if (exanic->hw_id == EXANIC_HW_Z1 || exanic->hw_id == EXANIC_HW_Z10)
-    {
-        r = readl(exanic->regs_virt +
-                REG_EXANIC_OFFSET(REG_EXANIC_MAC_ADDR_OUI));
-        mac_addr[0] = r & 0xFF;
-        mac_addr[1] = r >> 8 & 0xFF;
-        mac_addr[2] = r >> 16 & 0xFF;
-    }
-    else
-    {
-        r = readl(exanic->regs_virt +
-                REG_PORT_OFFSET(port_num, REG_PORT_MAC_ADDR_OUI));
-        mac_addr[0] = r & 0xFF;
-        mac_addr[1] = r >> 8 & 0xFF;
-        mac_addr[2] = r >> 16 & 0xFF;
-    }
+    uint32_t r = readl(exanic->regs_virt +
+                       REG_PORT_OFFSET(port_num, REG_PORT_MAC_ADDR_OUI));
+    mac_addr[0] = r & 0xFF;
+    mac_addr[1] = r >> 8 & 0xFF;
+    mac_addr[2] = r >> 16 & 0xFF;
 
     r = readl(exanic->regs_virt +
             REG_PORT_OFFSET(port_num, REG_PORT_MAC_ADDR_NIC));
@@ -728,14 +689,9 @@ int exanic_get_mac_addr_regs(struct exanic *exanic, unsigned port_num,
 int exanic_set_mac_addr_regs(struct exanic *exanic, unsigned port_num,
                              const u8 mac_addr[ETH_ALEN])
 {
-    uint32_t r;
-
-    if (exanic->hw_id != EXANIC_HW_Z1 && exanic->hw_id != EXANIC_HW_Z10)
-    {
-        r = mac_addr[0] | (mac_addr[1] << 8) | (mac_addr[2] << 16);
-        writel(r, exanic->regs_virt +
-                REG_PORT_OFFSET(port_num, REG_PORT_MAC_ADDR_OUI));
-    }
+    uint32_t r = mac_addr[0] | (mac_addr[1] << 8) | (mac_addr[2] << 16);
+    writel(r, exanic->regs_virt +
+            REG_PORT_OFFSET(port_num, REG_PORT_MAC_ADDR_OUI));
 
     r = mac_addr[3] | (mac_addr[4] << 8) | (mac_addr[5] << 16);
     writel(r, exanic->regs_virt +
@@ -888,8 +844,7 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
         }
 
         /* Save new state */
-        if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
-            exanic_save_feature_cfg(exanic);
+        exanic_save_feature_cfg(exanic);
     }
 
     return 0;
@@ -1084,10 +1039,6 @@ static int exanic_probe(struct pci_dev *pdev,
     exanic->caps =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CAPS));
     exanic_get_hw_info(exanic->hw_id, &exanic->hwinfo);
-
-    /* Capabilities register returns a bogus value on the Z10 */
-    if (exanic->hw_id == EXANIC_HW_Z10)
-        exanic->caps = 0;
 
     if ((exanic->pcie_if_ver < MIN_SUPPORTED_PCIE_IF_VER) ||
         (exanic->pcie_if_ver > MAX_SUPPORTED_PCIE_IF_VER))
@@ -1319,6 +1270,10 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_sysfs_init;
     }
 
+    /* set up phy ops */
+    for (port_num = 0; port_num < exanic->num_ports; ++port_num)
+        exanic_phyops_init_fptrs(exanic, port_num, false);
+
     /* Allocate kernel info page */
     exanic->info_page = vmalloc_user(EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
     if (exanic->info_page == NULL)
@@ -1327,31 +1282,22 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_info_page_alloc;
     }
 
-    /* Initial configuration */
-    if (!(exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD))
+    /* Get serial number in EEPROM to use as MAC address */
+    if (exanic_get_serial(exanic, mac_addr) == 0)
     {
-        /* Get serial number in EEPROM to use as MAC address */
-        if (exanic_get_serial(exanic, mac_addr) == 0)
-        {
-            dev_info(dev, "Serial number: %pM\n", mac_addr);
-            memcpy(exanic->serial, mac_addr, ETH_ALEN);
+        dev_info(dev, "Serial number: %pM\n", mac_addr);
+        memcpy(exanic->serial, mac_addr, ETH_ALEN);
 
-            if (!is_valid_ether_addr(mac_addr))
-            {
-                dev_err(dev,
-                        "Serial number is not a valid MAC address.\n");
-                memcpy(mac_addr, next_mac_addr, ETH_ALEN);
-            }
-        }
-        else
+        if (!is_valid_ether_addr(mac_addr))
         {
-            dev_err(dev, "Could not read serial number.\n");
+            dev_err(dev,
+                    "Serial number is not a valid MAC address.\n");
             memcpy(mac_addr, next_mac_addr, ETH_ALEN);
         }
     }
     else
     {
-        /* Auto-assign next MAC address */
+        dev_err(dev, "Could not read serial number.\n");
         memcpy(mac_addr, next_mac_addr, ETH_ALEN);
     }
 
@@ -1427,12 +1373,9 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     /* Configure flow steering. */
-    if (exanic->hwinfo.flags & EXANIC_HW_FLAG_ZCARD)
-        exanic->max_filter_buffers = 0;
-    else
-        exanic->max_filter_buffers =
-            readl(exanic->regs_virt +
-                            REG_EXANIC_OFFSET(REG_EXANIC_NUM_FILTER_BUFFERS));
+    exanic->max_filter_buffers =
+        readl(exanic->regs_virt +
+                        REG_EXANIC_OFFSET(REG_EXANIC_NUM_FILTER_BUFFERS));
 
     for (port_num = 0; port_num < exanic->num_ports; ++port_num)
     {
@@ -1913,7 +1856,7 @@ static void exanic_remove(struct pci_dev *pdev)
                           exanic->tx_feedback_virt, exanic->tx_feedback_dma);
     if (exanic->tx_region_virt != NULL)
         iounmap(exanic->tx_region_virt);
-    
+
     exanic_sysfs_exit(exanic);
     exanic_i2c_exit(exanic);
 

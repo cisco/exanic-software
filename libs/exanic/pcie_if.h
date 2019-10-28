@@ -279,75 +279,39 @@ enum
      */
     REG_HW_RELOAD_RESET_FPGA            = 0,
 
-    /**
-     * [RW] Registers for JTAG programming.
-     * Availability: Z1 only
-     */
-    REG_HW_JTAG_TMS                     = 0,
-
     REG_HW_JTAG_TDIO                    = 1,
 
     REG_HW_JTAG_SHIFT_COUNT             = 2,
 
     /**
      * [RO] On-die FPGA temperature representation.
-     * Availability: Z1, Z10, X4, X2
+     * Availability: all ExaNICs
      */
     REG_HW_TEMPERATURE                  = 3,
 
     /**
      * [RO] Board version ID
-     * Availability: Z1, Z10, X4, X2
+     * Availability: X4, X2
      */
     REG_HW_BOARD_ID                     = 4,
 
     /**
      * [RO] FPGA core voltage VCCint
-     * Availability: Z1, Z10, X4, X2
+     * Availability: all ExaNICs
      */
     REG_HW_VCCINT                       = 5,
 
     /**
      * [RO] FPGA aux voltage VCCaux
-     * Availability: Z1, Z10, X4, X2
+     * Availability: all ExaNICs
      */
     REG_HW_VCCAUX                       = 6,
 
     /**
-     * [RO] Power detect status bits
-     * Availability: Z10 only
-     */
-    REG_HW_POWERDETECT                  = 7,
-
-    /**
-     * [RO] Used for detecting CPLD ACK
-     * Availability: Z10 only
-     */
-    REG_HW_CPLD_ACK                     = 8,
-
-    /**
-     * [RW] Used to transfer data to/from CPLD
-     * Availability: Z10 only
-     */
-    REG_HW_CPLD_DATA                    = 9,
-
-    /**
-     * [RW] Used to signal a new data transfer to/from CPLD
-     * Availability: Z10 only
-     */
-    REG_HW_CPLD_CMD                     = 10,
-
-    /**
      * [RW] GPIO register for use with I2C
-     * Availability: Z1 only
+     * Availability: all ExaNICs
      */
     REG_HW_I2C_GPIO                     = 11,
-
-    /**
-     * [RW] Z1 100Mb mode enable
-     * Availability: Z1 only
-     */
-    REG_HW_100MB_MODE                   = 12,
 
     /**
      * [RW] Bitmask of PHYs to power down and SFP TX DIS
@@ -1096,8 +1060,6 @@ enum
  */
 typedef enum
 {
-    EXANIC_HW_Z1            = 0,  /**< Z1 */
-    EXANIC_HW_Z10           = 1,  /**< Z10 */
     EXANIC_HW_X4            = 2,  /**< ExaNIC X4 */
     EXANIC_HW_X2            = 3,  /**< ExaNIC X2 */
     EXANIC_HW_X10           = 4,  /**< ExaNIC X10 */
@@ -1122,10 +1084,6 @@ static inline const char * exanic_hardware_id_str(exanic_hardware_id_t id)
 {
     switch (id)
     {
-        case EXANIC_HW_Z1:
-            return "Z1";
-        case EXANIC_HW_Z10:
-            return "Z10";
         case EXANIC_HW_X4:
             return "ExaNIC X4";
         case EXANIC_HW_X2:
@@ -1397,12 +1355,6 @@ typedef enum
     EXANIC_PORT_FLAG_MAC_LEARNING_MODE  = 0x02,
 
     /**
-     * Auto-neg config codes are sent momentarily when this bit goes from 0-1
-     * Availability: Z1 NIC only
-     */
-    EXANIC_PORT_FLAG_AUTONEG_TX         = 0x04,
-
-    /**
      * Enable auto-negotiation
      * Availability: X4, X2
      */
@@ -1487,16 +1439,6 @@ enum
     EXANIC_PGOFF_DEVKIT_REGS_EXT    = 1048576UL,
     /* Leave 256MB of extended register region */
     EXANIC_PGOFF_DEVKIT_MEM_EXT     = 1114112UL,
-};
-
-/**
- * \brief Z1 GPIO lines
- */
-enum
-{
-    Z1_GPIO_DRV_SDA0        = 0,
-    Z1_GPIO_DRV_SCL0        = 4,
-    Z1_GPIO_SDA0            = 8,
 };
 
 /**
