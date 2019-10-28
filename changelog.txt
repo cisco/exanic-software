@@ -1,3 +1,16 @@
+2.4.0 [2019-10-28]
+* Support for ExaNIC V9P
+* Drop support for historic Z1 and Z10 NICs
+* Remove raw i2c bit-banging from userspace software in favour of kernel API
+  (this will result in minor incompatibilities when running older versions of
+  the ExaNIC driver and newer versions of libexanic and utilities)
+* driver: ethtool GEEPROM and SEEPROM support for ExaNIC EEPROM access
+* driver: fix compilation errors for some CentOS/RHEL 6 kernel versions
+  introduced in 2.3.1
+* libexanic: remove exanic_get_sfp_info, exanic_get_qsfp_info,
+  exanic_get_sfp_diag_info and exanic_get_qsfp_diag_info. Functions and types
+  for pluggable transceiver access no longer part of public libexanic API
+
 2.3.1 [2019-10-09]
 * Basic support for extra ExaNIC FDK MMIO regions BAR 1 and BAR 4
 * libexanic: make ATE register names more descriptive
