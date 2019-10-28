@@ -16,7 +16,8 @@ void write_to_extended_memory(exanic_t *exanic, size_t offset)
 {
     char *extended_mem = exanic_get_extended_devkit_memory(exanic);
     static uint32_t buffer[BUFFER_SIZE];
-    for (int i = 0; i < BUFFER_SIZE; i++)
+    int i;
+    for (i = 0; i < BUFFER_SIZE; i++)
         buffer[i] = CONTENT;
 
     printf("Writing <0x%08x> %d times to extended devkit memory region\n",
