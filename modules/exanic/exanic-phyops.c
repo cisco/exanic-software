@@ -24,68 +24,6 @@
 #include "exanic-phyops-cmis.h"
 #include "exanic-structs.h"
 
-/* kernel version compatibility macros */
-
-#ifndef SUPPORTED_1000baseKX_Full
-#define SUPPORTED_1000baseKX_Full	(1 << 17)
-#endif
-#ifndef SUPPORTED_10000baseKR_Full
-#define SUPPORTED_10000baseKR_Full	(1 << 19)
-#endif
-#ifndef SUPPORTED_40000baseCR4_Full
-#define SUPPORTED_40000baseCR4_Full	(1 << 24)
-#endif
-#ifndef SUPPORTED_40000baseSR4_Full
-#define SUPPORTED_40000baseSR4_Full	(1 << 25)
-#endif
-#ifndef SUPPORTED_40000baseLR4_Full
-#define SUPPORTED_40000baseLR4_Full	(1 << 26)
-#endif
-#ifndef SPEED_40000
-#define SPEED_40000 40000
-#endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
-
-#define LINK_CONFIGS_ZERO(configs) \
-        ethtool_link_ksettings_zero_link_mode(configs, supported)
-
-#define LINK_CONFIGS_SET_SUPPORTED(configs, _item) \
-        ethtool_link_ksettings_add_link_mode(configs, supported, _item)
-
-#define LINK_CONFIGS_SET(configs, _item, val) \
-        configs->base._item = (val)
-
-#define LINK_CONFIGS_SET_SPEED(configs, val) \
-        LINK_CONFIGS_SET(configs, speed, val)
-
-#define LINK_CONFIGS_GET(configs, _item) \
-        (configs->base._item)
-
-#define LINK_CONFIGS_GET_SPEED(configs) \
-        LINK_CONFIGS_GET(configs, speed)
-
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) */
-
-#define LINK_CONFIGS_ZERO(configs)
-
-#define LINK_CONFIGS_SET_SUPPORTED(setting, _item) \
-        configs->supported |= SUPPORTED_##_item
-
-#define LINK_CONFIGS_SET(configs, _item, val) \
-        configs->_item = (val)
-
-#define LINK_CONFIGS_SET_SPEED(configs, val) \
-        ethtool_cmd_speed_set(configs, val)
-
-#define LINK_CONFIGS_GET(configs, _item) \
-        (configs->_item)
-
-#define LINK_CONFIGS_GET_SPEED(configs) \
-        ethtool_cmd_speed(configs)
-
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) */
-
 /* Decode SFF-8024 identification byte to determine pluggable transceiver type */
 #define SFF_8024_ID_SFP(id)             ((id) == 0x03)
 #define SFF_8024_ID_QSFP(id)            ((id) == 0x0C || (id) == (0x0D) ||\
@@ -322,6 +260,7 @@ exanic_phyops_marvell_set_speed(struct exanic *exanic, int port_number,
     return 0;
 }
 
+#ifdef ETHTOOL_GMODULEINFO
 /* common get_module_eeprom implementation for QSFP and QSFP-DD */
 static int
 exanic_phyops_get_module_eeprom_paged(struct exanic *exanic, int port,
@@ -398,6 +337,7 @@ page0_sel:
 
     return err;
 }
+#endif /* ETHTOOL_GMODULEINFO */
 
 /* generic poweron function */
 static int __exanic_phyops_poweron(struct exanic *exanic, int port)
@@ -549,6 +489,7 @@ __exanic_phyops_get_link_status(struct exanic *exanic, int port)
     return !!(reg & EXANIC_PORT_STATUS_LINK);
 }
 
+#ifdef ETHTOOL_GMODULEINFO
 /* get_module_eeprom implementation for SFP */
 static int
 __exanic_phyops_get_module_eeprom_sfp(struct exanic *exanic, int port,
@@ -588,6 +529,7 @@ read_a2h:
                                 offset - ETH_MODULE_SFF_8079_LEN,
                                 ptr, len);
 }
+#endif /* ETHTOOL_GMODULEINFO */
 
 /* power on function for ExaNIC X2 and X4 */
 static int __exanic_phyops_poweron_x2_x4(struct exanic *exanic, int port)
@@ -731,6 +673,7 @@ low_power:
     return err;
 }
 
+#ifdef ETHTOOL_GMODULEINFO
 /* get_module_eeprom implementation for QSFP */
 static int
 __exanic_phyops_get_module_eeprom_qsfp(struct exanic *exanic, int port,
@@ -738,6 +681,7 @@ __exanic_phyops_get_module_eeprom_qsfp(struct exanic *exanic, int port,
 {
     return exanic_phyops_get_module_eeprom_paged(exanic, port, eep, data, false);
 }
+#endif /* ETHTOOL_GMODULEINFO */
 
 /* power off function for QSFP-DD */
 static void __exanic_phyops_poweroff_cmis(struct exanic *exanic, int port)
@@ -764,6 +708,7 @@ __exanic_phyops_set_configs_cmis(struct exanic *exanic, int port,
                                           exanic_phyops_cmis_set_speed);
 }
 
+#ifdef ETHTOOL_GMODULEINFO
 /* get_module_eeprom implementation for QSFP-DD */
 static int
 __exanic_phyops_get_module_eeprom_cmis(struct exanic *exanic, int port,
@@ -771,7 +716,9 @@ __exanic_phyops_get_module_eeprom_cmis(struct exanic *exanic, int port,
 {
     return exanic_phyops_get_module_eeprom_paged(exanic, port, eep, data, true);
 }
+#endif /* ETHTOOL_GMODULEINFO */
 
+#ifdef ETHTOOL_GMODULEINFO
 /* common get_module_info implementation */
 static int
 __exanic_phyops_get_module_info(struct exanic *exanic, int port,
@@ -847,6 +794,7 @@ __exanic_phyops_get_module_info(struct exanic *exanic, int port,
 
     return -EOPNOTSUPP;
 }
+#endif /* ETHTOOL_GMODULEINFO */
 
 void exanic_phyops_init_fptrs(struct exanic *exanic, int port_no, bool power)
 {
@@ -907,9 +855,10 @@ generic_phyops:
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = __exanic_phyops_set_configs,
         .get_link_status = __exanic_phyops_get_link_status,
-
+#ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
         .get_module_eeprom = NULL,
+#endif /* ETHTOOL_GMODULEINFO */
     };
 
     dev_info(&exanic->pci_dev->dev,
@@ -930,9 +879,10 @@ sfp_phyops:
         .set_configs = sfp_marvell ? __exanic_phyops_set_configs_marvell:
                                      __exanic_phyops_set_configs,
         .get_link_status = __exanic_phyops_get_link_status,
-
+#ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
         .get_module_eeprom = NULL,
+#endif /* ETHTOOL_GMODULEINFO */
     };
 
     dev_info(&exanic->pci_dev->dev,
@@ -951,9 +901,10 @@ qsfp_phyops:
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = __exanic_phyops_set_configs,
         .get_link_status = __exanic_phyops_get_link_status,
-
+#ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
         .get_module_eeprom = NULL,
+#endif /* ETHTOOL_GMODULEINFO */
     };
 
     dev_info(&exanic->pci_dev->dev,
@@ -972,9 +923,10 @@ cmis_phyops:
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = __exanic_phyops_set_configs_cmis,
         .get_link_status = __exanic_phyops_get_link_status,
-
+#ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
         .get_module_eeprom = NULL,
+#endif /* ETHTOOL_GMODULEINFO */
     };
 
     dev_info(&exanic->pci_dev->dev,
@@ -1099,6 +1051,7 @@ int exanic_phyops_get_link_status(struct exanic *exanic, int port, uint32_t *lin
     return 0;
 }
 
+#ifdef ETHTOOL_GMODULEINFO
 int exanic_phyops_get_module_info(struct exanic *exanic, int port,
                                   struct ethtool_modinfo *emi)
 {
@@ -1114,3 +1067,4 @@ int exanic_phyops_get_module_eeprom(struct exanic *exanic, int port,
         return exanic->port[port].phy_ops.get_module_eeprom(exanic, port, eee, data);
     return -EOPNOTSUPP;
 }
+#endif /* ETHTOOL_GMODULEINFO */

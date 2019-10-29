@@ -1429,7 +1429,11 @@ static int exanic_netdev_get_module_eeprom(struct net_device *ndev,
 #ifdef ETHTOOL_PHYS_ID
 
 static int exanic_netdev_set_phys_id(struct net_device *ndev,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) || __RH_ETHTOOL_OPS_EXT
                                      enum ethtool_phys_id_state state)
+#else
+                                     uint32_t phys_id_time)
+#endif
 {
     struct exanic *exanic;
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1439,10 +1443,14 @@ static int exanic_netdev_set_phys_id(struct net_device *ndev,
     if ((exanic->caps & EXANIC_CAP_LED_ID) == 0)
         return -EOPNOTSUPP;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) || __RH_ETHTOOL_OPS_EXT
     if (state == ETHTOOL_ID_ACTIVE || state == ETHTOOL_ID_ON)
         seconds = 0xffffffff;
     else
         seconds = 0;
+#else
+    seconds = phys_id_time;
+#endif
 
     writel(seconds, exanic->regs_virt +
                     REG_EXANIC_OFFSET(REG_EXANIC_IDENTIFY_TIMER));
@@ -1500,11 +1508,11 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_coalesce           = exanic_netdev_get_coalesce,
     .set_coalesce           = exanic_netdev_set_coalesce,
 
-#if defined(ETHTOOL_GMODULEINFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+#if defined(ETHTOOL_GMODULEINFO) && ! __RH_ETHTOOL_OPS_EXT
     .get_module_info        = exanic_netdev_get_module_info,
     .get_module_eeprom      = exanic_netdev_get_module_eeprom,
 #endif
-#if defined(ETHTOOL_GET_TS_INFO) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+#if defined(ETHTOOL_GET_TS_INFO) && ! __RH_ETHTOOL_OPS_EXT
     .get_ts_info            = exanic_netdev_get_ts_info,
 #endif
 
@@ -1515,17 +1523,19 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_settings           = exanic_netdev_get_settings,
     .set_settings           = exanic_netdev_set_settings,
 #endif
-#if defined (ETHTOOL_PHYS_ID) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+#if defined (ETHTOOL_PHYS_ID) && !__RH_ETHTOOL_OPS_EXT
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .set_phys_id            = exanic_netdev_set_phys_id,
+#else
+    .phys_id                = exanic_netdev_set_phys_id,
+#endif
 #endif
     .get_eeprom_len         = exanic_netdev_get_eeprom_len,
     .get_eeprom             = exanic_netdev_get_eeprom,
     .set_eeprom             = exanic_netdev_set_eeprom
 };
 
-#if (defined(ETHTOOL_GET_TS_INFO) || defined(ETHTOOL_GMODULEINFO) ||\
-     defined(ETHTOOL_PHYS_ID)) && \
-     LINUX_VERSION_CODE < KERNEL_VERSION(3, 0, 0)
+#if __RH_ETHTOOL_OPS_EXT
 /* RedHat 2.6.x backports place get_ts_info, among other things,
  * in ethtool_ops_ext */
 static struct ethtool_ops_ext exanic_ethtool_ops_ext = {

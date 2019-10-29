@@ -42,6 +42,11 @@
 #define EXANIC_EEPROM_SPEED_1G          0x01
 #define EXANIC_EEPROM_SPEED_10G         0x02
 
+/* For compatibility */
+#ifndef min3
+#define min3(x, y, z)                   min((typeof(x))min(x, y), z)
+#endif
+
 /* x4 and x2 phy chip addresses */
 static struct {
     int bus;
