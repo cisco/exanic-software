@@ -30,7 +30,11 @@ static int sfp_read(exanic_t *exanic, int port_number, int devaddr, int regaddr,
                     buf, size);
         case EXANIC_HW_X40:
         case EXANIC_HW_V5P:
+        case EXANIC_HW_X100:
             return exanic_x40_i2c_sfp_read(exanic, port_number, devaddr, regaddr,
+                    buf, size);
+        case EXANIC_HW_V9P:
+            return exanic_v9p_i2c_sfp_read(exanic, port_number, devaddr, regaddr,
                     buf, size);
         default:
             exanic_err_printf("not implemented for this hardware");

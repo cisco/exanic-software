@@ -358,6 +358,23 @@ int exanic_x40_i2c_sfp_read(exanic_t *exanic, int sfp_number, uint8_t devaddr,
     return ret;
 }
 
+int exanic_v9p_i2c_sfp_read(exanic_t *exanic, int sfp_number, uint8_t devaddr,
+                            uint8_t regaddr, char *buffer, size_t size)
+{
+    /* QSFPs are on busses 0-1 */
+    int module = sfp_number/8;
+    int ret;
+
+    exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+                    &= ~(1 << (EXANIC_GPIO_MOD0NSEL + module));
+    usleep(2000); /* 2ms setup time. */
+    ret = i2c_read(exanic, X40_MODULE_BUS, devaddr, regaddr, buffer, size);
+    exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+                    |= (1 << (EXANIC_GPIO_MOD0NSEL + module));
+
+    return ret;
+}
+
 int exanic_x4_x2_i2c_sfp_write(exanic_t *exanic, int sfp_number, uint8_t devaddr,
                                uint8_t regaddr, char *buffer, size_t size)
 {
@@ -372,6 +389,22 @@ int exanic_x40_i2c_sfp_write(exanic_t *exanic, int sfp_number, uint8_t devaddr,
 {
     /* QSFPs are on busses 0-1 */
     int module = sfp_number/4;
+    int ret;
+
+    exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+                    &= ~(1 << (EXANIC_GPIO_MOD0NSEL + module));
+    usleep(2000); /* 2ms setup time. */
+    ret = i2c_eeprom_write(exanic, X40_MODULE_BUS, devaddr, regaddr, buffer, size);
+    exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]
+                    |= (1 << (EXANIC_GPIO_MOD0NSEL + module));
+    return ret;
+}
+
+int exanic_v9p_i2c_sfp_write(exanic_t *exanic, int sfp_number, uint8_t devaddr,
+                             uint8_t regaddr, char *buffer, size_t size)
+{
+    /* QSFPs are on busses 0-1 */
+    int module = sfp_number/8;
     int ret;
 
     exanic->registers[REG_HW_INDEX(REG_HW_I2C_GPIO)]

@@ -167,6 +167,15 @@ static const struct exanic_hw_info exanic_hw_products[] =
         .hw_filter = 1,
     }},
 
+    {EXANIC_HW_V9P, "exanic_v9p", 2, 4, 0xA0, EXANIC_PORT_QSFPDD, EXANIC_XILINX_USP,
+    {
+        .devkit = 1,
+        .periodic_out = 1,
+        .pps_single = 1,
+        .pps_term = 1,
+        .hw_filter = 1,
+    }},
+
     {.hwid = -1}
 };
 

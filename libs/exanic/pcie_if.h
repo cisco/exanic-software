@@ -107,7 +107,7 @@ enum
      * (see \ref exanic_feature_cfg_t)
      * Availability: NIC only
      * Bitmap:
-     * [18]   - [RO] DDR4 fitted to this PCB (X25, X100 only)
+     * [18]   - [RO] DDR4 fitted to this PCB (X25 only)
      * [17]   - [RO] HW startup in progress
      * [16]   - [RW] Set to 0 to permanently clear the auxiliary enable signals
      * [15]   - reserved
@@ -445,6 +445,7 @@ enum
 enum
 {
     REG_PORT_BASE                       = 0x0200,
+    REG_PORT_BASE_UPPER                 = 0x1200,
 
     /**
      * [RW] Whether a port is enabled or not.
@@ -549,7 +550,11 @@ enum
     REG_PORT_RESERVED1                  = 15,
 };
 #define REG_PORT_OFFSET(port, reg) \
-    (REG_PORT_BASE + (0x10 * (port) + (reg)) * sizeof(uint32_t))
+    ( port >= 8 ? \
+        (REG_PORT_BASE_UPPER + \
+            (0x10 * (port-8) + (reg)) * sizeof(uint32_t)) : \
+        (REG_PORT_BASE + \
+            (0x10 * (port) + (reg)) * sizeof(uint32_t)))
 #define REG_PORT_INDEX(port, reg) \
     (REG_PORT_OFFSET(port, reg) / sizeof(uint32_t))
 
@@ -561,6 +566,7 @@ enum
 enum
 {
     REG_EXTENDED_PORT_BASE                          = 0x0800,
+    REG_EXTENDED_PORT_BASE_UPPER                    = 0x1800,
 
     /**
      * [RO] The maximum number of IP flow steering rules that can be assigned
@@ -585,7 +591,11 @@ enum
 };
 
 #define REG_EXTENDED_PORT_OFFSET(port, reg) \
-    (REG_EXTENDED_PORT_BASE + (0x40 * (port) + (reg)) * sizeof(uint32_t))
+    (port >= 8 ? \
+        (REG_EXTENDED_PORT_BASE_UPPER + \
+            (0x40 * (port-8) + (reg)) * sizeof(uint32_t)) :\
+        (REG_EXTENDED_PORT_BASE + \
+            (0x40 * (port) + (reg)) * sizeof(uint32_t)))
 #define REG_EXTENDED_PORT_INDEX(port, reg) \
     (REG_EXTENDED_PORT_OFFSET(port, reg) / sizeof(uint32_t))
 
@@ -862,6 +872,7 @@ enum
 enum
 {
     REG_PORT_STAT_BASE                  = 0x0400,
+    REG_PORT_STAT_BASE_UPPER            = 0x1400,
 
     /**
      * [WO] Reset counters.
@@ -894,7 +905,11 @@ enum
     REG_PORT_STAT_RX_DROPPED            = 5,
 };
 #define REG_PORT_STAT_OFFSET(port, reg) \
-    (REG_PORT_STAT_BASE + (0x10 * (port) + (reg)) * sizeof(uint32_t))
+    (port >= 8 ? \
+        (REG_PORT_STAT_BASE_UPPER + \
+            (0x10 * (port-8) + (reg)) * sizeof(uint32_t)):\
+        (REG_PORT_STAT_BASE + \
+            (0x10 * (port) + (reg)) * sizeof(uint32_t)))
 #define REG_PORT_STAT_INDEX(port, reg) \
     (REG_PORT_STAT_OFFSET(port, reg) / sizeof(uint32_t))
 
@@ -1081,16 +1096,17 @@ enum
  */
 typedef enum
 {
-    EXANIC_HW_Z1            = 0, /**< Z1 */
-    EXANIC_HW_Z10           = 1, /**< Z10 */
-    EXANIC_HW_X4            = 2, /**< ExaNIC X4 */
-    EXANIC_HW_X2            = 3, /**< ExaNIC X2 */
-    EXANIC_HW_X10           = 4, /**< ExaNIC X10 */
-    EXANIC_HW_X10_GM        = 5, /**< ExaNIC X10-GM */
-    EXANIC_HW_X40           = 6, /**< ExaNIC X40 */
-    EXANIC_HW_X10_HPT       = 7, /**< ExaNIC X10-HPT */
-    EXANIC_HW_V5P           = 8, /**< ExaNIC V5P */
-    EXANIC_HW_X25           = 9, /**< ExaNIC X25 */
+    EXANIC_HW_Z1            = 0,  /**< Z1 */
+    EXANIC_HW_Z10           = 1,  /**< Z10 */
+    EXANIC_HW_X4            = 2,  /**< ExaNIC X4 */
+    EXANIC_HW_X2            = 3,  /**< ExaNIC X2 */
+    EXANIC_HW_X10           = 4,  /**< ExaNIC X10 */
+    EXANIC_HW_X10_GM        = 5,  /**< ExaNIC X10-GM */
+    EXANIC_HW_X40           = 6,  /**< ExaNIC X40 */
+    EXANIC_HW_X10_HPT       = 7,  /**< ExaNIC X10-HPT */
+    EXANIC_HW_V5P           = 8,  /**< ExaNIC V5P */
+    EXANIC_HW_X25           = 9,  /**< ExaNIC X25 */
+    EXANIC_HW_V9P           = 11, /**< ExaNIC V9P */
 } exanic_hardware_id_t;
 
 /**
@@ -1126,6 +1142,8 @@ static inline const char * exanic_hardware_id_str(exanic_hardware_id_t id)
             return "ExaNIC V5P";
         case EXANIC_HW_X25:
             return "ExaNIC X25";
+        case EXANIC_HW_V9P:
+            return "ExaNIC V9P";
         default:
             return NULL;
     }
@@ -1327,7 +1345,7 @@ typedef enum
     /** Wait until this bit is unset before initialising the card. */
     EXANIC_STATUS_HW_STARTUP    = 0x20000,
 
-    /** Set if this build variant has DDR4 DRAM fitted (X25, X100 only) */
+    /** Set if this build variant has DDR4 DRAM fitted (X25 only) */
     EXANIC_STATUS_HW_DRAM_PRES  = 0x40000,
 } exanic_feature_cfg_t;
 

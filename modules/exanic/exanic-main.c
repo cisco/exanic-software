@@ -46,6 +46,7 @@ static struct pci_device_id exanic_pci_ids[] = {
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X40_40G) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_V5P) },
     { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_X25) },
+    { PCI_DEVICE(PCI_VENDOR_ID_EXABLAZE, PCI_DEVICE_ID_EXANIC_V9P) },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, exanic_pci_ids);
@@ -922,17 +923,37 @@ int exanic_get_num_ports(struct exanic *exanic)
 {
     int port_idx;
     int port_status;
+    int port_limit;
 
-    for (port_idx = 0; port_idx < EXANIC_MAX_PORTS; port_idx++)
+    /* get the maximum number of ethernet interfaces
+     * neccessary because the extended port registers
+     * won't be populated by cards that don't make use
+     * of them */
+    switch (exanic->hwinfo.port_ff)
+    {
+        case EXANIC_PORT_SFP:
+            port_limit = exanic->hwinfo.nports;
+            break;
+
+        case EXANIC_PORT_QSFP:
+            port_limit = exanic->hwinfo.nports * 4;
+            break;
+
+        case EXANIC_PORT_QSFPDD:
+            port_limit = exanic->hwinfo.nports * 8;
+            break;
+
+        default: return 0;
+    }
+
+    for (port_idx = 0; port_idx < min(EXANIC_MAX_PORTS, port_limit); port_idx++)
     {
         port_status = readl(exanic->regs_virt +
                       REG_PORT_OFFSET(port_idx, REG_PORT_STATUS));
         if (port_status & EXANIC_PORT_NOT_IMPLEMENTED)
-        {
-            return port_idx;
-        }
+            break;
     }
-    return 8;
+    return port_idx;
 }
 
 /**
@@ -948,7 +969,7 @@ static size_t exanic_devkit_offset_to_size(unsigned int offset)
     if (unlikely(ffs == sizeof(offset) * 8))
         return 0;
 
-    return 1ul << ffs;
+    return ((size_t)1) << ffs;
 }
 
 /**
@@ -1435,6 +1456,7 @@ static int exanic_probe(struct pci_dev *pdev,
             dev_err(dev,
                     "Failed to allocate physical filter buffer array for port %d.\n",
                     port_num);
+            err = -ENOMEM;
             goto err_flow_steering;
         }
 
@@ -1450,6 +1472,7 @@ static int exanic_probe(struct pci_dev *pdev,
                 dev_err(dev,
                         "Failed to allocate IP filter slot array for port %d.\n",
                         port_num);
+                err = -ENOMEM;
                 goto err_flow_steering;
             }
         }
