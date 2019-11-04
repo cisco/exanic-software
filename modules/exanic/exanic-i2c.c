@@ -550,6 +550,7 @@ exanic_i2c_bus_register(struct exanic *exanic, int port,
     data->bit_data.udelay = 20;
     data->bit_data.timeout = HZ;
     data->bit_data.data = data;
+    data->exanic = exanic;
 
     /* fill in i2c adapter */
     adap->owner = THIS_MODULE;
@@ -564,8 +565,6 @@ exanic_i2c_bus_register(struct exanic *exanic, int port,
     data->xfer_wrapped = adap->algo->master_xfer;
     exanic_i2c_bit_algo.functionality = adap->algo->functionality;
     adap->algo = &exanic_i2c_bit_algo;
-
-    data->exanic = exanic;
     /* add to bus list */
     list_add_tail(&data->link, &exanic->i2c_list);
 
