@@ -1199,6 +1199,7 @@ int
 getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     struct exa_socket * restrict sock = exa_socket_get(sockfd);
+    bool connected = false;
     int ret;
 
     TRACE_CALL("getpeername");
@@ -1209,7 +1210,10 @@ getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     {
         exa_read_lock(&sock->lock);
 
-        if (!sock->connected)
+        connected = sock->connected;
+        if (SOCK_STREAM == sock->type)
+                connected = exanic_tcp_established(sock);
+        if (!connected)
         {
             errno = ENOTCONN;
             ret = -1;
