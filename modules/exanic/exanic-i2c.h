@@ -60,9 +60,6 @@
 #define QSFP_FLAT_MEM_BYTE                  2
 #define QSFP_FLAT_MEM_BIT                   2
 #define QSFP_TX_DISABLE_BYTE                86
-#define QSFP_POWER_SET_BYTE                 93
-#define QSFP_POWER_OVERRIDE_BIT             0
-#define QSFP_POWER_SET_BIT                  1
 #define QSFP_PAGE_SEL_BYTE                  127
 
 #define CMIS_FLAT_MEM_BYTE                  2

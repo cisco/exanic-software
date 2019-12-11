@@ -616,7 +616,12 @@ exanic_phyops_qsfp_set_tx_disable(struct exanic *exanic, int port, bool disable)
     int err = exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
                                    QSFP_TX_DISABLE_BYTE, &tx_disable_byte, 1);
     if (err)
+    {
+        dev_err(&exanic->pci_dev->dev,
+                "%s:%d Failed to read TX disable byte: %d\n",
+                exanic->name, port, err);
         return err;
+    }
 
     for (j = 0, i = lane_start; j < port_width; i++, j++)
     {
@@ -626,51 +631,29 @@ exanic_phyops_qsfp_set_tx_disable(struct exanic *exanic, int port, bool disable)
             tx_disable_byte &= ~(1 << i);
     }
 
-    return exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
-                                 QSFP_TX_DISABLE_BYTE, &tx_disable_byte, 1);
-}
-
-/* toggle power override and power set bits to select low power
- * high power is selected by the lpmode input in hardware */
-static int
-exanic_phyops_qsfp_set_high_power(struct exanic *exanic, int port, bool high)
-{
-    uint8_t pwr_set_byte;
-
-    if (high)
-        pwr_set_byte = 0;
-    else
-        pwr_set_byte = (1 << QSFP_POWER_OVERRIDE_BIT) |
-                       (1 << QSFP_POWER_SET_BIT);
-
-    return exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
-                                 QSFP_POWER_SET_BYTE, &pwr_set_byte, 1);
+    err = exanic_i2c_xcvr_write(exanic, port, XCVR_EEPROM_ADDR,
+                                QSFP_TX_DISABLE_BYTE, &tx_disable_byte, 1);
+    if (err)
+    {
+        dev_err(&exanic->pci_dev->dev,
+                "%s:%d Failed to write TX disable byte: %d\n",
+                exanic->name, port, err);
+    }
+    return err;
 }
 
 /* power off function for QSFP */
 static void __exanic_phyops_poweroff_qsfp(struct exanic *exanic, int port)
 {
     exanic_phyops_qsfp_set_tx_disable(exanic, port, true);
-    exanic_phyops_qsfp_set_high_power(exanic, port, false);
     __exanic_phyops_poweroff(exanic, port);
 }
 
 /* initialisation function for QSFP */
 static int __exanic_phyops_init_qsfp(struct exanic *exanic, int port)
 {
-    int err = exanic_phyops_qsfp_set_high_power(exanic, port, true);
-    if (err)
-        return err;
-
-    err = exanic_phyops_qsfp_set_tx_disable(exanic, port, false);
-    if (err)
-        goto low_power;
-
+    exanic_phyops_qsfp_set_tx_disable(exanic, port, false);
     return 0;
-
-low_power:
-    exanic_phyops_qsfp_set_high_power(exanic, port, false);
-    return err;
 }
 
 #ifdef ETHTOOL_GMODULEINFO
