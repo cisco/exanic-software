@@ -12,6 +12,7 @@
 #include "../override.h"
 
 bool __thread override_unsafe;
+static bool libc_fptrs_initialized;
 
 static struct hostent * (*__libc_gethostbyname)(const char *);
 static struct hostent * (*__libc_gethostbyaddr)(const void *, socklen_t, int);
@@ -61,8 +62,10 @@ static int (*__libc_getnameinfo)(const struct sockaddr *, socklen_t, char *, soc
 static int (*__libc_getaddrinfo_a)(int, struct gaicb **, int, struct sigevent *);
 
 __attribute__((constructor))
-void __exasock_unsafe_functions_wrapper_init(void)
+static void __exasock_unsafe_functions_wrapper_init(void)
 {
+    if (libc_fptrs_initialized)
+        return;
 
     __libc_gethostbyname = dlsym(RTLD_NEXT, "gethostbyname");
     __libc_gethostbyaddr = dlsym(RTLD_NEXT, "gethostbyaddr");
@@ -105,396 +108,253 @@ void __exasock_unsafe_functions_wrapper_init(void)
     __libc_rresvport_af = dlsym(RTLD_NEXT, "rresvport_af");
     __libc_getnameinfo = dlsym(RTLD_NEXT, "getnameinfo");
     __libc_getaddrinfo_a = dlsym(RTLD_NEXT, "getaddrinfo_a");
+
+    libc_fptrs_initialized = true;
 }
+
+/* invokes wrapped libc implementation, marking socket operations
+ * as unsafe to override */
+#define LIBC_OVERRIDE_UNSAFE(f, rtype, ...)             \
+    ({                                                  \
+        __exasock_unsafe_functions_wrapper_init();      \
+        override_unsafe = true;                         \
+        rtype __libc_result = __libc_##f(__VA_ARGS__);  \
+        override_unsafe = false;                        \
+        __libc_result;                                  \
+     })
 
 __attribute__((visibility("default")))
 struct hostent * gethostbyname(const char * name)
 {
-    struct hostent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostbyname(name);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostbyname, struct hostent *, name);
 }
 
 __attribute__((visibility("default")))
 struct hostent * gethostbyaddr(const void * addr, socklen_t len, int type)
 {
-    struct hostent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostbyaddr(addr, len, type);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostbyaddr, struct hostent *, addr, len, type);
 }
 
 __attribute__((visibility("default")))
 struct hostent * gethostent(void)
 {
-    struct hostent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostent();
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostent, struct hostent *, );
 }
 
 __attribute__((visibility("default")))
 int getaddrinfo(const char * node, const char * service, const struct addrinfo * hints, struct addrinfo ** res)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getaddrinfo(node, service, hints, res);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getaddrinfo, int, node, service, hints, res);
 }
 
 __attribute__((visibility("default")))
 struct hostent * gethostbyname2(const char * name, int af)
 {
-    struct hostent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostbyname2(name, af);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostbyname2, struct hostent *, name, af);
 }
 
 __attribute__((visibility("default")))
 int gethostent_r(struct hostent * ret, char * buf, size_t buflen, struct hostent ** result, int *h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostent_r(ret, buf, buflen, result, *h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostent_r, int, ret, buf, buflen, result, *h_errnop);
 }
 
 __attribute__((visibility("default")))
 int gethostbyaddr_r(const void * addr, socklen_t len, int type, struct hostent * ret, char * buf, size_t buflen, struct hostent ** result, int * h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostbyaddr_r(addr, len, type, ret, buf, buflen, result, h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostbyaddr_r, int, addr, len, type, ret, buf, buflen, result, h_errnop);
 }
 
 __attribute__((visibility("default")))
 int gethostbyname_r(const char * name, struct hostent * ret, char * buf, size_t buflen, struct hostent ** result, int * h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostbyname_r(name, ret, buf, buflen, result, h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostbyname_r, int, name, ret, buf, buflen, result, h_errnop);
 }
 
 __attribute__((visibility("default")))
 int gethostbyname2_r(const char * name, int af, struct hostent * ret, char * buf, size_t buflen, struct hostent ** result, int * h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_gethostbyname2_r(name, af, ret, buf, buflen, result, h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(gethostbyname2_r, int, name, af, ret, buf, buflen, result, h_errnop);
 }
 
 __attribute__((visibility("default")))
 struct netent * getnetent(void)
 {
-    struct netent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetent();
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetent, struct netent *, );
 }
 
 __attribute__((visibility("default")))
 struct netent * getnetbyaddr(uint32_t net, int type)
 {
-    struct netent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetbyaddr(net, type);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetbyaddr, struct netent *, net, type);
 }
 
 __attribute__((visibility("default")))
 struct netent * getnetbyname(const char * name)
 {
-    struct netent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetbyname(name);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetbyname, struct netent *, name);
 }
 
 __attribute__((visibility("default")))
 int getnetent_r(struct netent * result_buf, char * buf, size_t buflen, struct netent ** result, int * h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetent_r(result_buf, buf, buflen, result, h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetent_r, int, result_buf, buf, buflen, result, h_errnop);
 }
 
 __attribute__((visibility("default")))
 int getnetbyaddr_r(uint32_t net, int type, struct netent * result_buf, char * buf, size_t buflen, struct netent ** result, int * h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetbyaddr_r(net, type, result_buf, buf, buflen, result, h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetbyaddr_r, int, net, type, result_buf, buf, buflen, result, h_errnop);
 }
 
 __attribute__((visibility("default")))
 int getnetbyname_r(const char * name, struct netent * result_buf, char * buf, size_t buflen, struct netent ** result, int * h_errnop)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetbyname_r(name, result_buf, buf, buflen, result, h_errnop);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetbyname_r, int, name, result_buf, buf, buflen, result, h_errnop);
 }
 
 __attribute__((visibility("default")))
 struct servent * getservent(void)
 {
-    struct servent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getservent();
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getservent, struct servent *, );
 }
 
 __attribute__((visibility("default")))
 struct servent * getservbyname(const char * name, const char * proto)
 {
-    struct servent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getservbyname(name, proto);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getservbyname, struct servent *, name, proto);
 }
 
 __attribute__((visibility("default")))
 struct servent * getservbyport(int port, const char * proto)
 {
-    struct servent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getservbyport(port, proto);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getservbyport, struct servent *, port, proto);
 }
 
 __attribute__((visibility("default")))
 int getservent_r(struct servent * result_buf, char * buf, size_t buflen, struct servent ** result)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getservent_r(result_buf, buf, buflen, result);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getservent_r, int, result_buf, buf, buflen, result);
 }
 
 __attribute__((visibility("default")))
 int getservbyname_r(const char * name, const char * proto, struct servent * result_buf, char * buf, size_t buflen, struct servent ** result)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getservbyname_r(name, proto, result_buf, buf, buflen, result);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getservbyname_r, int, name, proto, result_buf, buf, buflen, result);
 }
 
 __attribute__((visibility("default")))
 int getservbyport_r(int port, const char * proto, struct servent * result_buf, char * buf, size_t buflen, struct servent ** result)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getservbyport_r(port, proto, result_buf, buf, buflen, result);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getservbyport_r, int, port, proto, result_buf, buf, buflen, result);
 }
 
 __attribute__((visibility("default")))
 struct protoent * getprotoent(void)
 {
-    struct protoent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getprotoent();
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getprotoent, struct protoent *, );
 }
 
 __attribute__((visibility("default")))
 struct protoent * getprotobyname(const char * name)
 {
-    struct protoent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getprotobyname(name);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getprotobyname, struct protoent *, name);
 }
 
 __attribute__((visibility("default")))
 struct protoent * getprotobynumber(int proto)
 {
-    struct protoent * libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getprotobynumber(proto);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getprotobynumber, struct protoent *, proto);
 }
 
 __attribute__((visibility("default")))
 int getprotoent_r(struct protoent * result_buf, char * buf, size_t buflen, struct protoent ** result)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getprotoent_r(result_buf, buf, buflen, result);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getprotoent_r, int, result_buf, buf, buflen, result);
 }
 
 __attribute__((visibility("default")))
 int getprotobyname_r(const char * name, struct protoent * result_buf, char * buf, size_t buflen, struct protoent ** result)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getprotobyname_r(name, result_buf, buf, buflen, result);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getprotobyname_r, int, name, result_buf, buf, buflen, result);
 }
 
 __attribute__((visibility("default")))
 int getprotobynumber_r(int proto, struct protoent * result_buf, char * buf, size_t buflen, struct protoent ** result)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getprotobynumber_r(proto, result_buf, buf, buflen, result);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getprotobynumber_r, int, proto, result_buf, buf, buflen, result);
 }
 
 __attribute__((visibility("default")))
 int getnetgrent(char ** hostp, char ** userp, char ** domainp)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetgrent(hostp, userp, domainp);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetgrent, int, hostp, userp, domainp);
 }
 
 __attribute__((visibility("default")))
 int getnetgrent_r(char ** hostp, char ** userp, char ** domainp, char * buffer, size_t buflen)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnetgrent_r(hostp, userp, domainp, buffer, buflen);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnetgrent_r, int, hostp, userp, domainp, buffer, buflen);
 }
 
 __attribute__((visibility("default")))
 int rcmd(char ** ahost, unsigned short int rport, const char * locuser, const char * remuser, const char * cmd, int * fd2p)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_rcmd(ahost, rport, locuser, remuser, cmd, fd2p);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(rcmd, int, ahost, rport, locuser, remuser, cmd, fd2p);
 }
 
 __attribute__((visibility("default")))
 int rcmd_af(char ** ahost, unsigned short int rport, const char * locuser, const char * remuser, const char * cmd, int * fd2p, sa_family_t af)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_rcmd_af(ahost, rport, locuser, remuser, cmd, fd2p, af);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(rcmd_af, int, ahost, rport, locuser, remuser, cmd, fd2p, af);
 }
 
 __attribute__((visibility("default")))
 int rexec(char ** ahost, int rport, const char * name, const char * pass, const char * cmd, int * fd2p)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_rexec(ahost, rport, name, pass, cmd, fd2p);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(rexec, int, ahost, rport, name, pass, cmd, fd2p);
 }
 
 __attribute__((visibility("default")))
 int rexec_af(char ** ahost, int rport, const char * name, const char * pass, const char * cmd, int * fd2p, sa_family_t af)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_rexec_af(ahost, rport, name, pass, cmd, fd2p, af);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(rexec_af, int, ahost, rport, name, pass, cmd, fd2p, af);
 }
 
 __attribute__((visibility("default")))
 int ruserok(const char * rhost, int suser, const char * remuser, const char * locuser)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_ruserok(rhost, suser, remuser, locuser);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(ruserok, int, rhost, suser, remuser, locuser);
 }
 
 __attribute__((visibility("default")))
 int ruserok_af(const char * rhost, int suser, const char * remuser, const char * locuser, sa_family_t af)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_ruserok_af(rhost, suser, remuser, locuser, af);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(ruserok_af, int, rhost, suser, remuser, locuser, af);
 }
 
 __attribute__((visibility("default")))
 int iruserok(uint32_t raddr, int suser, const char * remuser, const char * locuser)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_iruserok(raddr, suser, remuser, locuser);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(iruserok, int, raddr, suser, remuser, locuser);
 }
 
 __attribute__((visibility("default")))
 int iruserok_af(const void * raddr, int suser, const char * remuser, const char * locuser, sa_family_t af)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_iruserok_af(raddr, suser, remuser, locuser, af);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(iruserok_af, int, raddr, suser, remuser, locuser, af);
 }
 
 __attribute__((visibility("default")))
 int rresvport(int * alport)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_rresvport(alport);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(rresvport, int, alport);
 }
 
 __attribute__((visibility("default")))
 int rresvport_af(int * alport, sa_family_t af)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_rresvport_af(alport, af);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(rresvport_af, int, alport, af);
 }
 
 __attribute__((visibility("default")))
@@ -505,20 +365,12 @@ int getnameinfo(const struct sockaddr * sa, socklen_t salen, char * host, sockle
                 unsigned int flags)
 #endif
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getnameinfo(sa, salen, host, hostlen, serv, servlen, flags);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getnameinfo, int, sa, salen, host, hostlen, serv, servlen, flags);
 }
 
 __attribute__((visibility("default")))
 int getaddrinfo_a(int mode, struct gaicb ** list, int ent, struct sigevent * sig)
 {
-    int libc_result;
-    override_unsafe = true;
-    libc_result = __libc_getaddrinfo_a(mode, list, ent, sig);
-    override_unsafe = false;
-    return libc_result;
+    return LIBC_OVERRIDE_UNSAFE(getaddrinfo_a, int, mode, list, ent, sig);
 }
 
