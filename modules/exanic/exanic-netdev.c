@@ -1667,8 +1667,12 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             ndev->stats.rx_packets++;
             ndev->stats.rx_bytes += priv->skb->len;
 
-            /* Deliver packet to intercept functions or kernel stack */
-            if (matched_filter == EXANIC_ATE_FILTER_REFLECTED)
+            /* Deliver packet to intercept functions or kernel stack
+             * ATE availability check necessary to avoid treating DMA
+             * traffic from non-ATE ports with rx_match_host equal to
+             * EXANIC_ATE_FILTER_REFLECTED as ATE-generated data */
+            if (matched_filter == EXANIC_ATE_FILTER_REFLECTED &&
+                exanic_ate_available(priv->exanic, priv->port))
                 exanic_ate_deliver_skb(priv->skb);
             else
                 exanic_deliver_skb(priv->skb);

@@ -827,18 +827,12 @@ static void exasock_ate_process_skb(struct sk_buff *skb)
     if (unlikely(skb->len < sizeof(struct iphdr) ||
                  skb->len < (iph->ihl * 4 + sizeof(struct tcphdr)) ||
                  skb->len < ntohs(iph->tot_len)))
-    {
-        pr_err("ATE packet truncated\n");
         goto error;
-    }
 
     /* Protocol checks */
     if (unlikely(skb->protocol != htons(ETH_P_IP) ||
                  iph->protocol != IPPROTO_TCP))
-    {
-        pr_err("Unexpected protocol in ATE packet\n");
         goto error;
-    }
 
     /* Look up socket */
     th = (struct tcphdr *)(data + iph->ihl * 4);

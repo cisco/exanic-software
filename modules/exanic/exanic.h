@@ -169,6 +169,7 @@ ktime_t exanic_ptp_time_to_ktime(struct exanic *exanic, uint32_t hw_time);
 
 /* exanic-ate.c */
 typedef void (*exanic_ate_client_process_skb_cb)(struct sk_buff *skb);
+bool exanic_ate_available(struct exanic *exanic, unsigned port_num);
 int exanic_ate_acquire(struct exanic *exanic, unsigned port_num, int ate_id);
 int exanic_ate_acquire(struct exanic *exanic, unsigned port_num, int ate_id);
 void exanic_ate_release(struct exanic *exanic, unsigned port_num, int ate_id);

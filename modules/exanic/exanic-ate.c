@@ -36,11 +36,18 @@ static DEFINE_RWLOCK(exanic_ate_client_lock);
 (htons(sz & 0xffff) << 16)
 
 /**
+ * Check that ATE is available on the device
+ */
+bool exanic_ate_available(struct exanic *exanic, unsigned port_num)
+{
+    return exanic->port[port_num].has_ate;
+}
+
+/**
  * Check that ATE is available on the device, and allocate the ATE ID.
  * Returns false if ATE not available or ATE ID already allocated.
  */
-int exanic_ate_acquire(struct exanic *exanic,
-                                unsigned port_num, int ate_id)
+int exanic_ate_acquire(struct exanic *exanic, unsigned port_num, int ate_id)
 {
     int err = 0;
     if (ate_id >= EXANIC_ATE_ENGINES_PER_PORT)
@@ -49,10 +56,7 @@ int exanic_ate_acquire(struct exanic *exanic,
     if (exanic->devkit_regs_virt == 0)
         return -EOPNOTSUPP;
 
-    if (!(exanic->caps & EXANIC_CAP_ATE))
-        return -EOPNOTSUPP;
-
-    if (!(exanic->port[port_num].has_ate))
+    if (!exanic_ate_available(exanic, port_num))
         return -EOPNOTSUPP;
 
     err = down_trylock(
