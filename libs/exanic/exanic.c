@@ -78,11 +78,7 @@ exanic_t * exanic_acquire_handle(const char *device_name)
 
     /* Find hardware information from device table */
     struct exanic_hw_info hwinfo;
-    if (exanic_get_hw_info(hwid, &hwinfo) == -1)
-    {
-        exanic_err_printf("device table lookup failed");
-        goto err_get_hwinfo;
-    }
+    exanic_get_hw_info(hwid, &hwinfo);
 
     /* Map info page */
     struct exanic_info_page *info_page = mmap(NULL,
@@ -261,7 +257,6 @@ err_mmap_tx:
 err_mmap_feedback:
     if (info_page != NULL)
         munmap(info_page, EXANIC_INFO_NUM_PAGES * PAGE_SIZE);
-err_get_hwinfo:
     munmap(registers, EXANIC_REGS_NUM_PAGES * PAGE_SIZE);
 err_mmap_registers:
 err_ioctl:
