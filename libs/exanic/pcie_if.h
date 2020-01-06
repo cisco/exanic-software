@@ -107,7 +107,7 @@ enum
      * (see \ref exanic_feature_cfg_t)
      * Availability: NIC only
      * Bitmap:
-     * [18]   - [RO] DDR4 fitted to this PCB (X25 only)
+     * [18]   - [RO] DDR4 fitted to this PCB (X25, X100 only)
      * [17]   - [RO] HW startup in progress
      * [16]   - [RW] Set to 0 to permanently clear the auxiliary enable signals
      * [15]   - reserved
@@ -1068,6 +1068,7 @@ typedef enum
     EXANIC_HW_X10_HPT       = 7,  /**< ExaNIC X10-HPT */
     EXANIC_HW_V5P           = 8,  /**< ExaNIC V5P */
     EXANIC_HW_X25           = 9,  /**< ExaNIC X25 */
+    EXANIC_HW_X100          = 10, /**< ExaNIC X100 */
     EXANIC_HW_V9P           = 11, /**< ExaNIC V9P */
 } exanic_hardware_id_t;
 
@@ -1100,6 +1101,8 @@ static inline const char * exanic_hardware_id_str(exanic_hardware_id_t id)
             return "ExaNIC V5P";
         case EXANIC_HW_X25:
             return "ExaNIC X25";
+        case EXANIC_HW_X100:
+            return "ExaNIC X100";
         case EXANIC_HW_V9P:
             return "ExaNIC V9P";
         default:
@@ -1303,7 +1306,7 @@ typedef enum
     /** Wait until this bit is unset before initialising the card. */
     EXANIC_STATUS_HW_STARTUP    = 0x20000,
 
-    /** Set if this build variant has DDR4 DRAM fitted (X25 only) */
+    /** Set if this build variant has DDR4 DRAM fitted (X25, X100 only) */
     EXANIC_STATUS_HW_DRAM_PRES  = 0x40000,
 } exanic_feature_cfg_t;
 

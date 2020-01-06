@@ -21,6 +21,7 @@
 #define PCI_DEVICE_ID_EXANIC_X40_40G    0x0007
 #define PCI_DEVICE_ID_EXANIC_V5P        0x0008
 #define PCI_DEVICE_ID_EXANIC_X25        0x0009
+#define PCI_DEVICE_ID_EXANIC_X100       0x000A
 #define PCI_DEVICE_ID_EXANIC_V9P        0x000B
 
 /* Interface to exanic_(get|set)_feature_cfg */

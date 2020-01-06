@@ -142,6 +142,15 @@ static const struct exanic_hw_info exanic_hw_products[] =
         EXANIC_HW_FLAG_DRAM_VARIANT
     },
 
+    {EXANIC_HW_X100, "exanic_x100", 2, 4, 0xA0, EXANIC_PORT_QSFP, EXANIC_XILINX_USP,
+        EXANIC_HW_FLAG_DEVKIT |
+        EXANIC_HW_FLAG_PER_OUT |
+        EXANIC_HW_FLAG_PPS_SINGLE |
+        EXANIC_HW_FLAG_PPS_TERM |
+        EXANIC_HW_FLAG_DRAM_VARIANT |
+        EXANIC_HW_FLAG_FW_SPI_NOR
+    },
+
     {EXANIC_HW_V9P, "exanic_v9p", 2, 4, 0xA0, EXANIC_PORT_QSFPDD, EXANIC_XILINX_USP,
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
