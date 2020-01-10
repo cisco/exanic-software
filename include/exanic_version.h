@@ -5,7 +5,7 @@
 
 #define EXANIC_VERSION_MAJOR        2
 #define EXANIC_VERSION_MINOR        4
-#define EXANIC_VERSION_REV          0
+#define EXANIC_VERSION_REV          1
 #define EXANIC_VERSION_EXTRA        "-git"
 
 /* Do not edit these macros */

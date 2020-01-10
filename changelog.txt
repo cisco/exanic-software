@@ -1,15 +1,27 @@
+2.4.1 [2020-01-06]
+* driver: fix kernel panic with Linux kernel versions 4.16 and 4.17 as a
+  result of i2c_bit_add_bus changes
+* driver: fix QSFP port logic by removing the step of setting power
+  override on port up and port down
+* driver: add ATE enabled status check before passing frames to ATE callback
+  function to avoid interfering with DMA traffic from non-ATE devkit ports
+* libexanic: fix bug introduced in 2.4.0 which causes exanic_acquire_handle to
+  fail with with unsupported ExaNICs
+* exasock: make override-unsafe function wrappers safe to call during static
+  initialization
+
 2.4.0 [2019-10-28]
 * Support for ExaNIC V9P
-* Drop support for historic Z1 and Z10 NICs
+* Drop support for legacy Z1 and Z10 NICs
 * Remove raw i2c bit-banging from userspace software in favour of kernel API
   (this will result in minor incompatibilities when running older versions of
-  the ExaNIC driver and newer versions of libexanic and utilities)
+  the ExaNIC driver and newer versions of utilities)
 * driver: ethtool GEEPROM and SEEPROM support for ExaNIC EEPROM access
 * driver: fix compilation errors for some CentOS/RHEL 6 kernel versions
   introduced in 2.3.1
 * libexanic: remove exanic_get_sfp_info, exanic_get_qsfp_info,
-  exanic_get_sfp_diag_info and exanic_get_qsfp_diag_info. Functions and types
-  for pluggable transceiver access no longer part of public libexanic API
+  exanic_get_sfp_diag_info and exanic_get_qsfp_diag_info
+  (transceiver data should now be accessed through ethtool API)
 
 2.3.1 [2019-10-09]
 * Basic support for extra ExaNIC FDK MMIO regions BAR 1 and BAR 4
