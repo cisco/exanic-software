@@ -530,23 +530,26 @@ exa_tcp_parse_hdr(char *hdr, char *read_end, size_t pkt_len, uint64_t addr_csum,
                   uint64_t * restrict csum)
 {
     const struct tcphdr * restrict h = (struct tcphdr *)hdr;
+    size_t hdr_len = h->th_off * 4;
 
     if ((read_end - hdr) < sizeof(struct tcphdr))
         return -1;
 
-    if (h->th_off * 4 < sizeof(struct tcphdr) ||
-        h->th_off * 4 > pkt_len)
+    if (hdr_len < sizeof(struct tcphdr))
+        return -1;
+
+    if (pkt_len < hdr_len)
         return -1;
 
     /* Calculate checksum of pseudo-header and header */
-    *csum = csum_part(hdr, h->th_off * 4,
+    *csum = csum_part(hdr, hdr_len,
                       addr_csum + htons(IPPROTO_TCP) + htons(pkt_len));
 
     /* Beginning of data in header chunk */
-    *data_begin = hdr + (h->th_off * 4);
+    *data_begin = hdr + hdr_len;
 
     /* TCP segment info */
-    *data_len = pkt_len - (h->th_off * 4);
+    *data_len = pkt_len - hdr_len;
     *data_seq = ntohl(h->th_seq) + ((h->th_flags & TH_SYN) ? 1 : 0);
 
     /* Other header info */
@@ -555,7 +558,7 @@ exa_tcp_parse_hdr(char *hdr, char *read_end, size_t pkt_len, uint64_t addr_csum,
     *win = ntohs(h->th_win);
 
     /* TCP options region */
-    *tcpopt_len = (h->th_off * 4) - sizeof(struct tcphdr);
+    *tcpopt_len = hdr_len - sizeof(struct tcphdr);
     *tcpopt = (uint8_t *)(hdr + sizeof(struct tcphdr));
 
     port->peer = h->th_sport;
