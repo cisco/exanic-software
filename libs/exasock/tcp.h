@@ -534,7 +534,8 @@ exa_tcp_parse_hdr(char *hdr, char *read_end, size_t pkt_len, uint64_t addr_csum,
     if ((read_end - hdr) < sizeof(struct tcphdr))
         return -1;
 
-    if (pkt_len < sizeof(struct tcphdr))
+    if (h->th_off * 4 < sizeof(struct tcphdr) ||
+        h->th_off * 4 > pkt_len)
         return -1;
 
     /* Calculate checksum of pseudo-header and header */
