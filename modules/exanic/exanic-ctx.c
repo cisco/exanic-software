@@ -208,12 +208,10 @@ int exanic_alloc_tx_feedback(struct exanic_ctx *ctx, unsigned port_num,
 {
     struct exanic *exanic = ctx->exanic;
     struct device *dev = &exanic->pci_dev->dev;
-    size_t start = port_num * (EXANIC_TX_FEEDBACK_NUM_SLOTS / EXANIC_MAX_PORTS);
-    size_t end = start + (EXANIC_TX_FEEDBACK_NUM_SLOTS / EXANIC_MAX_PORTS);
     unsigned slot;
 
-    slot = find_next_zero_bit(exanic->tx_feedback_bitmap, end, start);
-    if (slot >= end)
+    slot = find_first_zero_bit(exanic->tx_feedback_bitmap, EXANIC_TX_FEEDBACK_NUM_SLOTS);
+    if (slot == EXANIC_TX_FEEDBACK_NUM_SLOTS)
     {
         dev_err(dev, DRV_NAME
             "%u: Failed to allocate TX feedback slot.\n", exanic->id);
