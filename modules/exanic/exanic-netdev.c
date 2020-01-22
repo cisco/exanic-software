@@ -772,11 +772,10 @@ static void exanic_netdev_kernel_stop(struct net_device *ndev)
     /* This flag stops the timer as well as the irq handler */
     priv->rx_enabled = false;
 
-    /* Wait a little to make sure irq handler has stopped running
-     * TODO: Should this use a spinlock instead? */
-    udelay(10);
-
-    if (!(priv->exanic->caps & EXANIC_CAP_RX_IRQ))
+    /* Make sure the irq handler or timer has stopped running */
+    if (priv->exanic->caps & EXANIC_CAP_RX_IRQ)
+        synchronize_irq(priv->exanic->pci_dev->irq);
+    else
         del_timer_sync(&priv->rx_timer);
 
     hrtimer_cancel(&priv->rx_hrtimer);
