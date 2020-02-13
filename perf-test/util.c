@@ -26,7 +26,7 @@ float get_cpu_ghz()
         gettimeofday(&ts, NULL);
         ts_temp_us = (ts.tv_usec + ts.tv_sec * 1000000);
 
-        /* wait for microsecond to tick over to improve accuracy */ 
+        /* wait for microsecond to tick over to improve accuracy */
         do
         {
             gettimeofday(&ts, NULL);
@@ -81,24 +81,28 @@ static int compare_uint64(const void *pa, const void *pb)
 
 void timing_print(timing_t *stats, int count, int raw_counts)
 {
+    int i;
     if (raw_counts)
-    {
-        int i;
         for (i = 0; i < count; i++)
             printf("%llu\n", (unsigned long long)stats[i]);
-    }
     else
     {
         float cpu_ghz = get_cpu_ghz();
 
-        /* first sample is displayed separately */
-        qsort(stats+1, count-1, sizeof(timing_t), compare_uint64);
-        printf("min=%luns median=%luns max=%luns first=%luns cpu_ghz=%.3f\n",
-                to_ns(cpu_ghz, stats[1]),
-                to_ns(cpu_ghz, stats[count/2]),
-                to_ns(cpu_ghz, stats[count-1]),
-                to_ns(cpu_ghz, stats[0]),
-                cpu_ghz);
+        qsort(stats, count, sizeof(timing_t), compare_uint64);
+
+        float percentiles[12] = { 0, 1, 5, 10, 25, 50, 75, 90, 95, 99, 99.999, 100 };
+
+        printf("CPU GHz = %.2f\n", cpu_ghz);
+
+        for (i = 0; i < sizeof(percentiles) / sizeof(float); i++)
+        {
+            int ordinal_rank = (int) (percentiles[i] / 100 * (count - 1));
+            printf("Percentile %.3f = %luns\n", percentiles[i], to_ns(cpu_ghz, stats[ordinal_rank]));
+        }
+
+        if (count < 1000)
+            printf("Warning: Percentile breakdown may be inaccurate for < 1000 samples.\n");
     }
 }
 
@@ -115,4 +119,3 @@ void init_packet(char *data, int data_size)
     /* dest addr = broadcast */
     memset(data, 0xff, 6);
 }
-

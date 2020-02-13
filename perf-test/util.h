@@ -12,6 +12,37 @@ typedef uint64_t timing_t;
 #define timing_start rdtscll
 #define timing_end rdtscll
 
+#define TRY(x)                                                          \
+    do {                                                                \
+        int __rc = (x);                                                 \
+        if ( __rc < 0 ) {                                               \
+            fprintf(stderr, "ERROR: TRY(%s) failed\n", #x);             \
+            fprintf(stderr, "ERROR: at %s:%d\n", __FILE__, __LINE__);   \
+            fprintf(stderr, "ERROR: rc=%d errno=%d (%s)\n",             \
+                    __rc, errno, strerror(errno));                      \
+            abort();                                                    \
+        }                                                               \
+    } while( 0 )
+
+#define TEST(x)                                                         \
+    do {                                                                \
+        if( ! (x) ) {                                                   \
+            fprintf(stderr, "ERROR: TEST(%s) failed\n", #x);            \
+            fprintf(stderr, "ERROR: at %s:%d\n", __FILE__, __LINE__);   \
+            abort();                                                    \
+        }                                                               \
+    } while( 0 )
+
+#define EXA_TRY(x)                                                      \
+    do {                                                                \
+        if (!(x)) {                                                     \
+            fprintf(stderr, "ERROR: EXA_TRY(%s) failed\n", #x);         \
+            fprintf(stderr, "ERROR: at %s:%d\n", __FILE__, __LINE__);   \
+            fprintf(stderr, "%s\n", exanic_get_last_error());           \
+            abort();                                                    \
+        }                                                               \
+    } while( 0 )                                                        \
+
 #ifdef __cplusplus
 extern "C" {
 #endif
