@@ -1207,6 +1207,8 @@ typedef enum
 
     EXANIC_CAP_BRIDGING         = 0x00010000, /**< bridging supported */
     EXANIC_CAP_MIRRORING        = 0x00020000, /**< mirroring supported */
+    EXANIC_CAP_DISABLE_TX_PADDING  = 0x00040000, /**< TX frame padding can be disabled */
+    EXANIC_CAP_DISABLE_TX_CRC   = 0x00080000, /**< TX CRCs can be disabled */
 
     EXANIC_CAP_100M             = 0x01000000, /**< 100M supported */
     EXANIC_CAP_1G               = 0x02000000, /**< 1G supported */
@@ -1368,6 +1370,17 @@ typedef enum
      * Tx to RX of that port
      */
     EXANIC_PORT_FLAG_LOOPBACK           = 0x10,
+
+    /**
+     * If enabled, this port will not automatically pad frames to 60B
+     * on TX
+     */
+    EXANIC_PORT_FLAG_DISABLE_TX_PADDING = 0x20,
+
+    /**
+     * If enabled, this port will not append CRCs to TX frames
+     */
+    EXANIC_PORT_FLAG_DISABLE_TX_CRC     = 0x40,
 } exanic_port_flags_t;
 
 /**

@@ -365,6 +365,44 @@ fd_close:
     return loopback;
 }
 
+int get_disable_tx_padding(exanic_t *exanic, int port_number)
+{
+    int disable_tx_padding = 0;
+    uint32_t caps = exanic_get_caps(exanic);
+
+    if (caps & EXANIC_CAP_DISABLE_TX_PADDING)
+    {
+        uint32_t flags = exanic_register_read(exanic,
+                                              REG_PORT_INDEX(port_number,
+                                                             REG_PORT_FLAGS));
+
+        disable_tx_padding = (flags & EXANIC_PORT_FLAG_DISABLE_TX_PADDING) ? 1 : 0;
+    }
+    else
+        disable_tx_padding = -1;
+
+    return disable_tx_padding;
+}
+
+int get_disable_tx_crc(exanic_t *exanic, int port_number)
+{
+    int disable_tx_crc = 0;
+    uint32_t caps = exanic_get_caps(exanic);
+
+    if (caps & EXANIC_CAP_DISABLE_TX_CRC)
+    {
+        uint32_t flags = exanic_register_read(exanic,
+                                              REG_PORT_INDEX(port_number,
+                                                             REG_PORT_FLAGS));
+
+        disable_tx_crc = (flags & EXANIC_PORT_FLAG_DISABLE_TX_CRC) ? 1 : 0;
+    }
+    else
+        disable_tx_crc = -1;
+
+    return disable_tx_crc;
+}
+
 void show_serial_number(exanic_t *exanic)
 {
     char syspath[PATH_MAX] = {0};
@@ -687,7 +725,7 @@ void show_device_info(const char *device, int port_number, int verbose)
                  function == EXANIC_FUNCTION_DEVKIT)
                     && rx_usable)
         {
-            int loopback, promisc;
+            int loopback, promisc, disable_tx_padding, disable_tx_crc;
 
             if (verbose)
             {
@@ -712,6 +750,14 @@ void show_device_info(const char *device, int port_number, int verbose)
             promisc = exanic_get_promiscuous_mode(exanic, i);
             if ((promisc != -1) && (promisc || verbose))
                 printf("    Promiscuous mode: %s\n", promisc ? "on" : "off");
+
+            disable_tx_padding = get_disable_tx_padding(exanic, i);
+            if ((disable_tx_padding != -1) && (disable_tx_padding || verbose))
+                printf("    TX frame padding: %s\n", disable_tx_padding ? "off" : "on");
+
+            disable_tx_crc = get_disable_tx_crc(exanic, i);
+            if ((disable_tx_crc != -1) && (disable_tx_crc || verbose))
+                printf("    TX CRCs: %s\n", disable_tx_crc ? "off" : "on");
         }
 
         if ((function == EXANIC_FUNCTION_NIC ||
@@ -1249,6 +1295,88 @@ int set_local_loopback(const char * device, int port_number, int enable)
 
 err_release_handle:
     release_handle(exanic);
+    return 1;
+}
+
+
+int set_disable_tx_padding(const char *device, int port_number, int enable)
+{
+    exanic_t *exanic;
+    uint32_t caps;
+    int disable_tx_padding;
+    exanic = acquire_handle(device);
+    caps = exanic_get_caps(exanic);
+
+    if (caps & EXANIC_CAP_DISABLE_TX_PADDING)
+    {
+        uint32_t flags;
+        flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number,
+                                                            REG_PORT_FLAGS));
+
+        if (enable)
+            flags |= EXANIC_PORT_FLAG_DISABLE_TX_PADDING;
+        else
+            flags &= ~EXANIC_PORT_FLAG_DISABLE_TX_PADDING;
+
+        exanic_register_write(exanic, REG_PORT_INDEX(port_number,
+                                                     REG_PORT_FLAGS), flags);
+    }
+
+    disable_tx_padding = get_disable_tx_padding(exanic, port_number);
+
+    if (disable_tx_padding == -1 || disable_tx_padding != enable)
+    {
+        fprintf(stderr, "%s:%d: failed to update TX frame padding:"
+                " not supported by firmware\n", device, port_number);
+
+        exanic_release_handle(exanic);
+        return 1;
+    }
+
+    printf("%s:%d: TX frame padding %s\n", device, port_number,
+           enable ? "disabled" : "enabled");
+
+    return 0;
+}
+
+int set_disable_tx_crc(const char *device, int port_number, int enable)
+{
+    exanic_t *exanic;
+    uint32_t caps;
+    int disable_tx_crc;
+    exanic = acquire_handle(device);
+    caps = exanic_get_caps(exanic);
+
+    if (caps & EXANIC_CAP_DISABLE_TX_CRC)
+    {
+        uint32_t flags;
+        flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number,
+                                                            REG_PORT_FLAGS));
+        if (enable)
+            flags |= EXANIC_PORT_FLAG_DISABLE_TX_CRC;
+        else
+            flags &= ~EXANIC_PORT_FLAG_DISABLE_TX_CRC;
+
+        exanic_register_write(exanic, REG_PORT_INDEX(port_number,
+                                                     REG_PORT_FLAGS), flags);
+    }
+
+    disable_tx_crc = get_disable_tx_crc(exanic, port_number);
+
+    if (disable_tx_crc == -1 || disable_tx_crc != enable)
+    {
+        fprintf(stderr, "%s:%d: failed to update TX CRCs:"
+                " not supported by firmware\n", device, port_number);
+        goto err_handle_release;
+    }
+
+    printf("%s:%d: TX CRCs %s\n", device, port_number,
+           enable ? "disabled" : "enabled");
+    exanic_release_handle(exanic);
+    return 0;
+
+err_handle_release:
+    exanic_release_handle(exanic);
     return 1;
 }
 
@@ -2441,6 +2569,22 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
             return 1;
         return set_local_loopback(device, port_number, mode);
     }
+    else if (argc == 4 && strcmp(argv[2], "disable-tx-padding") == 0 &&
+             port_number != -1)
+    {
+        if ((mode = parse_on_off(argv[3])) == -1)
+            return 1;
+
+        return set_disable_tx_padding(device, port_number, mode);
+    }
+    else if (argc == 4 && strcmp(argv[2], "disable-tx-crc") == 0 &&
+             port_number != -1)
+    {
+        if ((mode = parse_on_off(argv[3])) == -1)
+            return 1;
+
+        return set_disable_tx_crc(device, port_number, mode);
+    }
     /* below commands for firewall firmware only */
     else if (argc == 4 && strcmp(argv[2], "firewall") == 0
             && port_number == -1)
@@ -2598,6 +2742,8 @@ usage_error:
     fprintf(stderr, "   %s <interface> bypass-only { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <interface> promisc { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <interface> speed <speed>\n", argv[0]);
+    fprintf(stderr, "   %s <interface> disable-tx-padding { on | off }\n", argv[0]);
+    fprintf(stderr, "   %s <interface> disable-tx-crc { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> pps-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> 10m-out { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> pps-out-edge-select { rising | falling }\n", argv[0]);
