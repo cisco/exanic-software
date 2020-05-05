@@ -15,8 +15,9 @@ EXASOCK_STAT_LDLIBS=$(LDLIBS_LIBNL3)
 
 BIN=exanic-config exanic-capture exanic-clock-sync exanic-clock-check exanic-fwupdate
 EXASOCK_STAT_BIN=exasock-stat
+SCRIPTS=exanic-debug-dump.sh
 
-all: $(BIN) $(EXASOCK_STAT_BIN)
+all: $(BIN) $(EXASOCK_STAT_BIN) $(SCRIPTS)
 
 exanic-fwupdate: exanic-fwupdate.c fwupdate/flash_access.c fwupdate/file_access.c fwupdate/hot_reload.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
@@ -47,11 +48,16 @@ endif
 	$(info ${shell echo "         If exasock-stat is needed, please install the required package and rebuild."})
 endif
 
+exanic-debug-dump: 
+	install -d $(BINDIR)
+	install -m 0755 -D $(BIN) $(BINDIR)
+
 install: all
 	rm -f $(BINDIR)/exanic-rx-raw # clean up old utility
 	rm -f $(BINDIR)/exanic-prom-util # clean up old utility
 	install -d $(BINDIR)
 	install -m 0755 -D $(BIN) $(BINDIR)
+	install -m 0755 -D $(SCRIPTS) $(BINDIR)
 ifneq ($(CFLAGS_LIBNL3),)
 	install -m 0755 -D $(EXASOCK_STAT_BIN) $(BINDIR)
 endif
