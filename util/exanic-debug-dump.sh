@@ -1,6 +1,7 @@
 #!/bin/bash
 
 help=0
+compress_file=1
 
 # Borrowed from the following post: https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
 POSITIONAL=()
@@ -15,6 +16,11 @@ do
         ;;
         -o|--output-filepath)
         output_filepath="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -c|--disable-compression)
+        compress_file=0
         shift # past argument
         shift # past value
         ;;
@@ -35,22 +41,27 @@ product_pretty="ExaNIC"
 timestamp="$(date +%F-%HH%MM%S.%N)"
 filename="${HOSTNAME}_${product}_debug_dump_${timestamp}.log"
 filepath="${HOME}/${filename}"
+final_filename="${filename}.gz"
+final_filepath="${filepath}.gz"
 
 if [ ${help} -eq 1 ]
 then
-    echo "This script captures debug information relevant to troubleshooting a Cisco ${product_pretty} installation."
+    echo "This script captures debug information relevant to troubleshooting a"
+    echo "Cisco ${product_pretty} installation."
+    echo ""
     echo "By default, this debug dump will be located at the following location:"
     echo ""
-    echo ${filepath}
+    echo ${final_filepath}
     echo ""
     echo "This location can be overridden by the '-o' argument."
-    echo "If possible, please run this script as a superuser via 'sudo'."
-    echo "Note that if this script is run as a superuser, the debug dump's default location will change to the following:"
     echo ""
-    echo "/root/${filename}"
+    echo "This script will prompt for superuser credentials, as some commands"
+    echo "must be run with sudo."
     echo ""
     echo "Usage:"
-    echo "    -o: Define the filepath (absolute or relative) and filename where the debug dump will be placed."
+    echo "    -o: Define the filepath (absolute or relative) and filename where"
+    echo "        the debug dump will be placed. Note that this file will be"
+    echo "        gunzipped, so '.gz' will be appended to the end of it."
     echo "    -h: Display this help message."
     exit 1
 fi
@@ -61,18 +72,20 @@ then
     filepath="${output_filepath}"
 fi
 
+sudo -v
+
 cmds=(
     "date"
-    "lspci -vv"
+    "sudo lspci -vv"
     "which exanic-config"
-    "exanic-config -v"
+    "sudo exanic-config -v"
     "ls /dev/exanic*"
     "cat /proc/cmdline"
     "cat /etc/os-release"
     "uname -a"
-    "ipmiutil sensor"
-    "ipmiutil sel"
-    "ipmiutil health"
+    "sudo ipmiutil sensor"
+    "sudo ipmiutil sel"
+    "sudo ipmiutil health"
     "yum list installed"
     "apt list --installed"
     "dkms status"
@@ -80,10 +93,11 @@ cmds=(
     "ntpq -p"
     "ntpstat"
     "ls /etc/udev/rules.d/"
+    "cat /etc/udev/rules.d/exanic*"
     "date"
 )
 
-echo "Writing Debug Dump to ${filepath}..."
+echo "Executing Debug Dump commands..."
 
 echo "---------- Cisco ${product_pretty} Debug Dump ----------" &>> $filepath
 for cmd in "${cmds[@]}"; do
@@ -92,4 +106,17 @@ for cmd in "${cmds[@]}"; do
     echo "" &>> $filepath # Newline
 done
 
+if [ ${compress_file} -eq 1 ]
+then
+    echo "Compressing Debug Dump..."
+    gzip $filepath
+fi
+
 echo "Debug Dump has completed!"
+
+if [ ${compress_file} -eq 1 ]
+then
+    echo "File location: ${final_filepath}" 
+else
+    echo "File location: ${filepath}"
+fi
