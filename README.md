@@ -1,10 +1,10 @@
 ExaNIC Software
 ===============
-This repository contains drivers, utilities and development libraries for Exablaze ultra-low-latency network cards (ExaNIC X2, ExaNIC X4, ExaNIC X10, ExaNIC X40, ExaNIC V5P, ExaNIC GM, and ExaNIC HPT). For full installation instructions and user guide please refer to the [ExaNIC User Guide](http://exablaze.com/docs/exanic/user-guide/).
+This repository contains drivers, utilities and development libraries for Exablaze ultra-low-latency network cards (ExaNIC X25, ExaNIC X10, ExaNIC X40, ExaNIC X2, ExaNIC X4, ExaNIC V5P, ExaNIC V9P, ExaNIC GM, and ExaNIC HPT). For full installation instructions and user guide please refer to the [ExaNIC User Guide](http://exablaze.com/docs/exanic/user-guide/).
 
 What's an ExaNIC?
 -----------------
-The ExaNIC range from Exablaze features world-leading latency performance, precision timing, a simple and flexible programming interface, and true hardware extensibility through FPGA based reconfiguration.
+The ExaNIC range from Exablaze (now part of Cisco) features world-leading latency performance, precision timing, a simple and flexible programming interface, and true hardware extensibility through FPGA based reconfiguration.
 
 Once the drivers are installed, ExaNICs present as normal network cards under Linux and many of the features are available through standard Linux APIs, however there are also additional tools and libraries that unlock the full performance and feature set.
 
