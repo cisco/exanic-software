@@ -80,6 +80,7 @@ cmds=(
     "which exanic-config"
     "sudo exanic-config -v"
     "ls /dev/exanic*"
+    "dmesg"
     "cat /proc/cmdline"
     "cat /etc/os-release"
     "uname -a"
@@ -94,6 +95,7 @@ cmds=(
     "ntpstat"
     "ls /etc/udev/rules.d/"
     "cat /etc/udev/rules.d/exanic*"
+    "top -b -n 1"
     "date"
 )
 
