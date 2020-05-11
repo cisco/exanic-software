@@ -81,6 +81,7 @@ cmds=(
     "sudo exanic-config -v"
     "ls /dev/exanic*"
     "dmesg"
+    "uptime"
     "cat /proc/cmdline"
     "cat /etc/os-release"
     "uname -a"
