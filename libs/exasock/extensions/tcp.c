@@ -53,10 +53,7 @@ exasock_tcp_get_device(int fd, char *dev, size_t dev_len, int *port_num)
             ret = -1;
         }
         else
-        {
-            exanic_tcp_get_device(sock, dev, dev_len, port_num);
-            ret = 0;
-        }
+            ret = exanic_tcp_get_device(sock, dev, dev_len, port_num);
 
         exa_read_unlock(&sock->lock);
     }

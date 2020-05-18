@@ -35,6 +35,7 @@
 #include <exanic/port.h>
 #include <exanic/time.h>
 #include <exanic/ioctl.h>
+#include <exanic/exanic_bonding.h>
 
 #include "kernel/api.h"
 #include "kernel/consts.h"
@@ -54,6 +55,7 @@
 #include "dst.h"
 #include "udp_queue.h"
 #include "notify.h"
+#include "exasock-bonding-priv.h"
 
 #define MAX_HDR_LEN 128
 #define MAX_FRAME_LEN 1522
@@ -63,13 +65,11 @@ struct exanic_ip
     struct exa_eth eth;
     struct exa_ip ip;
 
-    exanic_t *exanic;
-    exanic_rx_t *exanic_rx;
-    exanic_tx_t *exanic_tx;
+    struct exanic_ip_dev dev;
+    struct exasock_bond *bond;
 
     char ifname[IFNAMSIZ];
     char device[16];
-    int port_number;
 
     uint8_t eth_dev_addr[ETH_ALEN];
     uint16_t vlan_id;
@@ -116,6 +116,274 @@ struct exanic_tcp
     struct exanic_tcp *next;
 };
 
+static bool
+exasock_exanic_ip_is_bond(const struct exanic_ip *eip)
+{
+    return eip->bond != NULL && eip->bond->fd;
+}
+
+struct exanic_ip_dev *
+exasock_exanic_ip_get_active_dev(struct exanic_ip *eip)
+{
+    if (exasock_exanic_ip_dev_is_initialized(&eip->dev))
+        return &eip->dev;
+
+    return NULL;
+}
+
+static int
+exasock_exanic_ip_dev_init(struct exanic_ip_dev *d, int exanic_id, int port_number)
+{
+    exanic_t *exanic;
+    exanic_rx_t *exanic_rx;
+    exanic_tx_t *exanic_tx;
+    char exa_devname[IFNAMSIZ * 2];
+
+    snprintf(exa_devname, IFNAMSIZ * 2, "exanic%d", exanic_id);
+    exanic = exanic_acquire_handle(exa_devname);
+    if (exanic == NULL)
+    {
+        fprintf(stderr, "%s: exanic_acquire_handle failed for dev %s\n",
+                __func__, exa_devname);
+
+        goto err_acquire_handle;
+    }
+
+    exanic_rx = exanic_acquire_rx_buffer(exanic, port_number, 0);
+    if (exanic_rx == NULL)
+    {
+        fprintf(stderr, "%s: exanic_acquire_rx_buffer failed for dev %s\n",
+                __func__, exa_devname);
+
+        goto err_acquire_rx_buffer;
+    }
+
+    exanic_tx = exanic_acquire_tx_buffer(exanic, port_number, 0);
+    if (exanic_tx == NULL)
+    {
+        fprintf(stderr, "%s: exanic_acquire_tx_buffer failed for dev %s\n",
+                __func__, exa_devname);
+
+        goto err_acquire_tx_buffer;
+    }
+
+    if (exanic_get_interface_name(exanic, port_number,
+                                  d->iface_name,
+                                  sizeof(d->iface_name)) != 0)
+    {
+        fprintf(stderr, "%s: exanic_get_interface_name failed for dev %s.\n",
+                __func__, exa_devname);
+
+        goto err_get_iface_name;
+    }
+
+    d->exanic_id = exanic_id;
+    d->exanic_port = port_number;
+    d->exanic = exanic;
+    d->exanic_rx = exanic_rx;
+    d->exanic_tx = exanic_tx;
+
+    return 0;
+
+err_get_iface_name:
+    exanic_release_tx_buffer(exanic_tx);
+err_acquire_tx_buffer:
+    exanic_release_rx_buffer(exanic_rx);
+err_acquire_rx_buffer:
+    exanic_release_handle(exanic);
+err_acquire_handle:
+    return -1;
+}
+
+static void
+exasock_exanic_ip_dev_destroy(struct exanic_ip_dev *d)
+{
+    exanic_release_tx_buffer(d->exanic_tx);
+    exanic_release_rx_buffer(d->exanic_rx);
+    exanic_release_handle(d->exanic);
+}
+
+/** If the ID of the active device has changed, then we need to
+ * exanic_ip_acquire() the new device and decommission the old one.
+ *
+ * This function is very liberally commented because it's the core locus of
+ * the userspace complexity for the bonding feature. Perhaps something to keep
+ * in mind about the logic here is that the only thing the groupinfo tells us is
+ * whether or not there is an active link in the bond, and if so, which link
+ * that is.
+ *
+ * The short version is that the groupinfo tells us the ID and port of the
+ * current active device. If the "ACTIVE" flag is *not* set on the device that
+ * is described by the groupinfo, then it means that there is on active device
+ * in the bond group.
+ *
+ * We also sometimes need to maintain an open handle to an exanic device which
+ * was the last active device and is no longer currently active, if there is
+ * no currently active device, for the sole purpose of allowing UDP timestamping
+ * to work when frames are being processed just after a link goes down.
+ *
+ * @param[in] exanic_id   Id of the active device. This argument is only valid
+ *                        for non-bonds. A bond ignores this argument.
+ * @param[in] exanic_port Port number of the active device. This argument is only
+ *                        valid for non-bonds. A bond ignores this argument.
+ */
+static int
+exasock_exanic_ip_propagate_link_state_changes(struct exanic_ip *eip,
+                                               int exanic_id, int exanic_port)
+{
+    int ret;
+
+    if (!exasock_exanic_ip_is_bond(eip))
+    {
+        /* In a non-bonded scenario, this branch should only be executed once
+         * at init, and never again.
+         */
+        assert(!exasock_exanic_ip_dev_is_initialized(&eip->dev));
+        ret = exasock_exanic_ip_dev_init(&eip->dev, exanic_id, exanic_port);
+    }
+    else
+    {
+        struct exanic_ip_dev tmpnew;
+
+        /* Only use curr_act_id/port after ensuring they're valid with
+         * exasock_exanic_ip_dev_is_initialized(&eip->dev). Otherwise you may
+         * be using undefined data.
+         */
+        const int curr_act_id = eip->dev.exanic_id;
+        const int curr_act_port = eip->dev.exanic_port;
+        const int cached_gi_id = eip->bond->cached_groupinfo.
+            active_slave_id.typed.exanic_id;
+        const int cached_gi_port = eip->bond->cached_groupinfo.
+            active_slave_id.typed.exanic_port;
+
+        if (exasock_exanic_ip_dev_is_initialized(&eip->bond->last_rx_dev)
+            || exasock_exanic_ip_dev_is_initialized(&eip->dev))
+        {
+            /* This lock should be held every time this function is called
+             * *after* the initial call inside of exanic_ip_alloc().
+             */
+            assert(eip->bond->dev_handles_lock);
+        }
+
+        /* At no time should both dev and last_rx_dev be initialized simultaneously. */
+        assert(!(exasock_exanic_ip_dev_is_initialized(&eip->dev)
+                 && exasock_exanic_ip_dev_is_initialized(&eip->bond->last_rx_dev)));
+
+        /* IF (groupinfo cache says there's an active device) */
+        if (exabond_groupinfo_link_is_active(&eip->bond->cached_groupinfo))
+        {
+            if (exasock_exanic_ip_dev_is_initialized(&eip->bond->last_rx_dev))
+            {
+                if (exasock_bond_slave_id_eq_exanic_ip_dev(&eip->bond->cached_groupinfo.active_slave_id.typed,
+                                                           &eip->bond->last_rx_dev))
+                {
+                    /* IF the new active device is the same device as what we were holding
+                     * in last_rx_dev, we can just move last_rx_dev to be the current dev
+                     * and return early.
+                     */
+                    memcpy(&eip->dev, &eip->bond->last_rx_dev, sizeof(eip->dev));
+                    ret = 0;
+                }
+                else
+                {
+                    /* Else, the new active device is another port entirely; so
+                     * acquire a handle to it and destruct the handle to last_rx_dev.
+                     */
+                    ret = exasock_exanic_ip_dev_init(&tmpnew, cached_gi_id, cached_gi_port);
+                    if (ret == 0)
+                    {
+                        memcpy(&eip->dev, &tmpnew, sizeof(tmpnew));
+                        exasock_exanic_ip_dev_destroy(&eip->bond->last_rx_dev);
+                    }
+                }
+
+                if (ret == 0)
+                    memset(&eip->bond->last_rx_dev, 0, sizeof(eip->bond->last_rx_dev));
+            }
+            else if (exasock_exanic_ip_dev_is_initialized(&eip->dev))
+            {
+                if (!exabond_groupinfo_active_id_and_port_eq(&eip->
+                                                            bond->cached_groupinfo,
+                                                            curr_act_id,
+                                                            curr_act_port))
+                {
+                    /* The active device has changed -- we need to switch to the
+                     * newly active device.
+                     */
+                    ret = exasock_exanic_ip_dev_init(&tmpnew, cached_gi_id, cached_gi_port);
+                    if (ret == 0)
+                    {
+                        /* If we succeed in acquiring a handle to the new device,
+                         * deconstruct the old one and replace it with the new.
+                         */
+                        exasock_exanic_ip_dev_destroy(&eip->dev);
+                        memcpy(&eip->dev, &tmpnew, sizeof(tmpnew));
+                    }
+                    else
+                    {
+                        /* If we fail to acquire the new active device, we just set
+                         * last_rx_dev to be the previous one, but don't deconstruct
+                         * the previous one since we still need an open handle to it
+                         * for UDP timestamps (see exanic_poll_get_timestamp()).
+                         */
+                        memcpy(&eip->bond->last_rx_dev, &eip->dev, sizeof(eip->dev));
+                        memset(&eip->dev, 0, sizeof(eip->dev));
+                    }
+                }
+                else
+                {
+                    /* The kernel groupinfo says there is an active device, and also
+                     * that active device's ID matches the ID of the device we currently
+                     * hold as our current device...so why are we here?
+                     */
+                    fprintf(stderr, "Bond %s: Unexpected call to %s with no discernible "
+                            "changes to state of active link.\n",
+                            eip->bond->devname, __func__);
+
+                    ret = 0;
+                }
+            }
+            else
+            {
+                /* This is the state we expect to encounter in either of the following 2
+                 * cases:
+                 * * This is the first time a bond iface is being acquired by libexasock,
+                 *   and that bond iface has an active device.
+                 * * This is a bond iface which was previously acquired by libexasock,
+                 *   but on acquisition, it had no active device, but one of the devices
+                 *   just became active.
+                 * This branch should be taken only once during the lifetime of a single
+                 * instance of struct exanic_ip.
+                 */
+                ret = exasock_exanic_ip_dev_init(&tmpnew, cached_gi_id, cached_gi_port);
+                if (ret == 0)
+                    memcpy(&eip->dev, &tmpnew, sizeof(eip->dev));
+            }
+        }
+        else /* Kernel reports there's no longer an active link in the bond */
+        {
+            if (exasock_exanic_ip_dev_is_initialized(&eip->dev))
+            {
+                /* The previously active link just went down. Migrate it to
+                 * being last_rx_dev.
+                 */
+                memcpy(&eip->bond->last_rx_dev, &eip->dev, sizeof(eip->dev));
+                memset(&eip->dev, 0, sizeof(eip->dev));
+            }
+            else if (exasock_exanic_ip_dev_is_initialized(&eip->bond->last_rx_dev))
+            {
+                fprintf(stderr, "Bond %s: Unexpected call to %s with no discernible "
+                        "changes in link state. All links still down.\n",
+                        eip->bond->devname, __func__);
+            }
+
+            ret = 0;
+        }
+    }
+
+    return ret;
+}
+
 static inline void
 exa_get_system_time(struct exa_timestamp * restrict ts)
 {
@@ -142,9 +410,9 @@ exanic_get_hardware_time(exanic_t *exanic, exanic_cycles32_t cycles32,
     ts->nsec = tspec.tv_nsec;
 }
 
-/* Send a packet on a ExaNIC */
+/* Send a packet on an ExaNIC port */
 static inline void
-exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
+exanic_dev_send(struct exanic_ip_dev * restrict ctx, char *hdr, size_t hdr_len,
             const struct iovec * restrict iov, size_t iovcnt, size_t skip_len,
             size_t data_len, bool warm)
 {
@@ -156,7 +424,6 @@ exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
     int trial;
 
     assert(hdr_len <= MAX_HDR_LEN);
-    assert(ctx->refcount > 0);
 
     if (frame_len > MAX_FRAME_LEN)
         return;
@@ -203,6 +470,45 @@ exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
     exa_unlock(&exanic_tx_lock);
 }
 
+/* Send a packet on an `exanic_ip` obj which might potentially be a bond */
+static inline void
+exanic_send(struct exanic_ip * restrict ctx, char *hdr, size_t hdr_len,
+            const struct iovec * restrict iov, size_t iovcnt, size_t skip_len,
+            size_t data_len, bool warm)
+{
+    assert(ctx->refcount > 0);
+
+    /* We want to check to see if the groupinfo has changed.
+     * If it has changed, update the devs list and then proceed.
+     */
+    if (exasock_exanic_ip_is_bond(ctx))
+    {
+
+        if (exasock_bond_update_check(ctx->bond))
+        {
+            exa_lock(&ctx->bond->dev_handles_lock);
+
+            exasock_bond_cache_refresh_from_mapping(ctx->bond);
+            if (exasock_exanic_ip_propagate_link_state_changes(ctx, -1, -1) != 0)
+            {
+                fprintf(stderr, "%s: Failed to update group membership for bond %s. "
+                        "Silently sending frames out potentially incorrect links.\n",
+                        __func__, exasock_bond_get_devname(ctx->bond));
+            }
+
+            exa_unlock(&ctx->bond->dev_handles_lock);
+        }
+    }
+
+    /* It's possible for there to be no active device */
+    if (exasock_exanic_ip_dev_is_initialized(&ctx->dev))
+    {
+        exanic_dev_send(&ctx->dev, hdr, hdr_len,
+                        iov, iovcnt,
+                        skip_len, data_len, warm);
+    }
+}
+
 /* Inject a payload to be sent by a ExaNIC ATE */
 static inline void
 exanic_ate_send(struct exanic_ip * restrict ctx, int ate_id,
@@ -215,14 +521,28 @@ exanic_ate_send(struct exanic_ip * restrict ctx, int ate_id,
     size_t iov_len = skip_len + data_len;
     uint16_t *csum;
     int trial;
+    struct exanic_ip_dev *active_dev;
 
     assert(ctx->refcount > 0);
+
+    if (exasock_exanic_ip_is_bond(ctx))
+        active_dev = exasock_exanic_ip_get_active_dev(ctx);
+    else
+        active_dev = &ctx->dev;
+
+    if (active_dev == NULL)
+    {
+        fprintf(stderr, "%s: exa_ip obj has no active devs.\n",
+                __func__);
+
+        return;
+    }
 
     exa_lock(&exanic_tx_lock);
 
     for (trial = 0; trial < 65536; trial++)
     {
-        tx_buf = exanic_begin_transmit_payload(ctx->exanic_tx, ate_id,
+        tx_buf = exanic_begin_transmit_payload(active_dev->exanic_tx, ate_id,
                                                EXANIC_TX_TYPE_TCP_ACCEL,
                                                data_len, &csum);
         if(tx_buf != NULL)
@@ -255,9 +575,9 @@ exanic_ate_send(struct exanic_ip * restrict ctx, int ate_id,
     assert(offs == iov_len);
 
     if (EXPECT_FALSE(warm))
-        exanic_abort_transmit_frame(ctx->exanic_tx);
+        exanic_abort_transmit_frame(active_dev->exanic_tx);
     else
-        exanic_end_transmit_payload(ctx->exanic_tx,
+        exanic_end_transmit_payload(active_dev->exanic_tx,
                                     EXANIC_TX_TYPE_TCP_ACCEL, 0);
 
     exa_unlock(&exanic_tx_lock);
@@ -269,12 +589,36 @@ __exanic_ip_update_timestamping(struct exanic_ip * restrict ctx)
     struct hwtstamp_config hwtc;
     struct ifreq ifr;
     int fd;
+    char *target_iface_name=NULL;
 
     assert(exasock_override_is_off());
 
     memset(&hwtc, 0, sizeof(hwtc));
     memset(&ifr, 0, sizeof(ifr));
-    snprintf(ifr.ifr_name, IFNAMSIZ, "%s", ctx->ifname);
+    if (exasock_exanic_ip_is_bond(ctx))
+    {
+        exa_lock(&ctx->bond->dev_handles_lock);
+
+        if (exasock_exanic_ip_dev_is_initialized(&ctx->dev))
+            target_iface_name = ctx->dev.iface_name;
+        else if (exasock_exanic_ip_dev_is_initialized(&ctx->bond->last_rx_dev))
+            target_iface_name = ctx->bond->last_rx_dev.iface_name;
+        else
+        {
+            exa_unlock(&ctx->bond->dev_handles_lock);
+            fprintf(stderr, "bond iface %s: No active or last_rx dev available "
+                    "for timestamps. Silently ignoring.\n",
+                    ctx->ifname);
+
+            return;
+        }
+
+        exa_unlock(&ctx->bond->dev_handles_lock);
+    }
+    else
+        target_iface_name = ctx->ifname;
+
+    snprintf(ifr.ifr_name, IFNAMSIZ, "%s", target_iface_name);
     ifr.ifr_data = (void *)&hwtc;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -308,24 +652,35 @@ exanic_ip_alloc(const char *ifname, const char *device,
                 in_addr_t address, in_addr_t netmask, in_addr_t broadcast)
 {
     struct exanic_ip *ctx;
-    exanic_t *exanic;
-    exanic_rx_t *exanic_rx;
-    exanic_tx_t *exanic_tx;
+    struct exasock_bond *bond=NULL;
+    unsigned int exanic_id = -1;
 
     assert(exanic_ip_ctx_lock);
     assert(exasock_override_is_off());
 
-    exanic = exanic_acquire_handle(device);
-    if (exanic == NULL)
-        goto err_acquire_handle;
+    /* There's some extra work to do if the iface is a bond
+     * instead of a direct NIC.
+     */
+    if (exanic_interface_is_exabond(ifname))
+    {
+        bond = calloc(1, sizeof(*bond));
+        if (bond == NULL)
+            return NULL;
 
-    exanic_rx = exanic_acquire_rx_buffer(exanic, port_number, 0);
-    if (exanic_rx == NULL)
-        goto err_acquire_rx_buffer;
+        if (exasock_bond_init(bond, ifname) != 0)
+            goto err_bond_init;
+    }
+    else
+    {
+        if (sscanf(device, "exanic%u", &exanic_id) < 1)
+        {
+            fprintf(stderr, "%s: Failed to extract exanic dev ID from "
+                    "input dev id %s.\n",
+                    __func__, device);
 
-    exanic_tx = exanic_acquire_tx_buffer(exanic, port_number, 0);
-    if (exanic_tx == NULL)
-        goto err_acquire_tx_buffer;
+            return NULL;
+        }
+    }
 
     /* Create the exanic_ip struct */
     ctx = malloc(sizeof(struct exanic_ip));
@@ -333,20 +688,30 @@ exanic_ip_alloc(const char *ifname, const char *device,
         goto err_malloc;
 
     memset(ctx, 0, sizeof(*ctx));
-    ctx->exanic = exanic;
-    ctx->exanic_rx = exanic_rx;
-    ctx->exanic_tx = exanic_tx;
+    ctx->bond = bond;
     strncpy(ctx->ifname, ifname, sizeof(ctx->ifname) - 1);
     strncpy(ctx->device, device, sizeof(ctx->device) - 1);
-    ctx->port_number = port_number;
     ctx->refcount = 0;
     ctx->next = NULL;
+
+    /* Init the active sub-device */
+    if (exasock_exanic_ip_propagate_link_state_changes(ctx,
+                                                       exanic_id,
+                                                       port_number) != 0)
+        goto err_alloc_and_init_all_slaves;
 
     /* Get interface options */
     __exanic_ip_update_timestamping(ctx);
 
     /* Initialise the stack */
-    exanic_get_mac_addr(exanic, port_number, ctx->eth_dev_addr);
+    if (ctx->bond)
+    {
+        if (exasock_bond_iface_get_mac_addr(ctx->bond, ctx->eth_dev_addr) != 0)
+            goto err_alloc_and_init_all_slaves;
+    }
+    else
+        exanic_get_mac_addr(ctx->dev.exanic, port_number, ctx->eth_dev_addr);
+
     ctx->vlan_id = vlan_id;
     exa_eth_init(&ctx->eth, ctx->eth_dev_addr, vlan_id);
 
@@ -357,13 +722,12 @@ exanic_ip_alloc(const char *ifname, const char *device,
 
     return ctx;
 
+err_alloc_and_init_all_slaves:
+    free(ctx);
 err_malloc:
-    exanic_release_tx_buffer(exanic_tx);
-err_acquire_tx_buffer:
-    exanic_release_rx_buffer(exanic_rx);
-err_acquire_rx_buffer:
-    exanic_release_handle(exanic);
-err_acquire_handle:
+    exasock_bond_destroy(bond);
+err_bond_init:
+    free(bond);
     return NULL;
 }
 
@@ -371,11 +735,12 @@ static void
 exanic_ip_free(struct exanic_ip *ctx)
 {
     exasock_override_off();
-    exanic_release_tx_buffer(ctx->exanic_tx);
-    exanic_release_rx_buffer(ctx->exanic_rx);
-    exanic_release_handle(ctx->exanic);
+    exasock_exanic_ip_dev_destroy(&ctx->dev);
     exasock_override_on();
 
+    exasock_bond_destroy(ctx->bond);
+    free(ctx->bond);
+    ctx->bond = NULL;
     exa_ip_cleanup(&ctx->ip);
     exa_eth_cleanup(&ctx->eth);
 
@@ -763,9 +1128,11 @@ exanic_ip_send_iov(struct exa_ip_tx * restrict ip,
 static inline void
 exanic_poll_get_timestamp(struct exa_socket * restrict sock,
                           struct exanic_ip * restrict ctx,
+                          struct exanic_rx * restrict erx,
                           uint32_t chunk_id, struct exa_timestamp ts[2])
 {
     exanic_cycles32_t hwts;
+    struct exanic_ip_dev *most_recent_rx_dev;
 
     memset(ts, 0, sizeof(struct exa_timestamp) * 2);
 
@@ -774,8 +1141,13 @@ exanic_poll_get_timestamp(struct exa_socket * restrict sock,
 
     if (ctx->rx_hw_timestamp)
     {
-        hwts = exanic_receive_chunk_timestamp(ctx->exanic_rx, chunk_id);
-        exanic_get_hardware_time(ctx->exanic, hwts, &ts[1]);
+        most_recent_rx_dev = exasock_bond_get_last_rx_dev(ctx->bond);
+        if (most_recent_rx_dev == NULL)
+            most_recent_rx_dev = exasock_exanic_ip_get_active_dev(ctx);
+        assert(most_recent_rx_dev != NULL);
+
+        hwts = exanic_receive_chunk_timestamp(erx, chunk_id);
+        exanic_get_hardware_time(most_recent_rx_dev->exanic, hwts, &ts[1]);
     }
 }
 
@@ -917,10 +1289,9 @@ exanic_poll_recv_body(exanic_rx_t *rx, size_t skip_len,
     }
 }
 
-/* Check ExaNIC receive buffers for packets
- * exasock_poll_lock must be held */
-int
-exanic_poll(void)
+static int
+exanic_poll_single_rx(struct exanic_ip *ctx,
+                      struct exanic_rx *rx)
 {
     char *chunk_end, *eth_hdr, *ip_hdr, *t_hdr, *hdr_end, *data;
     char *buf1, *buf2;
@@ -930,7 +1301,6 @@ exanic_poll(void)
     uint32_t data_seq, ack_seq, prev_proc_seq;
     uint8_t tcp_flags;
     uint16_t tcp_win;
-    struct exanic_ip *ctx;
     int eth_proto, ip_proto;
     struct exa_endpoint ep;
     struct exa_timestamp ts[2];
@@ -941,188 +1311,259 @@ exanic_poll(void)
     ssize_t ret;
     uint64_t csum;
 
+    /* Try to read headers */
+    more_chunks = 0;
+    /* exanic_receive_chunk_inplace returns 0 when there's no new data, or neg
+     * when an error occurs.
+     */
+    ret = exanic_receive_chunk_inplace(rx, &eth_hdr,
+                                       &hdr_chunk_id, &more_chunks);
+    if (ret <= 0)
+        return ret;
+
+    chunk_end = eth_hdr + ret;
+
+    /* Process headers */
+    eth_proto = exa_eth_parse_hdr(&ctx->eth, eth_hdr, chunk_end, &ip_hdr);
+    if (eth_proto == htons(ETH_P_IP))
+    {
+        ip_proto = exa_ip_parse_hdr(&ctx->ip, &ep.addr, ip_hdr, chunk_end,
+                                    &t_hdr, &t_len);
+        if (ip_proto == IPPROTO_UDP)
+        {
+            /* Process UDP header */
+            if (exa_udp_parse_hdr(t_hdr, chunk_end, t_len,
+                                  ipaddr_csum(&ep.addr), &ep.port,
+                                  &hdr_end, &data_len, &csum) == -1)
+                goto abort_frame;
+
+            /* Find socket matching this packet */
+            if ((fd = exa_udp_lookup(&ep, ctx->ifaddr.address)) == -1)
+                goto abort_frame;
+            sock = exa_socket_get(fd);
+            exa_lock(&sock->state->rx_lock);
+
+            /* Timestamp processing */
+            if (sock->report_timestamp)
+                exanic_poll_get_timestamp(sock, ctx, rx, hdr_chunk_id, ts);
+
+            /* Allocate space in receive queue */
+            data = exa_udp_queue_write_alloc(sock, &ep, data_len);
+            if (data == NULL)
+                goto abort_udp_rx;
+
+            /* Finish receiving chunks */
+            if (exanic_poll_recv_body(rx, 0,
+                                      data, data_len, NULL, 0,
+                                      hdr_end, chunk_end - hdr_end,
+                                      &csum, &more_chunks) == -1)
+                goto abort_udp_queue_write;
+
+            /* Finish packet processing */
+            if (exa_udp_validate_csum(t_hdr, hdr_end, &csum) == -1)
+                goto abort_udp_queue_write;
+
+            /* Discard packet if it might have been overwritten */
+            if (!exanic_receive_chunk_recheck(rx, hdr_chunk_id))
+                goto abort_udp_queue_write;
+
+            /* Commit packet to receive queue */
+            if (sock->report_timestamp)
+                exa_udp_queue_write_commit(sock, data_len, ts);
+            else
+                exa_udp_queue_write_commit(sock, data_len, NULL);
+
+            /* Process socket ready state */
+            exa_notify_udp_read_update(sock);
+
+            exa_unlock(&sock->state->rx_lock);
+
+            if (more_chunks)
+                exanic_receive_abort(rx);
+
+            exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
+            return fd;
+
+        abort_udp_queue_write:
+            exa_udp_queue_write_abort(sock);
+        abort_udp_rx:
+            exa_notify_udp_read_update(sock);
+            exa_unlock(&sock->state->rx_lock);
+            goto abort_frame;
+        }
+        else if (ip_proto == IPPROTO_TCP)
+        {
+            /* Process TCP header */
+            if (exa_tcp_parse_hdr(t_hdr, chunk_end, t_len,
+                                  ipaddr_csum(&ep.addr), &ep.port,
+                                  &tcpopt, &tcpopt_len, &hdr_end,
+                                  &data_seq, &data_len, &ack_seq,
+                                  &tcp_flags, &tcp_win, &csum) == -1)
+                goto abort_frame;
+
+            /* Find socket matching this packet */
+            if ((fd = exa_tcp_lookup(&ep)) == -1)
+                goto abort_frame;
+            sock = exa_socket_get(fd);
+            exa_lock(&sock->state->rx_lock);
+
+            /* Listening sockets are processed in the kernel module */
+            if (exa_tcp_listening(&sock->ctx.tcp->tcp))
+                goto abort_tcp_rx;
+
+            /* Packet pre-processing */
+            if (exa_tcp_pre_update_state(&sock->ctx.tcp->tcp, tcp_flags,
+                                         data_seq, ack_seq, data_len,
+                                         tcpopt, tcpopt_len) == -1)
+                goto abort_tcp_rx;
+
+            /* Get a pointer to receive buffer */
+            if (data_len == 0 ||
+                exa_tcp_rx_buffer_alloc(sock, data_seq, data_len,
+                                        &prev_proc_seq, &buf1, &buf1_len,
+                                        &buf2, &buf2_len, &skip_len) == -1)
+            {
+                /* Sequence number is out of range or segment length is 0.
+                 * Skip over entire payload and continue packet processing */
+                skip_len = data_len;
+                buf1 = buf2 = NULL;
+                buf1_len = buf2_len = 0;
+                prev_proc_seq = 0;
+            }
+
+            /* Finish receiving chunks into receive buffer */
+            if (exanic_poll_recv_body(rx, skip_len,
+                                      buf1, buf1_len, buf2, buf2_len,
+                                      hdr_end, chunk_end - hdr_end,
+                                      &csum, &more_chunks) == -1)
+                goto abort_tcp_rx_buffer_write;
+
+            /* Finish packet processing */
+            if (exa_tcp_validate_csum(t_hdr, hdr_end, &csum) == -1)
+                goto abort_tcp_rx_buffer_write;
+
+            /* Discard packet if it might have been overwritten */
+            if (!exanic_receive_chunk_recheck(rx, hdr_chunk_id))
+                goto abort_tcp_rx_buffer_write;
+
+            /* Packet is confirmed valid, we can update TCP state
+             * and finalise received data in receive buffer */
+            exa_tcp_rx_buffer_commit(sock, data_seq + skip_len,
+                                     buf1_len + buf2_len, prev_proc_seq);
+            exa_tcp_update_state(&sock->ctx.tcp->tcp, tcp_flags,
+                                 data_seq, ack_seq, tcp_win);
+            bool new_connection =
+                exa_tcp_update_conn_state(&sock->ctx.tcp->tcp, tcp_flags,
+                                          data_seq, data_len);
+
+            /* Initialise ATE here so that poll/select, epoll and write
+             * and friends only succeed after ATE is set up, because
+             * these functions call exanic_poll through do_socket_wait */
+            if (EXPECT_FALSE(new_connection && sock->ate_init_pending))
+            {
+                if (exa_sys_ate_init(fd) == -1)
+                    exa_tcp_error_close(&sock->ctx.tcp->tcp, ECANCELED);
+                else
+                    sock->ate_init_pending = false;
+            }
+
+            /* Update socket ready state */
+            exa_notify_tcp_update(sock);
+
+            exa_unlock(&sock->state->rx_lock);
+
+            if (more_chunks)
+                exanic_receive_abort(rx);
+
+            exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
+            return fd;
+
+        abort_tcp_rx_buffer_write:
+            /* Invalidate received data */
+            exa_tcp_rx_buffer_abort(sock, data_seq + skip_len,
+                                    buf1_len + buf2_len, prev_proc_seq);
+        abort_tcp_rx:
+            exa_notify_tcp_update(sock);
+            exa_unlock(&sock->state->rx_lock);
+            goto abort_frame;
+        }
+    }
+
+abort_frame:
+    if (more_chunks)
+        exanic_receive_abort(rx);
+
+    return -1;
+}
+
+/* Assumes that eip->dev_list_lock is held */
+static ssize_t
+exanic_poll_bond(struct exanic_ip *eip)
+{
+    /* NOTE:
+     *
+     * There is a reasonable argument to be made that the default return
+     * value here should be 0 and not -1 since zero just says "no data",
+     * whereas -1 says "the exanic card signaled an error in the frame".
+     *
+     * (This default return value is returned when there is no active
+     * device in the bond to read from. No active device is not an error;
+     * it just means there's no data to read because there's no device to
+     * read from).
+     */
+    int ret = -1;
+
+    /* If it is a bond, check for bond active device changes. */
+    assert(exasock_exanic_ip_is_bond(eip));
+
+    if (exasock_bond_update_check(eip->bond))
+    {
+        exa_lock(&eip->bond->dev_handles_lock);
+
+        exasock_bond_cache_refresh_from_mapping(eip->bond);
+        ret = exasock_exanic_ip_propagate_link_state_changes(eip, -1, -1);
+        if (ret != 0)
+            fprintf(stderr, "%s: Failed to update group membership for bond %s. "
+                    "Silently polling frame from potentially incorrect links.\n",
+                    __func__, exasock_bond_get_devname(eip->bond));
+
+        exa_unlock(&eip->bond->dev_handles_lock);
+    }
+
+    /* It's possible for there to be no active devices in the bond. */
+    if (exasock_exanic_ip_dev_is_initialized(&eip->dev))
+        ret = exanic_poll_single_rx(eip, eip->dev.exanic_rx);
+
+    return ret;
+}
+
+/* Check ExaNIC receive buffers for packets
+ * exasock_poll_lock must be held */
+int
+exanic_poll(void)
+{
+    struct exanic_ip *ctx;
+
     assert(exasock_poll_lock);
 
     /* Poll all interfaces */
     for (ctx = exanic_ctx_list; ctx != NULL; ctx = ctx->next)
     {
-        /* Try to read headers */
-        more_chunks = 0;
-        ret = exanic_receive_chunk_inplace(ctx->exanic_rx, &eth_hdr,
-                                           &hdr_chunk_id, &more_chunks);
-        if (ret <= 0)
-            continue;
-        chunk_end = eth_hdr + ret;
+        int ret;
 
-        /* Process headers */
-        eth_proto = exa_eth_parse_hdr(&ctx->eth, eth_hdr, chunk_end, &ip_hdr);
-        if (eth_proto == htons(ETH_P_IP))
+        if (exasock_exanic_ip_is_bond(ctx))
+            ret = exanic_poll_bond(ctx);
+        else
         {
-            ip_proto = exa_ip_parse_hdr(&ctx->ip, &ep.addr, ip_hdr, chunk_end,
-                                        &t_hdr, &t_len);
-            if (ip_proto == IPPROTO_UDP)
-            {
-                /* Process UDP header */
-                if (exa_udp_parse_hdr(t_hdr, chunk_end, t_len,
-                                      ipaddr_csum(&ep.addr), &ep.port,
-                                      &hdr_end, &data_len, &csum) == -1)
-                    goto abort_frame;
-
-                /* Find socket matching this packet */
-                if ((fd = exa_udp_lookup(&ep, ctx->ifaddr.address)) == -1)
-                    goto abort_frame;
-                sock = exa_socket_get(fd);
-                exa_lock(&sock->state->rx_lock);
-
-                /* Timestamp processing */
-                if (sock->report_timestamp)
-                    exanic_poll_get_timestamp(sock, ctx, hdr_chunk_id, ts);
-
-                /* Allocate space in receive queue */
-                data = exa_udp_queue_write_alloc(sock, &ep, data_len);
-                if (data == NULL)
-                    goto abort_udp_rx;
-
-                /* Finish receiving chunks */
-                if (exanic_poll_recv_body(ctx->exanic_rx, 0,
-                                          data, data_len, NULL, 0,
-                                          hdr_end, chunk_end - hdr_end,
-                                          &csum, &more_chunks) == -1)
-                    goto abort_udp_queue_write;
-
-                /* Finish packet processing */
-                if (exa_udp_validate_csum(t_hdr, hdr_end, &csum) == -1)
-                    goto abort_udp_queue_write;
-
-                /* Discard packet if it might have been overwritten */
-                if (!exanic_receive_chunk_recheck(ctx->exanic_rx, hdr_chunk_id))
-                    goto abort_udp_queue_write;
-
-                /* Commit packet to receive queue */
-                if (sock->report_timestamp)
-                    exa_udp_queue_write_commit(sock, data_len, ts);
-                else
-                    exa_udp_queue_write_commit(sock, data_len, NULL);
-
-                /* Process socket ready state */
-                exa_notify_udp_read_update(sock);
-
-                exa_unlock(&sock->state->rx_lock);
-
-                if (more_chunks)
-                    exanic_receive_abort(ctx->exanic_rx);
-
-                exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
-                return fd;
-
-            abort_udp_queue_write:
-                exa_udp_queue_write_abort(sock);
-            abort_udp_rx:
-                exa_notify_udp_read_update(sock);
-                exa_unlock(&sock->state->rx_lock);
-                goto abort_frame;
-            }
-            else if (ip_proto == IPPROTO_TCP)
-            {
-                /* Process TCP header */
-                if (exa_tcp_parse_hdr(t_hdr, chunk_end, t_len,
-                                      ipaddr_csum(&ep.addr), &ep.port,
-                                      &tcpopt, &tcpopt_len, &hdr_end,
-                                      &data_seq, &data_len, &ack_seq,
-                                      &tcp_flags, &tcp_win, &csum) == -1)
-                    goto abort_frame;
-
-                /* Find socket matching this packet */
-                if ((fd = exa_tcp_lookup(&ep)) == -1)
-                    goto abort_frame;
-                sock = exa_socket_get(fd);
-                exa_lock(&sock->state->rx_lock);
-
-                /* Listening sockets are processed in the kernel module */
-                if (exa_tcp_listening(&sock->ctx.tcp->tcp))
-                    goto abort_tcp_rx;
-
-                /* Packet pre-processing */
-                if (exa_tcp_pre_update_state(&sock->ctx.tcp->tcp, tcp_flags,
-                                             data_seq, ack_seq, data_len,
-                                             tcpopt, tcpopt_len) == -1)
-                    goto abort_tcp_rx;
-
-                /* Get a pointer to receive buffer */
-                if (data_len == 0 ||
-                    exa_tcp_rx_buffer_alloc(sock, data_seq, data_len,
-                                            &prev_proc_seq, &buf1, &buf1_len,
-                                            &buf2, &buf2_len, &skip_len) == -1)
-                {
-                    /* Sequence number is out of range or segment length is 0.
-                     * Skip over entire payload and continue packet processing */
-                    skip_len = data_len;
-                    buf1 = buf2 = NULL;
-                    buf1_len = buf2_len = 0;
-                    prev_proc_seq = 0;
-                }
-
-                /* Finish receiving chunks into receive buffer */
-                if (exanic_poll_recv_body(ctx->exanic_rx, skip_len,
-                                          buf1, buf1_len, buf2, buf2_len,
-                                          hdr_end, chunk_end - hdr_end,
-                                          &csum, &more_chunks) == -1)
-                    goto abort_tcp_rx_buffer_write;
-
-                /* Finish packet processing */
-                if (exa_tcp_validate_csum(t_hdr, hdr_end, &csum) == -1)
-                    goto abort_tcp_rx_buffer_write;
-
-                /* Discard packet if it might have been overwritten */
-                if (!exanic_receive_chunk_recheck(ctx->exanic_rx, hdr_chunk_id))
-                    goto abort_tcp_rx_buffer_write;
-
-                /* Packet is confirmed valid, we can update TCP state
-                 * and finalise received data in receive buffer */
-                exa_tcp_rx_buffer_commit(sock, data_seq + skip_len,
-                                         buf1_len + buf2_len, prev_proc_seq);
-                exa_tcp_update_state(&sock->ctx.tcp->tcp, tcp_flags,
-                                     data_seq, ack_seq, tcp_win);
-                bool new_connection =
-                    exa_tcp_update_conn_state(&sock->ctx.tcp->tcp, tcp_flags,
-                                              data_seq, data_len);
-
-                /* Initialise ATE here so that poll/select, epoll and write
-                 * and friends only succeed after ATE is set up, because
-                 * these functions call exanic_poll through do_socket_wait */
-                if (EXPECT_FALSE(new_connection && sock->ate_init_pending))
-                {
-                    if (exa_sys_ate_init(fd) == -1)
-                        exa_tcp_error_close(&sock->ctx.tcp->tcp, ECANCELED);
-                    else
-                        sock->ate_init_pending = false;
-                }
-
-                /* Update socket ready state */
-                exa_notify_tcp_update(sock);
-
-                exa_unlock(&sock->state->rx_lock);
-
-                if (more_chunks)
-                    exanic_receive_abort(ctx->exanic_rx);
-
-                exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
-                return fd;
-
-            abort_tcp_rx_buffer_write:
-                /* Invalidate received data */
-                exa_tcp_rx_buffer_abort(sock, data_seq + skip_len,
-                                        buf1_len + buf2_len, prev_proc_seq);
-            abort_tcp_rx:
-                exa_notify_tcp_update(sock);
-                exa_unlock(&sock->state->rx_lock);
-                goto abort_frame;
-            }
+            /* If it's not a bond, just do a normal poll on its
+             * RX DMA mapping.
+             */
+            ret = exanic_poll_single_rx(ctx,
+                                        ctx->dev.exanic_rx);
         }
 
-    abort_frame:
-        if (more_chunks)
-            exanic_receive_abort(ctx->exanic_rx);
+        if (ret > 0)
+            return ret;
     }
 
     if (exanic_ctx_need_cleanup)
@@ -1362,19 +1803,63 @@ exanic_tcp_free(struct exa_socket * restrict sock)
 }
 
 /* Get the ExaNIC device and port number used for this socket */
-void
+int
 exanic_tcp_get_device(struct exa_socket * restrict sock, char *dev,
                       size_t len, int *port_number)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
     struct exanic_ip * restrict ip_ctx = ctx->exanic_ctx;
+    const struct exanic_ip_dev *first_active_dev;
+    int exa_id, exa_port, ret;
 
     assert(exa_read_locked(&sock->lock));
     assert(ctx != NULL);
     assert(ip_ctx != NULL);
 
-    snprintf(dev, len, "%s", ip_ctx->device);
-    *port_number = ip_ctx->port_number;
+    first_active_dev = exasock_exanic_ip_get_active_dev(ip_ctx);
+
+    if (exasock_exanic_ip_is_bond(ip_ctx))
+    {
+        /* It's slightly complex to handle this cleanly. The caller expects
+         * to get back an exanic device name they can use directly but the
+         * problem is that it is possible for a bonding group to be empty,
+         * and thus for us to have nothing to return here.
+         *
+         * If the group has active members, just return the first active member.
+         *
+         * If the group is empty, return the name of the exabond device file in the
+         * supplied string memory, and return -1, and EAGAIN in errno.
+         *
+         * Returning the name of the bonding device also allows the caller the
+         * opportunity to manually handle the fact that the device is actually a
+         * group, if it is equipped to handle that.
+         */
+        if (first_active_dev == NULL)
+        {
+            strncpy(dev, ip_ctx->bond->devname, len);
+            errno = EAGAIN;
+            ret = -1;
+        }
+        else
+        {
+            exasock_exanic_ip_dev_get_id_and_port(first_active_dev, &exa_id, &exa_port);
+            snprintf(dev, len, "exanic%d", exa_id);
+            *port_number = exa_port;
+            ret = 0;
+        }
+    }
+    else
+    {
+        /* If it's not a bonding dev, this shouldn't be possible. */
+        assert(first_active_dev != NULL);
+
+        exasock_exanic_ip_dev_get_id_and_port(first_active_dev, &exa_id, &exa_port);
+        snprintf(dev, len, "%s", ip_ctx->device);
+        *port_number = exa_port;
+        ret = 0;
+    }
+
+    return ret;
 }
 
 /* Put socket into LISTEN state */

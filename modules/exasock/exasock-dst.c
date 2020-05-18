@@ -13,6 +13,7 @@
 #include <linux/if_vlan.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <linux/netdevice.h>
 #include <net/arp.h>
 #include <net/route.h>
 
@@ -20,6 +21,9 @@
 #include "../../libs/exasock/kernel/structs.h"
 
 #include "../exanic/exanic.h"
+#if __HAS_BONDING_KO_HEADER
+#include "exasock-bonding-priv.h"
+#endif
 #include "exasock.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
@@ -102,6 +106,23 @@ static uint8_t *                dst_used_flags;
 
 /* User-visible copy of the destination table */
 static struct exa_dst_entry *   dst_user_table;
+
+/* Bonding notes:
+ *
+ * While the net effect of this comment is to just say that
+ * there are no special considerations for bonding and that
+ * it "just works" because of the design of our current shadowed
+ * routing table, it's still useful to explain *why* it happens
+ * to "just work" so here we are.
+ *
+ * In our shadowed routing table, we insert routes from both real
+ * ExaNIC interfaces and exasock bonding virtual interfaces
+ * into the userspace destination hash table. From there,
+ * libexasock is able to seamlessly lookup the correct iface
+ * to send frames out of, and if it is told that the output iface
+ * for a particular frame is a bonding iface, that will be handled
+ * transparently by exanic_send().
+ */
 
 static void __update_user_dst_entry(
 #ifndef __HAS_RT_TABLE_ID
@@ -461,6 +482,27 @@ exit:
     spin_unlock_bh(&dst_lock);
 }
 
+static void
+exasock_transmit_frame(struct net_device *netdev, struct sk_buff *skb)
+{
+    struct netdev_queue *txq;
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 13, 0)
+    txq = skb_get_tx_queue(netdev, skb);
+#else
+    u16 skb_q_num = skb_get_queue_mapping(skb);
+    txq = netdev_get_tx_queue(netdev, skb_q_num);
+#endif
+    BUG_ON(txq == NULL);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
+    netdev_start_xmit(skb, netdev, txq, false);
+#else
+    if (netdev->netdev_ops)
+        if (netdev->netdev_ops->ndo_start_xmit)
+            netdev->netdev_ops->ndo_start_xmit(skb, netdev);
+#endif
+}
+
 /**
  * Update a table entry after a neighbour reply.
  */
@@ -498,34 +540,14 @@ void exasock_dst_neigh_update(struct neighbour *neigh)
         struct sk_buff *skb = qe->skb;
         struct net_device *skbdev = skb->dev;
         struct net_device *realdev = skbdev;
+        struct ethhdr *hdr;
 
-        /* Fill out ethernet header in packet */
-#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
-        if (skbdev->priv_flags & IFF_802_1Q_VLAN)
-        {
-            struct vlan_ethhdr *hdr;
+        hdr = (struct ethhdr *)skb_push(skb, ETH_HLEN);
+        memcpy(hdr->h_dest, neigh->ha, ETH_ALEN);
+        memcpy(hdr->h_source, skbdev->dev_addr, ETH_ALEN);
+        hdr->h_proto = htons(ETH_P_IP);
 
-            hdr = (struct vlan_ethhdr *)skb_push(skb, VLAN_ETH_HLEN);
-            memcpy(hdr->h_dest, neigh->ha, ETH_ALEN);
-            memcpy(hdr->h_source, skbdev->dev_addr, ETH_ALEN);
-            hdr->h_vlan_proto = htons(ETH_P_8021Q);
-            hdr->h_vlan_TCI = htons(vlan_dev_vlan_id(skbdev));
-            hdr->h_vlan_encapsulated_proto = htons(ETH_P_IP);
-            realdev = vlan_dev_real_dev(skbdev);
-        }
-        else
-#endif
-        {
-            struct ethhdr *hdr;
-
-            hdr = (struct ethhdr *)skb_push(skb, ETH_HLEN);
-            memcpy(hdr->h_dest, neigh->ha, ETH_ALEN);
-            memcpy(hdr->h_source, skbdev->dev_addr, ETH_ALEN);
-            hdr->h_proto = htons(ETH_P_IP);
-        }
-
-        /* Send packet */
-        exanic_netdev_transmit_frame(realdev, skb);
+        exasock_transmit_frame(realdev, skb);
 
         dev_put(skbdev);
         list_del(&qe->list);
@@ -591,6 +613,19 @@ struct net_device *exasock_dst_get_netdev(uint32_t dst_addr, uint32_t src_addr)
     return ndev;
 }
 
+static bool
+exasock_netdev_is_bond_under_management(struct net_device *nd)
+{
+#if __HAS_BONDING_KO_HEADER
+    if (!exabond_netif_is_bond_master(nd))
+        return false;
+
+    return exabond_ifaces_find_netdev_by_name(netdev_name(nd));
+#else
+    return false;
+#endif
+}
+
 /**
  * Look up or create destination entry and insert skb into queue.
  */
@@ -599,7 +634,7 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
 {
     struct exasock_dst_entry *de;
     struct exasock_dst_queue_entry *qe;
-    struct net_device *ndev;
+    struct net_device *ndev, *realdev;
     struct rtable *rt;
 #ifndef __HAS_OLD_NETCORE
     struct flowi4 fl4 = { .daddr = dst_addr, .saddr = *src_addr };
@@ -627,8 +662,14 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
         goto err_get_if;
     }
 
-    /* Verify that output interface is an ExaNIC */
-    if (!exasock_is_exanic_dev(exasock_get_realdev(ndev)))
+    /* Fail the transmission if the output interface is
+     * not an ExaNIC,
+     * AND if it is not an exabond-driver controlled
+     * bonding master.
+     */
+    realdev = exasock_get_realdev(ndev);
+    if (!exasock_is_exanic_dev(realdev)
+        && !exasock_netdev_is_bond_under_management(realdev))
     {
         err = -ENETUNREACH;
         goto err_not_exanic;

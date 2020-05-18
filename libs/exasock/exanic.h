@@ -4,6 +4,8 @@
 struct exanic_ip;
 struct exanic_udp;
 struct exanic_tcp;
+struct exa_socket;
+struct exa_endpoint;
 
 bool exanic_ip_find(in_addr_t addr);
 bool exanic_ip_find_by_interface(const char *ifname, in_addr_t *addr);
@@ -40,8 +42,8 @@ ssize_t exanic_udp_send_iov(struct exa_socket * restrict sock,
 struct exa_tcp_init_state;
 int exanic_tcp_alloc(struct exa_socket * restrict sock);
 void exanic_tcp_free(struct exa_socket * restrict sock);
-void exanic_tcp_get_device(struct exa_socket * restrict sock, char *dev,
-                           size_t len, int *port_number);
+int exanic_tcp_get_device(struct exa_socket * restrict sock, char *dev,
+                          size_t len, int *port_number);
 void exanic_tcp_listen(struct exa_socket * restrict sock, int backlog);
 void exanic_tcp_accept(struct exa_socket * restrict sock,
                        struct exa_endpoint * restrict ep);

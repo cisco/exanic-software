@@ -21,6 +21,7 @@
 #include "ioctl.h"
 #include "port.h"
 #include "util.h"
+#include "exanic_bonding.h"
 
 static int check_exanic_and_port_number(exanic_t *exanic, int port_number)
 {
@@ -205,6 +206,16 @@ int exanic_find_port_by_interface_name(const char *name, char *device,
     struct ethtool_drvinfo drvinfo;
     struct exaioc_ifinfo exainfo;
     int fd;
+
+    /* If it's a bond, just return port 0 with the device
+     * node name filled out.
+     */
+    if (exanic_interface_is_exabond(name))
+    {
+        snprintf(device, device_len, "/dev/exabond-%s", name);
+        *port_number = 0;
+        return 0;
+    }
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
 

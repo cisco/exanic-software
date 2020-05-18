@@ -201,7 +201,10 @@ close(int fd)
 
     /* Free exa_notify struct for epoll sockets */
     if (sock->notify)
+    {
         exa_notify_free(sock->notify);
+        sock->notify = NULL;
+    }
 
     /* Clear the struct and then release the lock */
     exa_socket_zero(sock);

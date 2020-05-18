@@ -239,11 +239,34 @@ struct exasock_poll_sync
     uint32_t reclaim_ack;
 };
 
+struct exanic_ip_dev
+{
+    int exanic_id, exanic_port;
+    char iface_name[16];
+    struct exanic *exanic;
+    struct exanic_rx *exanic_rx;
+    struct exanic_tx *exanic_tx;
+};
+
 extern struct exasock_poll_sync exasock_poll_sync;
 
 #define exasock_poll_lock           (exasock_poll_sync.lock)
 #define exasock_poll_reclaim_req    (exasock_poll_sync.reclaim_req)
 #define exasock_poll_reclaim_ack    (exasock_poll_sync.reclaim_ack)
+
+static inline void
+exasock_exanic_ip_dev_get_id_and_port(const struct exanic_ip_dev *dev,
+                                      int *id, int *port)
+{
+    *id = dev->exanic_id;
+    *port = dev->exanic_port;
+}
+
+static inline bool
+exasock_exanic_ip_dev_is_initialized(const struct exanic_ip_dev *dev)
+{
+    return dev->exanic != NULL;
+}
 
 static inline void
 exa_socket_reclaim_sync(void)

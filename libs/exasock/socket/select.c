@@ -581,6 +581,8 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
             /* Poll ExaNICs for packets */
             for (i = 0; i < iters; i++)
             {
+                int j;
+
                 fd = exanic_poll();
                 if (fd >= 0)
                 {
@@ -599,14 +601,14 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
                     exa_read_unlock(&sock->lock);
 
                     /* FIXME: Need a table for looking up by fd */
-                    for (i = 0; i < nfds; i++)
+                    for (j = 0; j < nfds; j++)
                     {
-                        if (fds[i].fd == fd)
+                        if (fds[j].fd == fd)
                         {
-                            revents &= fds[i].events | POLLHUP | POLLERR;
+                            revents &= fds[j].events | POLLHUP | POLLERR;
                             if (revents == 0)
                                 continue;
-                            fds[i].revents = revents;
+                            fds[j].revents = revents;
                             ret = 1;
                             goto poll_exit;
                         }

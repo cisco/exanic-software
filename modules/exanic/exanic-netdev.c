@@ -146,6 +146,15 @@ enum
     EXANIC_RX_FRAME_TRUNCATED = 257,
 };
 
+void exanic_netdev_get_id_and_port(struct net_device *ndev,
+                                   int *id, int *port_num)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    *id = priv->exanic->id;
+    *port_num = priv->port;
+}
+EXPORT_SYMBOL(exanic_netdev_get_id_and_port);
+
 static int exanic_transmit_payload(struct exanic_netdev_tx *tx,
                                    int connection_id, const char *payload,
                                    size_t payload_size);

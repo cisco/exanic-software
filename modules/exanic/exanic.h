@@ -70,6 +70,9 @@ struct exanic;
 
 struct exanic *exanic_find_by_minor(unsigned minor);
 
+void exanic_netdev_get_id_and_port(struct net_device *ndev,
+                                   int *id, int *port_num);
+
 /* These functions are called with exanic mutex held. */
 void exanic_configure_port_hash(struct exanic *exanic, unsigned port,
                                 bool enable, unsigned mask,

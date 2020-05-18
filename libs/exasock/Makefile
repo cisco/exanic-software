@@ -14,7 +14,7 @@ LDFLAGS=-shared
 LDPATH=$(ABSDIR)/../exanic
 LDLIBS=-ldl -lrt -lexanic $(addprefix -L, $(LDPATH))
 
-CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c warn.c
+CORE_SRCS=structs.c udp.c tcp.c exanic.c sockets.c notify.c sys.c warn.c exasock-bonding.c
 SOCK_SRCS=socket/override.c socket/trace.c socket/socket.c socket/recv.c socket/send.c socket/select.c socket/signal.c socket/epoll.c socket/override_unsafe.c
 EXT_SRCS=extensions/tcp.c extensions/misc.c
 

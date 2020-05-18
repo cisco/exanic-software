@@ -22,6 +22,7 @@
 #include "../exanic/exanic.h"
 #include "exasock.h"
 #include "exasock-stats.h"
+#include "exasock-bonding-priv.h"
 
 bool module_removed;
 
@@ -698,9 +699,21 @@ static int __init exasock_init(void)
     /* Notifier for monitoring IP address changes */
     register_inetaddr_notifier(&exasock_inetaddr_notifier);
 
+    /* Initialize bonding if supported. */
+    err = exabond_init(&exabond);
+    if (err)
+    {
+        pr_err("Bonding support failed to initialize.\n");
+        goto err_bonding;
+    }
+
     pr_info("ExaSock kernel support (ver " DRV_VERSION ") loaded.\n");
     return 0;
 
+err_bonding:
+    unregister_netevent_notifier(&exasock_net_notifier);
+    unregister_inetaddr_notifier(&exasock_inetaddr_notifier);
+    misc_deregister(&exasock_dev);
 err_miscdev:
     vfree(exasock_info_page);
 err_vmalloc:
@@ -722,6 +735,7 @@ module_init(exasock_init);
 static void __exit exasock_exit(void)
 {
     module_removed = true;
+    exabond_destroy(&exabond);
     unregister_netevent_notifier(&exasock_net_notifier);
     unregister_inetaddr_notifier(&exasock_inetaddr_notifier);
     misc_deregister(&exasock_dev);

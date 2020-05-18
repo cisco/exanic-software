@@ -1,0 +1,84 @@
+#
+# ExaNIC Link Aggregation driver
+# Copyright (C) 2011-2020 Exablaze Pty Ltd and its licensors
+#
+
+set -e
+
+if [ $# -lt 2 ]
+then
+	echo "Usage:	$0 <0|1> <devname> <IP ADDR[/netmask]> [slave_dev ...]"
+	echo "	<0|1> is a bool for an internal var USE_BONDING."
+	exit -1
+fi
+
+if [ $1 -eq 1 ]; then
+	USE_BONDING=1
+else
+	USE_BONDING=0
+fi
+
+DEV=$2
+IP=$3
+
+if [ $USE_BONDING -eq 0 ]
+then
+	for i in exasock exanic
+	do
+		modprobe -r $i;
+	done &&
+	modprobe exasock &&
+	sleep 1
+
+	if [ ! -e "/sys/class/net/$DEV" ]
+	then
+		echo "Iface $DEV doesn't exist."
+		exit -1
+	fi
+else
+	for i in exasock exanic
+	do
+		modprobe -r $i
+	done &&
+	for i in bonding exasock
+	do
+		modprobe $i
+	done &&
+	sleep 1
+
+	if [ ! -e "/sys/class/net/$DEV" ]
+	then
+		echo +"$DEV" >/sys/class/net/bonding_masters
+	fi
+
+	if [ ! -e "/sys/class/net/$DEV" ]
+	then
+		echo "Bond iface $DEV failed creation."
+		exit -1
+	fi
+	if [ ! -e "/sys/class/net/exabond_masters" ]
+	then
+		echo "Exabond driver not loaded correctly."
+		exit -1
+	fi
+	ip link set $DEV down
+	echo active-backup >/sys/class/net/"$DEV"/bonding/mode
+	echo 200 >/sys/class/net/"$DEV"/bonding/miimon
+	echo "Created and setup bond $DEV..."
+
+	echo \+"$DEV" >/sys/class/net/exabond_masters
+
+	i=4
+	while [ $i -le $# ]
+	do
+		eval "ifname=\${$i}"
+		ip link set dev "$ifname" down
+		echo \+"$ifname" >/sys/class/net/"$DEV"/bonding/slaves
+		echo "Added slave ${ifname}..."
+		i=$((i + 1))
+	done
+fi
+
+ip addr flush dev $DEV
+ip addr add dev $DEV $IP &&
+ip link set $DEV up
