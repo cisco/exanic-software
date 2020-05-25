@@ -332,6 +332,24 @@ static int exanic_i2c_write(struct i2c_adapter *adap, uint8_t devaddr,
     return 0;
 }
 
+/* wait for the write to finish after writing to device or module EEPROM */
+static int
+exanic_i2c_wait_write_cycle(struct i2c_adapter *adap, uint8_t slave_addr,
+        unsigned long timeout)
+{
+    unsigned long deadline = jiffies + timeout;
+
+    while (!time_after(jiffies, deadline))
+    {
+        char byte;
+        udelay(1000);
+        if (exanic_i2c_read(adap, slave_addr, 0, &byte, 1) == 0) 
+            return 0;
+    }
+
+    return -EIO;
+}
+
 /* custom i2c algorithm, wraps over i2c_algo_bit */
 static int
 exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
@@ -744,10 +762,16 @@ int exanic_i2c_xcvr_write(struct exanic *exanic, int port_number,
                          uint8_t devaddr, uint8_t regaddr, uint8_t *buffer,
                          size_t size)
 {
+    int ret;
     struct i2c_adapter *xcvr_adap = exanic_xcvr_i2c_adapter(exanic, port_number);
     if (!xcvr_adap)
         return -ENODEV;
-    return exanic_i2c_write(xcvr_adap, devaddr, regaddr, buffer, size);
+
+    ret = exanic_i2c_write(xcvr_adap, devaddr, regaddr, buffer, size);
+    if (ret)
+        return ret;
+
+    return exanic_i2c_wait_write_cycle(xcvr_adap, devaddr, EEPROM_WRITE_TIMEOUT);
 }
 
 int exanic_i2c_xcvr_sff8024_id(struct exanic *exanic, int port, uint8_t *id)
@@ -954,7 +978,6 @@ int exanic_i2c_eeprom_write(struct exanic *exanic, uint8_t regaddr,
 {
     uint8_t slave_addr = exanic->hwinfo.eep_addr;
     struct i2c_adapter *eep_adap = exanic_eeprom_i2c_adapter(exanic);
-    unsigned long deadline;
     int ret;
 
     if (!eep_adap)
@@ -964,15 +987,5 @@ int exanic_i2c_eeprom_write(struct exanic *exanic, uint8_t regaddr,
     if (ret)
         return ret;
 
-    deadline = jiffies + EEPROM_WRITE_TIMEOUT;
-    /* wait for the write cycle to finish */
-    while (!time_after(jiffies, deadline))
-    {
-        char byte;
-        udelay(1000);
-        if (exanic_i2c_eeprom_read(exanic, 0, &byte, 1) == 0)
-            return 0;
-    }
-
-    return -EIO;
+    return exanic_i2c_wait_write_cycle(eep_adap, slave_addr, EEPROM_WRITE_TIMEOUT);
 }
