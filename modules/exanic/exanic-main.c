@@ -1864,6 +1864,12 @@ static void exanic_remove(struct pci_dev *pdev)
     if (exanic->devkit_regs_virt != NULL)
         iounmap(exanic->devkit_regs_virt);
 
+    if (exanic->devkit_mem_ex_virt != NULL)
+        iounmap(exanic->devkit_mem_ex_virt);
+
+    if (exanic->devkit_regs_ex_virt != NULL)
+        iounmap(exanic->devkit_regs_ex_virt);
+
     if (exanic->tx_feedback_virt != NULL)
         dma_free_coherent(&exanic->pci_dev->dev,
                           EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
@@ -1873,22 +1879,24 @@ static void exanic_remove(struct pci_dev *pdev)
 
     exanic_sysfs_exit(exanic);
     exanic_i2c_exit(exanic);
+    misc_deregister(&exanic->misc_dev);
+
+    /* If a card reset has been requested post remove, trigger that just before
+     * unmapping registers. The card will reset after a short delay (~200ms). */
+    if (exanic->reset_on_remove)
+    {
+        dev_info(dev, "Triggering reset of exanic%u.\n", exanic->id);
+        writel(1, exanic->regs_virt + REG_HW_OFFSET(REG_HW_RELOAD_RESET_FPGA));
+    }
 
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);
-
-    if (exanic->devkit_regs_ex_virt != NULL)
-        iounmap(exanic->devkit_regs_ex_virt);
-
-    if (exanic->devkit_mem_ex_virt != NULL)
-        iounmap(exanic->devkit_mem_ex_virt);
 
 #if defined(CONFIG_PCIEAER)
     pci_disable_pcie_error_reporting(pdev);
 #endif
     pci_release_regions(pdev);
     pci_disable_device(pdev);
-    misc_deregister(&exanic->misc_dev);
 }
 
 /**

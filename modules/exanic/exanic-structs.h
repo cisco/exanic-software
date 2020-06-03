@@ -153,6 +153,7 @@ struct exanic
 #endif
 
     bool unsupported;
+    bool reset_on_remove;
     struct exanic_hw_info hwinfo;
 
     /* i2c related structures */

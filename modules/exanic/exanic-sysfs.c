@@ -46,6 +46,39 @@ exanic_serial_number_show(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(serial, 0444, exanic_serial_number_show, NULL);
 
+
+static ssize_t
+exanic_reset_on_remove_show(struct device *dev, struct device_attribute *attr,
+                            char *buf)
+{
+    struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
+    struct exanic *exanic = pci_get_drvdata(pdev);
+    return sprintf(buf, "%d\n", exanic->reset_on_remove ? 1 : 0);
+}
+
+static ssize_t
+exanic_reset_on_remove_store(struct device *dev, struct device_attribute *attr,
+                             const char *buf, size_t count)
+{
+    struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
+    struct exanic *exanic = pci_get_drvdata(pdev);
+
+    if ((buf[1] != '\n') && (buf[1] != 0))
+        return -EINVAL;
+
+    if (buf[0] == '0')
+        exanic->reset_on_remove = 0;
+    else if (buf[0] == '1')
+        exanic->reset_on_remove = 1;
+    else
+        return -EINVAL;
+
+    return count;
+}
+
+static DEVICE_ATTR(reset_on_remove, 0600, exanic_reset_on_remove_show, exanic_reset_on_remove_store);
+
+
 /* external phy tuning options for X2 and X4, used by exanic-config for
  * analogue performance diagnosis and improvement */
 struct exanic_ext_phy_attribute
@@ -334,8 +367,15 @@ const struct attribute_group exanic_ext_phy_attr_groups[4] =
 
 int exanic_sysfs_init(struct exanic *exanic)
 {
-    int ret = device_create_file(&exanic->pci_dev->dev, &dev_attr_serial);
-    int i;
+    int ret, i;
+
+    ret = device_create_file(&exanic->pci_dev->dev, &dev_attr_serial);
+    if (ret)
+        return ret;
+
+    ret = device_create_file(&exanic->pci_dev->dev, &dev_attr_reset_on_remove);
+    if (ret)
+        return ret;
 
     if (exanic->hw_id != EXANIC_HW_X2 && exanic->hw_id != EXANIC_HW_X4)
         return ret;
@@ -356,6 +396,7 @@ void exanic_sysfs_exit(struct exanic *exanic)
 {
     int i = 0;
     device_remove_file(&exanic->pci_dev->dev, &dev_attr_serial);
+    device_remove_file(&exanic->pci_dev->dev, &dev_attr_reset_on_remove);
 
     if (exanic->hw_id != EXANIC_HW_X2 && exanic->hw_id != EXANIC_HW_X4)
         return;

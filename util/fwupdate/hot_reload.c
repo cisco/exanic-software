@@ -209,15 +209,26 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         }
     }
 
-    snprintf(attr_path, sizeof(attr_path), "%s/remove", sysfs_path);
+    snprintf(attr_path, sizeof(attr_path), "%s/reset_on_remove", sysfs_path);
+    if (!write_1_to_file(attr_path))
+    {
+        /* If the driver does not support reset_on_remove (e.g. older ExaNIC driver)
+         * then we trigger a reset from userspace.  This path does have a race
+         * condition - the Linux device removal we initiate below must complete
+         * before the hardware delay expires and the device actually resets. */
+        fprintf(stderr, "WARNING: driver does not support new reset method, falling back to old\n");
+        exanic_register_write(exanic, REG_HW_INDEX(REG_HW_RELOAD_RESET_FPGA), 0x1);
+    }
 
-    exanic_register_write(exanic, REG_HW_INDEX(REG_HW_RELOAD_RESET_FPGA), 0x1);
+    snprintf(attr_path, sizeof(attr_path), "%s/remove", sysfs_path);
     exanic_release_handle(exanic);
     if (!write_1_to_file(attr_path))
         return NULL;
 
     snprintf(attr_path, sizeof(attr_path), "%s/net", sysfs_path);
-    /* Wait for the firmware reload to trigger */
+    /* Wait 2s for driver detach, firmware reload trigger and new firmware load */
+    sleep(1);
+    report_progress();
     sleep(1);
     report_progress();
 
