@@ -1,8 +1,8 @@
-/** 
+/**
  * Devkit example showing how to steer traffic based on packet contents to a
- * userspace buffer. 
+ * userspace buffer.
  *
- * To be used with "exanic_x4_steer.fw" generated from the devkit examples.
+ * To be used with steer_example, one of the ExaNIC devkit examples.
  */
 #include <stdio.h>
 #include <string.h>
@@ -23,7 +23,9 @@
 
 #define FIRMWARE_ID             0xEB000003
 
-void print_frame(char *buf, int len) 
+#define IDLE_SECS_BEFORE_EXIT 20
+
+void print_frame(char *buf, int len)
 {
     int i, j;
     for (i = 0; i < len; i += 16)
@@ -44,20 +46,51 @@ void sig_handler(int sig)
     keep_running = 0;
 }
 
+int parse_device_port(const char *str, char *device, int *port_number)
+{
+    char *p, *q;
+
+    if (strlen(str) > 16)
+        return -1;
+
+    p = strchr(str, ':');
+    if (p == NULL)
+        return -1;
+
+    strncpy(device, str, p - str);
+    device[p - str] = '\0';
+    *port_number = strtol(p + 1, &q, 10);
+    if (*(p + 1) == '\0' || *q != '\0')
+        return -1;
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
+    const char *exanic_name = NULL;
+    char device[16];
     exanic_t *exanic;
     exanic_rx_t *rx;
     struct in_addr dst_addr;
-    char device[16];
     char buf[1550];
-    int size;
+    int size, port_number;
     volatile uint32_t *application_registers;
+    int total_matched;
+    int expected_matches = 0;
+    int last_time, curr_time, idle_secs;
 
-    if (argc != 3)
+    if (argc < 3 || argc > 4)
         goto usage_error;
-    
-    if ((exanic = exanic_acquire_handle(argv[1])) == NULL)
+
+    exanic_name = argv[1];
+
+    if (parse_device_port(exanic_name, device, &port_number) == -1)
+      goto usage_error;
+
+    if (argc >= 4)
+      expected_matches = atoi(argv[3]);
+
+    if ((exanic = exanic_acquire_handle(device)) == NULL)
     {
         fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
         return -1;
@@ -84,7 +117,7 @@ int main(int argc, char *argv[])
     }
 
     /* Acquire an unused filter buffer to steer our traffic to. */
-    rx = exanic_acquire_unused_filter_buffer(exanic, 0);
+    rx = exanic_acquire_unused_filter_buffer(exanic, port_number);
     if (rx == NULL)
     {
         fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
@@ -105,6 +138,10 @@ int main(int argc, char *argv[])
     application_registers[REG_FILTER_DST_IP] = dst_addr.s_addr;
     printf("Acquired filter buffer %d\n", rx->buffer_number);
 
+    total_matched = 0;
+    idle_secs = 0;
+    last_time = time(NULL);
+
     while (keep_running)
     {
         size = exanic_receive_frame(rx, buf, sizeof(buf), NULL);
@@ -112,20 +149,44 @@ int main(int argc, char *argv[])
         {
             printf("Frame matched filter:\n");
             print_frame(buf, size);
+            total_matched++;
         }
         else if (size < 0)
-        {   
+        {
             printf("Receive error: %d.\n", size);
         }
+
+        if (expected_matches > 0)
+        {
+            if (total_matched >= expected_matches)
+                break;
+
+            curr_time = time(NULL);
+            if (curr_time != last_time)
+            {
+                last_time = curr_time;
+                if(idle_secs++ >= IDLE_SECS_BEFORE_EXIT)
+                {
+                    goto return_timeout;
+                }
+            }
+        }
     }
+    printf("Frames matched: %d\n", total_matched);
 
     exanic_release_rx_buffer(rx);
     exanic_release_handle(exanic);
     return 0;
 
-    usage_error:
-    printf("Usage: %s device <dst_ip>\n", argv[0]);
+return_timeout:
+    exanic_release_rx_buffer(rx);
+    exanic_release_handle(exanic);
+    printf("Timeout at: %d, Frames matched: %d\n", idle_secs, total_matched);
+    return 2;
+
+usage_error:
+    printf("Usage: %s <device>:<port_number> <dst_ip> [expected_matches]\n", argv[0]);
     printf("    Filter IP packets to a custom RX buffer based upon the destination IP.\n");
     printf("    Requires the card to be loaded with the devkit filter example firmware.\n");
-    return -1;
+    return 1;
 }
