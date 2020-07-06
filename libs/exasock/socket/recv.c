@@ -1070,7 +1070,7 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
                              flags & ~MSG_WAITFORONE);
         if (ret == -1)
         {
-            /* subsquent calls will return the error */
+            /* subsequent calls will return the error */
             if (i > 0)
                 ret = i;
             goto out;
