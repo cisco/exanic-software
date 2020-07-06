@@ -1070,10 +1070,8 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
                              flags & ~MSG_WAITFORONE);
         if (ret == -1)
         {
-            /* no more data, and user wants non-blocking behaviour */
-            if (errno == EAGAIN
-                && (flags & MSG_WAITFORONE)
-                && (i > 0))
+            /* subsquent calls will return the error */
+            if (i > 0)
                 ret = i;
             goto out;
         }
