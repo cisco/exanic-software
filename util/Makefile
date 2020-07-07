@@ -18,7 +18,9 @@ EXASOCK_STAT_BIN=exasock-stat
 
 all: $(BIN) $(EXASOCK_STAT_BIN)
 
-exanic-fwupdate: exanic-fwupdate.c fwupdate/flash_access.c fwupdate/file_access.c fwupdate/hot_reload.c
+exanic-fwupdate: exanic-fwupdate.c fwupdate/flash_access.c fwupdate/flash_access_cfi.c \
+				 fwupdate/flash_access_qspi.c fwupdate/file_access.c fwupdate/hot_reload.c
+exanic-fwupdate:
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 exanic-config: exanic-config.c

@@ -9,26 +9,33 @@ typedef uint16_t flash_word_t;
 typedef uint32_t flash_address_t;
 typedef uint32_t flash_size_t;
 
+#define BYTES_IN_FLASH_WORDS (sizeof(flash_word_t) / sizeof(char))
+
 struct flash_ops;
 
 struct flash_device
 {
     exanic_t *exanic;
     struct flash_ops *ops;
+    bool is_recovery;
     flash_address_t partition_start;
     flash_size_t partition_size;
     flash_size_t block_size;
     flash_size_t burst_buffer_size;
-    flash_address_t boot_area_start;
+    flash_size_t min_read_size;
     flash_size_t boot_area_block_size;
-    uint8_t status;
+    flash_address_t boot_area_start;
+    uint32_t status;
 };
 
 struct flash_ops
 {
-    void (*init)(struct flash_device *flash);
+    bool (*init)(struct flash_device *flash);
     bool (*erase_block)(struct flash_device *flash, flash_address_t address);
-    bool (*burst_program)(struct flash_device *flash, flash_address_t address, flash_word_t *data, flash_size_t size);
+    bool (*burst_program)(struct flash_device *flash, flash_address_t address,
+            flash_word_t *data, flash_size_t size);
+    bool (*read)(struct flash_device *flash, flash_address_t address,
+            flash_word_t *data, flash_size_t size);
     void (*release)(struct flash_device *flash);
 };
 

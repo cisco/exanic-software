@@ -230,7 +230,6 @@ enum
     /**
      * [RO] The number of DMA buffers supported per port when using
      * flow hashing or flow steering.
-     * Availability: X4, X2
      */
     REG_EXANIC_NUM_FILTER_BUFFERS       = 33,
 
@@ -320,6 +319,28 @@ enum
     REG_HW_POWERDOWN                    = 14,
 
     /**
+     * [WO] Firmware flash address register
+     */
+    REG_HW_FLASH_ADDR                   = 15,
+
+    /**
+     * [WO] Parallel firmware flash data output register
+     * Availability: all ExaNICs with parallel flash devices
+     */
+    REG_HW_FLASH_DOUT_CFI               = 16,
+
+    /**
+     * [RW] Firmware flash control register
+     */
+    REG_HW_FLASH_CTRL                   = 17,
+
+    /**
+     * [RO] Parallel firmware flash data input register
+     * Availability: all ExaNICs with parallel flash devices
+     */
+    REG_HW_FLASH_DIN_CFI                = 18,
+
+    /**
      * [RW] PRBS control (BER testing only)
      * Availability: X4, X2
      * [6:5] Select port for REG_HW_PRBS_ERR_CNT
@@ -396,6 +417,33 @@ enum
     REG_HW_JTAG_TDI_VECTOR              = 35,
     REG_HW_JTAG_TDO_VECTOR              = 36,
     REG_HW_JTAG_CTRL                    = 37,
+
+    /**
+     * [WO] Hardware-accelerated QSPI flash master opcode register
+     * Availability: X100 only
+     */
+    REG_HW_FLASH_QSPI_OPCODE            = 38,
+
+    /**
+     * [RO] SPI firmware flash data output register
+     * Availability: X100 only
+     */
+    REG_HW_FLASH_DOUT_SPI               = 39,
+
+    /**
+     * [RO] SPI firmware flash data input register
+     * Availability: X100 only
+     */
+    REG_HW_FLASH_DIN_SPI                = 40,
+
+    /**
+     * [RO] QSPI device status register
+     * \ref REG_HW_FLASH_DIN_SPI is also used by the QSPI-acceleration
+     * logic to store bits from the device status registers at the end
+     * of an RDSR cycle
+     * Availability: X100 only
+     */
+    REG_HW_FLASH_QSPI_SR                = 40,
 };
 #define REG_HW_OFFSET(reg) (REG_HW_BASE + (reg) * sizeof(uint32_t))
 #define REG_HW_INDEX(reg) (REG_HW_OFFSET(reg) / sizeof(uint32_t))
@@ -1311,6 +1359,41 @@ typedef enum
     /** Set if this build variant has DDR4 DRAM fitted (X25, X100 only) */
     EXANIC_STATUS_HW_DRAM_PRES  = 0x40000,
 } exanic_feature_cfg_t;
+
+/**
+ * \brief Opcodes recognized by the QSPI acceleration logic
+ */
+typedef enum
+{
+    /** Start erase sequence */
+    EXANIC_FLASH_QSPI_OPCODE_ERASE  = 0x1,
+    /** Start write sequence */
+    EXANIC_FLASH_QSPI_OPCODE_WRITE  = 0x2,
+    /** Start read sequence */
+    EXANIC_FLASH_QSPI_OPCODE_READ   = 0x4,
+    /** Read device status register */
+    EXANIC_FLASH_QSPI_OPCODE_RDSR   = 0x8,
+    /** Exit quad mode */
+    EXANIC_FLASH_QSPI_QUAD_DISABLE  = 0x10,
+    /** Enter quad mode */
+    EXANIC_FLASH_QSPI_QUAD_ENABLE   = 0x20,
+} exanic_flash_qspi_opcode_t;
+
+/**
+ * \brief Bits in the firmware flash control register
+ */
+typedef enum
+{
+    /**
+     * Parallel NOR flash signals
+     * Availability: all ExaNICs with parallel flash devices
+     */
+    EXANIC_FLASH_CTRL_nWE       = 0x01, /**< active low write enable */
+    EXANIC_FLASH_CTRL_nCE       = 0x02, /**< active low chip enable */
+    EXANIC_FLASH_CTRL_nOE       = 0x04, /**< active low output enable */
+    EXANIC_FLASH_CTRL_nADV      = 0x08, /**< active low address valid */
+    EXANIC_FLASH_CTRL_BUS_DIR   = 0x10, /**< 0 for flash-to-FPGA, 1 for FPGA-to-flash */
+} exanic_flash_ctrl_t;
 
 /**
  * \brief Returns a string representation of a feature bit

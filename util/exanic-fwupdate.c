@@ -169,6 +169,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "%s: %s\n", device, exanic_get_last_error());
         return 1;
     }
+    if (exanic->hw_info.hwid == -1)
+    {
+        fprintf(stderr, "%s: unsupported ExaNIC hardware type\n", device);
+        return 1;
+    }
 
     if (hot_reload && !check_can_hot_reload(exanic, false))
         goto error;

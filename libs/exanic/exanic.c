@@ -78,6 +78,7 @@ exanic_t * exanic_acquire_handle(const char *device_name)
 
     /* Find hardware information from device table */
     struct exanic_hw_info hwinfo;
+    memset(&hwinfo, 0, sizeof hwinfo);
     exanic_get_hw_info(hwid, &hwinfo);
 
     /* Map info page */

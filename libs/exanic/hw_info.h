@@ -26,6 +26,41 @@ typedef enum
     EXANIC_XILINX_USP,
 } exanic_device_family;
 
+typedef enum
+{
+    EXANIC_FW_FLASH_CFI,
+    EXANIC_FW_FLASH_QSPI
+} exanic_fw_flash_type;
+
+struct exanic_fw_flash_info
+{
+    exanic_fw_flash_type type;
+    /* Device, erase and write sizes of the firmware flash
+     * only needed if these are not discoverable from the
+     * actual hardware (e.g. through CFI) */
+    size_t device_size;
+    size_t erase_size;
+    size_t write_size;
+};
+
+/* A list of firmware flash types found among ExaNIC products
+ * add more as needed */
+static const struct exanic_fw_flash_info exanic_cfi_flash_info =
+{
+    EXANIC_FW_FLASH_CFI, 0, 0, 0,
+};
+
+static const struct exanic_fw_flash_info exanic_x100_flash_info =
+{
+    EXANIC_FW_FLASH_QSPI,
+    /* each flash device has a capacity of 16MB. the X100 firmware unites the
+     * two flash devices into a single 32MB address space. flash operations
+     * addressed to the lower 16MB are performed on the recovery flash. */
+    0x2000000,
+    0x1000,
+    256,
+};
+
 /* A list of hardware feature flags for ExaNIC products */
 
 /* FPGA Development Kit available */
@@ -54,8 +89,6 @@ typedef enum
 #define EXANIC_HW_FLAG_PTP_GM                    (1ull << 11)
 /* GPS input available */
 #define EXANIC_HW_FLAG_GPS                       (1ull << 12)
-/* FPGA firmware stored in serial NOR flash */
-#define EXANIC_HW_FLAG_FW_SPI_NOR                (1ull << 13)
 
 struct exanic_hw_info
 {
@@ -68,6 +101,8 @@ struct exanic_hw_info
     /* EEPROM I2C bus number and slave address */
     unsigned eep_bus;
     uint8_t eep_addr;
+    /* Firmware flash info */
+    const struct exanic_fw_flash_info *flash_info;
     /* Ethernet port form factor */
     exanic_port_form_factor port_ff;
     /* Device FPGA family */
@@ -79,21 +114,28 @@ struct exanic_hw_info
 __attribute__((unused))
 static const struct exanic_hw_info exanic_hw_products[] =
 {
-    {EXANIC_HW_X4, "exanic_x4", 4, 5, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+    {EXANIC_HW_X4, "exanic_x4", 4, 5, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PPS_SINGLE |
         EXANIC_HW_FLAG_PPS_DIFF |
         EXANIC_HW_FLAG_FAN_RPM_SENSOR
     },
 
-    {EXANIC_HW_X2, "exanic_x2", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+    {EXANIC_HW_X2, "exanic_x2", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PPS_SINGLE |
         EXANIC_HW_FLAG_PPS_DIFF |
         EXANIC_HW_FLAG_FAN_RPM_SENSOR
     },
 
-    {EXANIC_HW_X10, "exanic_x10", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+    {EXANIC_HW_X10, "exanic_x10", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PPS_SINGLE |
@@ -101,7 +143,9 @@ static const struct exanic_hw_info exanic_hw_products[] =
         EXANIC_HW_FLAG_MIRROR_FW
     },
 
-    {EXANIC_HW_X10_GM, "exanic_x10_gm", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+    {EXANIC_HW_X10_GM, "exanic_x10_gm", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PER_OUT_10M |
         EXANIC_HW_FLAG_PER_OUT_EEP |
@@ -111,21 +155,27 @@ static const struct exanic_hw_info exanic_hw_products[] =
         EXANIC_HW_FLAG_GPS
     },
 
-    {EXANIC_HW_X40, "exanic_x40", 2, 4, 0xA0, EXANIC_PORT_QSFP, EXANIC_XILINX_US,
+    {EXANIC_HW_X40, "exanic_x40", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_QSFP, EXANIC_XILINX_US,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PPS_SINGLE |
         EXANIC_HW_FLAG_PPS_TERM
     },
 
-    {EXANIC_HW_X10_HPT, "exanic_x10_hpt", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+    {EXANIC_HW_X10_HPT, "exanic_x10_hpt", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_SFP, EXANIC_XILINX_US,
+
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PER_OUT_10M |
         EXANIC_HW_FLAG_PPS_SINGLE |
         EXANIC_HW_FLAG_PPS_TERM
     },
 
-    {EXANIC_HW_V5P, "exanic_v5p", 2, 4, 0xA0, EXANIC_PORT_QSFP, EXANIC_XILINX_USP,
+    {EXANIC_HW_V5P, "exanic_v5p", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_QSFP, EXANIC_XILINX_USP,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PPS_SINGLE |
@@ -134,7 +184,9 @@ static const struct exanic_hw_info exanic_hw_products[] =
         EXANIC_HW_FLAG_PWR_SENSE
     },
 
-    {EXANIC_HW_X25, "exanic_x25", 2, 4, 0xA0, EXANIC_PORT_SFP, EXANIC_XILINX_USP,
+    {EXANIC_HW_X25, "exanic_x25", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_SFP, EXANIC_XILINX_USP,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PPS_SINGLE |
@@ -142,16 +194,19 @@ static const struct exanic_hw_info exanic_hw_products[] =
         EXANIC_HW_FLAG_DRAM_VARIANT
     },
 
-    {EXANIC_HW_X100, "exanic_x100", 2, 4, 0xA0, EXANIC_PORT_QSFP, EXANIC_XILINX_USP,
+    {EXANIC_HW_X100, "exanic_x100", 2, 4, 0xA0,
+        &exanic_x100_flash_info, EXANIC_PORT_QSFP, EXANIC_XILINX_USP,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PPS_SINGLE |
         EXANIC_HW_FLAG_PPS_TERM |
-        EXANIC_HW_FLAG_DRAM_VARIANT |
-        EXANIC_HW_FLAG_FW_SPI_NOR
+        EXANIC_HW_FLAG_DRAM_VARIANT
     },
 
-    {EXANIC_HW_V9P, "exanic_v9p", 2, 4, 0xA0, EXANIC_PORT_QSFPDD, EXANIC_XILINX_USP,
+    {EXANIC_HW_V9P, "exanic_v9p", 2, 4, 0xA0,
+        &exanic_cfi_flash_info, EXANIC_PORT_QSFPDD, EXANIC_XILINX_USP,
+
         EXANIC_HW_FLAG_DEVKIT |
         EXANIC_HW_FLAG_PER_OUT |
         EXANIC_HW_FLAG_PPS_SINGLE |
