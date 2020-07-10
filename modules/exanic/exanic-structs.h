@@ -146,7 +146,7 @@ struct exanic
 
     struct hrtimer phc_pps_hrtimer;
     bool phc_pps_enabled;
-    time_t last_phc_pps;
+    long last_phc_pps;
 
     enum per_out_mode per_out_mode;
     ktime_t per_out_start;

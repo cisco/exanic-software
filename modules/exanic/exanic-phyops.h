@@ -38,13 +38,13 @@
         ethtool_link_ksettings_add_link_mode(configs, supported, _item)
 
 #define LINK_CONFIGS_SET(configs, _item, val) \
-        configs->base._item = (val)
+        (configs)->base._item = (val)
 
 #define LINK_CONFIGS_SET_SPEED(configs, val) \
         LINK_CONFIGS_SET(configs, speed, val)
 
 #define LINK_CONFIGS_GET(configs, _item) \
-        (configs->base._item)
+        ((configs)->base._item)
 
 #define LINK_CONFIGS_GET_SPEED(configs) \
         LINK_CONFIGS_GET(configs, speed)
@@ -56,19 +56,19 @@ typedef struct ethtool_link_ksettings exanic_phyops_configs_t;
 #define LINK_CONFIGS_ZERO(configs)
 
 #define LINK_CONFIGS_SET_SUPPORTED(setting, _item) \
-        configs->supported |= SUPPORTED_##_item
+        (configs)->supported |= SUPPORTED_##_item
 
 #define LINK_CONFIGS_SET(configs, _item, val) \
-        configs->_item = (val)
+        (configs)->_item = (val)
 
 #define LINK_CONFIGS_SET_SPEED(configs, val) \
         ethtool_cmd_speed_set(configs, val)
 
 #define LINK_CONFIGS_GET(configs, _item) \
-        (configs->_item)
+        ((configs)->_item)
 
 #define LINK_CONFIGS_GET_SPEED(configs) \
-        ethtool_cmd_speed(configs)
+        ethtool_cmd_speed((exanic_phyops_configs_t *)(configs))
 
 typedef struct ethtool_cmd exanic_phyops_configs_t;
 

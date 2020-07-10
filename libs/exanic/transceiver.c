@@ -100,9 +100,9 @@
 static struct ethtool_eeprom *
 get_module_eeprom(exanic_t *exanic, int port_number, uint32_t *modtype)
 {
-	struct ethtool_modinfo modinfo;
+    struct ethtool_modinfo modinfo;
     char ifname[IF_NAMESIZE];
-	struct ethtool_eeprom *eeprom = NULL;
+    struct ethtool_eeprom *eeprom = NULL;
     int err = exanic_get_interface_name(exanic, port_number,
                                         ifname, sizeof ifname);
     if (err)

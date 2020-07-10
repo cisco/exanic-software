@@ -14,7 +14,9 @@
 #include <linux/etherdevice.h>
 #include <linux/nodemask.h>
 #include <linux/pci.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 #include <linux/pci-aspm.h>
+#endif
 #include <linux/interrupt.h>
 #if defined(CONFIG_PCIEAER)
 #include <linux/aer.h>
@@ -1019,10 +1021,10 @@ static int exanic_probe(struct pci_dev *pdev,
     }
 
     exanic->regs_phys = pci_resource_start(pdev, EXANIC_REGS_BAR);
-    exanic->regs_virt = ioremap_nocache(exanic->regs_phys, exanic->regs_size);
+    exanic->regs_virt = ioremap(exanic->regs_phys, exanic->regs_size);
     if (!exanic->regs_virt)
     {
-        dev_err(dev, "Registers ioremap_nocache failed.\n");
+        dev_err(dev, "Registers ioremap failed.\n");
         err = -EIO;
         goto err_regs_ioremap;
     }
@@ -1498,11 +1500,11 @@ static int exanic_probe(struct pci_dev *pdev,
             exanic->devkit_regs_phys = exanic->regs_phys +
                 exanic->devkit_regs_offset;
             exanic->devkit_regs_virt =
-                ioremap_nocache(exanic->devkit_regs_phys,
+                ioremap(exanic->devkit_regs_phys,
                     exanic->devkit_regs_size);
             if (!exanic->devkit_regs_virt)
             {
-                dev_err(dev, "Devkit registers ioremap_nocache failed.\n");
+                dev_err(dev, "Devkit registers ioremap failed.\n");
                 err = -EIO;
                 goto err_devkit_regs_ioremap;
             }
@@ -1574,11 +1576,11 @@ static int exanic_probe(struct pci_dev *pdev,
             exanic->devkit_regs_ex_phys =
                 pci_resource_start(pdev, EXANIC_DEVKIT_REGISTERS_EX_REGION_BAR);
             exanic->devkit_regs_ex_virt =
-                ioremap_nocache(exanic->devkit_regs_ex_phys, exanic->devkit_regs_ex_size);
+                ioremap(exanic->devkit_regs_ex_phys, exanic->devkit_regs_ex_size);
 
             if (!exanic->devkit_regs_ex_virt)
             {
-                dev_err(dev, "Devkit extended registers ioremap_nocache failed.\n");
+                dev_err(dev, "Devkit extended registers ioremap failed.\n");
                 err = -EIO;
                 goto err_devkit_regs_ex_ioremap;
             }
@@ -1946,11 +1948,14 @@ static int __init exanic_init(void)
         u8 a[6];
 
         if (sscanf(exanic_macaddr_param, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                    &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]) == 6)
-            memcpy(next_mac_addr, a, ETH_ALEN);
-        else
-            pr_warning("Could not parse MAC address \"%s\".",
+                    &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]) != 6)
+        {
+            pr_err("Could not parse MAC address \"%s\".",
                     exanic_macaddr_param);
+            return -EINVAL;
+        }
+
+        memcpy(next_mac_addr, a, ETH_ALEN);
     }
 
     err = pci_register_driver(&exanic_driver);

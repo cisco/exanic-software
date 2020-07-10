@@ -23,6 +23,14 @@
 #define PTP_1588_CLOCK_USES_TIMESPEC64
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+#define linux_ktime_to_timespec(ktime) ktime_to_timespec64((ktime))
+typedef struct timespec64 linux_timespec_t;
+#else
+#define linux_ktime_to_timespec(ktime) ktime_to_timespec((ktime))
+typedef struct timespec linux_timespec_t;
+#endif
+
 #if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
 
 #define PPS_DELAY_NS 100000
@@ -215,7 +223,8 @@ static ktime_t next_pps_time(struct exanic *exanic)
     time_mono = ktime_get();
 
     /* Calculate time until next second boundary */
-    ns = NSEC_PER_SEC - ktime_to_timespec(time_hw).tv_nsec + PPS_DELAY_NS;
+    ns = NSEC_PER_SEC -
+        linux_ktime_to_timespec(time_hw).tv_nsec + PPS_DELAY_NS;
 
     return ktime_add_ns(time_mono, ns);
 }
@@ -232,7 +241,7 @@ static enum hrtimer_restart exanic_ptp_pps_hrtimer_callback(
     unsigned long flags;
     ktime_t hw_time, mono_time;
     uint32_t hw_time_reg;
-    struct timespec hw_time_ts;
+    linux_timespec_t hw_time_ts;
     uint64_t expiry;
 
     if (!exanic->phc_pps_enabled)
@@ -252,7 +261,7 @@ static enum hrtimer_restart exanic_ptp_pps_hrtimer_callback(
     local_irq_restore(flags);
 
     hw_time = exanic_ptp_time_to_ktime(exanic, hw_time_reg);
-    hw_time_ts = ktime_to_timespec(hw_time);
+    hw_time_ts = linux_ktime_to_timespec(hw_time);
 
     /* Get the system time at the last second boundary */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
@@ -274,8 +283,8 @@ static enum hrtimer_restart exanic_ptp_pps_hrtimer_callback(
         /* Timer may have fired too late or too early */
         if (exanic->last_phc_pps != 0 &&
                 exanic->last_phc_pps < hw_time_ts.tv_sec)
-            dev_err(dev, "Missed PPS event at time=%ld delay=%ld\n",
-                    hw_time_ts.tv_sec, hw_time_ts.tv_nsec);
+            dev_err(dev, "Missed PPS event at time=%lld delay=%ld\n",
+                    (long long)hw_time_ts.tv_sec, hw_time_ts.tv_nsec);
 
         /* Monotonic clock may be too fast or slow, so use a short timeout to
          * ensure the next second boundary is not missed */
