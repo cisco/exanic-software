@@ -48,6 +48,7 @@ exa_socket_zero(struct exa_socket * restrict sock)
 {
     assert(exa_write_locked(&sock->lock));
 
+    exa_socket_ip_memberships_remove_and_free_all(sock);
     /* Zero the exa-socket struct except for the lock and gen_id */
     memset((char *)sock + offsetof(struct exa_socket, domain), 0,
            sizeof(struct exa_socket) - offsetof(struct exa_socket, domain));
@@ -69,9 +70,8 @@ exa_socket_init(struct exa_socket * restrict sock, int domain, int type,
     /* Default socket options */
     sock->ip_multicast_if = htonl(INADDR_ANY);
     sock->ip_multicast_ttl = 1;
-    sock->ip_membership.mcast_ep_valid = false;
-    sock->ip_membership.mcast_ep.interface = htonl(INADDR_ANY);
-    sock->ip_membership.mcast_ep.multiaddr = htonl(INADDR_ANY);
+    sock->ip_memberships = NULL;
+    sock->mcast_listening_denominator_iface = htonl(INADDR_NONE);
 
     /* ATE disabled */
     sock->ate_id = -1;
@@ -93,6 +93,166 @@ exa_socket_release_interfaces(struct exa_socket * restrict sock)
 
     sock->listen.all_if = false;
     sock->listen.interface = NULL;
+}
+
+/* The aim here is to determine whether the socket should
+ * be listening on one interface or on INADDR_ANY (all_if).
+ *
+ * The reason is because exasock doesn't support listening
+ * to a specified subset of interfaces (see exa_socket_update_interfaces())
+ * so we must choose one or the other.
+ *
+ * We also need to ensure that we can receive unicast udp segs while
+ * listening in multicast mode. So if the socket has been bound to a
+ * unicast address, and that unicast address differs from the
+ * denominator address for all the multicast listens, then we
+ * have to listen on INADDR_ANY in that case as well.
+ */
+static in_addr_t
+exa_socket_ip_memberships_get_denominator_iface(struct exa_socket *esk)
+{
+    struct exa_mcast_membership *cur;
+    in_addr_t denom;
+
+    if (esk->ip_memberships == NULL)
+        return ~htonl(INADDR_ANY);
+
+    /* Set it to the first one by default */
+    denom = esk->ip_memberships->mcast_ep.interface;
+
+    for (cur = esk->ip_memberships; cur != NULL; cur = cur->next)
+    {
+        /* If even one of the multicast memberships requires listening
+         * on all interfaces, then the common denominator to listen on
+         * has to be INADDR_ANY.
+         */
+        if (cur->mcast_ep.interface == htonl(INADDR_ANY))
+            return htonl(INADDR_ANY);
+
+        /* If the memberships require that we listen to at least
+         * two different interfaces then we must just listen to all.
+         */
+        if (cur->mcast_ep.interface != denom
+            && denom != htonl(INADDR_ANY))
+            return htonl(INADDR_ANY);
+    }
+
+    /* In order to support unicast segments being received while we
+     * also listen for mcast segments, we need to listen on INADDR_ANY
+     * if the unicast iface address is different from the mcast
+     * denominator iface address.
+     */
+    if (esk->bound && !IN_MULTICAST(esk->bind.ip.addr.local))
+        if (esk->bind.ip.addr.local != denom)
+            return htonl(INADDR_ANY);
+
+    return denom;
+}
+
+int
+exa_socket_ip_memberships_add(struct exa_socket *esk,
+                              const struct exa_mcast_endpoint *emep)
+{
+    struct exa_mcast_membership *tmp;
+
+    tmp = calloc(1, sizeof(*tmp));
+    if (tmp == NULL)
+        return -1;
+
+    tmp->mcast_ep = *emep;
+    tmp->parent_sock = esk;
+
+    tmp->next = esk->ip_memberships;
+    esk->ip_memberships = tmp;
+
+    esk->mcast_listening_denominator_iface =
+        exa_socket_ip_memberships_get_denominator_iface(esk);
+    return 0;
+}
+
+struct exa_mcast_membership *
+exa_socket_ip_memberships_find(struct exa_socket *esk,
+                                 in_addr_t mc_mcast_addr,
+                                 in_addr_t mc_iface_addr,
+                                 struct exa_mcast_membership **ret_prev)
+{
+    struct exa_mcast_membership *cur, *prev;
+
+    if (ret_prev)
+        *ret_prev = NULL;
+
+    prev = NULL;
+    for (cur = esk->ip_memberships; cur != NULL;
+         prev = cur, cur = cur->next)
+    {
+        if (cur->mcast_ep.multiaddr != mc_mcast_addr
+            || cur->mcast_ep.interface != mc_iface_addr)
+            continue;
+
+        if (ret_prev)
+            *ret_prev = prev;
+        return cur;
+    }
+
+    return NULL;
+}
+
+struct exa_mcast_membership *
+exa_socket_ip_memberships_remove(struct exa_socket *esk,
+                                 const struct exa_mcast_endpoint *emep)
+{
+    struct exa_mcast_membership *tmp, *prev;
+
+    tmp = exa_socket_ip_memberships_find(esk,
+                                           emep->multiaddr,
+                                           emep->interface,
+                                           &prev);
+    if (tmp == NULL)
+        return NULL;
+
+    if (prev != NULL)
+        prev->next = tmp->next;
+    else
+        esk->ip_memberships = tmp->next;
+
+    esk->mcast_listening_denominator_iface =
+        exa_socket_ip_memberships_get_denominator_iface(esk);
+
+    return tmp;
+}
+
+/* We have to split this off from the *_ip_memberships_del() function
+ * because exa_udp_mcast_del() requires a (still) valid reference to
+ * the exa_mcast_membership object after it has been removed from the
+ * ip_memberships list. So we have a two-stage removal process -
+ * first remove, then explicitly free() after calling exa_udp_mcast_del().
+ *
+ * This function is only needed when removing SINGLE items from the
+ * ip_memberships list. But when cleaning up all of them at once
+ * during close(), it is sufficient to call
+ * exa_socket_ip_memberships_remove_and_free_all().
+ */
+void
+exa_socket_ip_memberships_free(struct exa_mcast_membership *mc_memb)
+{
+    free(mc_memb);
+}
+
+void
+exa_socket_ip_memberships_remove_and_free_all(struct exa_socket *esk)
+{
+    struct exa_mcast_membership *cur, *tmp;
+
+    for (cur = esk->ip_memberships; cur != NULL;)
+    {
+        tmp = cur;
+        cur = cur->next;
+        exa_socket_ip_memberships_free(tmp);
+    }
+
+    esk->ip_memberships = NULL;
+    esk->mcast_listening_denominator_iface =
+        exa_socket_ip_memberships_get_denominator_iface(esk);
 }
 
 /* Update interfaces according to address */
@@ -554,17 +714,35 @@ err_sys_exasock_open:
     return -1;
 }
 
+static bool
+exa_mcast_membership_has_multiaddr(struct exa_socket *esk, in_addr_t multiaddr)
+{
+    struct exa_mcast_membership *cur;
+
+    for (cur = esk->ip_memberships; cur != NULL; cur = cur->next)
+    {
+        if (multiaddr == cur->mcast_ep.multiaddr)
+            return true;
+    }
+
+    return false;
+}
+
 static int
 exa_socket_add_mcast_interface(struct exa_socket * restrict sock,
-                               struct exa_mcast_endpoint * restrict mc_ep,
                                in_addr_t addr_local)
 {
-    if (addr_local == htonl(INADDR_ANY) || addr_local == mc_ep->multiaddr)
+
+    if (addr_local == htonl(INADDR_ANY)
+        || exa_mcast_membership_has_multiaddr(sock, addr_local))
     {
-        if (exa_socket_update_interfaces(sock, mc_ep->interface) == -1)
+        if (exa_socket_update_interfaces(sock,
+                                         sock->mcast_listening_denominator_iface) == -1)
             return -1;
+
         sock->listen.mcast = true;
     }
+
     return 0;
 }
 
@@ -578,18 +756,16 @@ exa_socket_add_mcast(struct exa_socket * restrict sock,
     assert(sock->bound);
 
     if (sock->bind.ip.addr.local == htonl(INADDR_ANY) ||
-        sock->bind.ip.addr.local == mc_ep->multiaddr)
+        exa_mcast_membership_has_multiaddr(sock, sock->bind.ip.addr.local))
     {
-        if (exa_socket_holds_interfaces(sock))
-            exa_udp_remove(fd);
-        if (exa_socket_update_interfaces(sock, mc_ep->interface) == -1)
-        {
-            if (exa_socket_holds_interfaces(sock))
-                exa_udp_insert(fd);
+        if (exa_socket_update_interfaces(sock,
+                                         sock->mcast_listening_denominator_iface) == -1)
             return -1;
-        }
         sock->listen.mcast = true;
         exa_udp_mcast_insert(fd, mc_ep);
+        /* We allow unicast segments to also be received
+         * while listening for mcast.
+         */
     }
     return 0;
 }
@@ -599,19 +775,28 @@ exa_socket_del_mcast(struct exa_socket * restrict sock,
                      struct exa_mcast_endpoint * restrict mc_ep)
 {
     int fd = exa_socket_fd(sock);
+    in_addr_t listening_addr;
 
     assert(exa_write_locked(&sock->lock));
     assert(sock->bound);
 
-    if (sock->listen.mcast)
+    if (sock->ip_memberships != NULL)
     {
-        if (exa_socket_update_interfaces(sock, sock->bind.ip.addr.local) == -1)
-            return -1;
-        sock->listen.mcast = false;
-        exa_udp_mcast_remove(fd, mc_ep);
-        if (exa_socket_holds_interfaces(sock))
-            exa_udp_insert(fd);
+        /* The denominator listening iface may have changed when the
+         * requested multiaddr was removed from ip_memberships.
+         */
+        listening_addr = sock->mcast_listening_denominator_iface;
     }
+    else
+        listening_addr = sock->bind.ip.addr.local;
+
+    if (exa_socket_update_interfaces(sock, listening_addr) == -1)
+        return -1;
+
+    if (sock->ip_memberships == NULL)
+        sock->listen.mcast = false;
+
+    exa_udp_mcast_remove(fd, mc_ep);
     return 0;
 }
 
@@ -621,7 +806,6 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
 {
     int fd = exa_socket_fd(sock);
     struct exa_endpoint endpoint;
-    struct exa_mcast_endpoint *mc_ep = &sock->ip_membership.mcast_ep;
 
     /* Socket lock is held, socket is not bound */
     assert(exa_write_locked(&sock->lock));
@@ -631,8 +815,8 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
     if (exa_socket_update_interfaces(sock, addr) == -1)
         goto err_update_interfaces;
 
-    if (sock->ip_membership.mcast_ep_valid)
-        if (exa_socket_add_mcast_interface(sock, mc_ep, addr) == -1)
+    if (sock->ip_memberships != NULL)
+        if (exa_socket_add_mcast_interface(sock, addr) == -1)
             goto err_add_mcast_interface;
 
     sock->bound = true;
@@ -648,8 +832,8 @@ exa_socket_udp_bind(struct exa_socket * restrict sock, in_addr_t addr,
     sock->bind.ip = endpoint;
 
     if (sock->listen.mcast)
-        exa_udp_mcast_insert(fd, mc_ep);
-    else if (exa_socket_holds_interfaces(sock))
+        exa_udp_mcast_insert_all(fd);
+    if (exa_socket_holds_interfaces(sock))
         exa_udp_insert(fd);
 
     return 0;
@@ -734,8 +918,8 @@ exa_socket_udp_remove(struct exa_socket * restrict sock)
     assert(exa_read_locked(&sock->lock));
 
     if (sock->listen.mcast)
-        exa_udp_mcast_remove(fd, &sock->ip_membership.mcast_ep);
-    else if (exa_socket_holds_interfaces(sock))
+        exa_udp_mcast_remove_all(fd);
+    if (exa_socket_holds_interfaces(sock))
         exa_udp_remove(fd);
 
     /* Wait for read critical section of socket to finish */

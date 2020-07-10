@@ -5,6 +5,28 @@
 void exa_socket_zero(struct exa_socket * restrict sock);
 void exa_socket_init(struct exa_socket * restrict sock, int domain,
                      int type, int protocol);
+int exa_socket_ip_memberships_add(struct exa_socket *esk,
+                                  const struct exa_mcast_endpoint *emep);
+struct exa_mcast_membership *exa_socket_ip_memberships_find(struct exa_socket *esk,
+                                                            in_addr_t mc_mcast_addr,
+                                                            in_addr_t mc_iface_addr,
+                                                            struct exa_mcast_membership **ret_prev);
+struct exa_mcast_membership *exa_socket_ip_memberships_remove(struct exa_socket *esk,
+                                                           const struct exa_mcast_endpoint *emep);
+void exa_socket_ip_memberships_free(struct exa_mcast_membership *obj);
+
+static inline void
+exa_socket_ip_memberships_remove_and_free(struct exa_socket *esk,
+                                          const struct exa_mcast_endpoint *emep)
+{
+    struct exa_mcast_membership *tmp;
+
+    tmp = exa_socket_ip_memberships_remove(esk, emep);
+    if (tmp != NULL)
+        exa_socket_ip_memberships_free(tmp);
+}
+
+void exa_socket_ip_memberships_remove_and_free_all(struct exa_socket *esk);
 int exa_socket_update_interfaces(struct exa_socket * restrict sock, in_addr_t addr);
 void exa_socket_update_timestamping(struct exa_socket * restrict sock);
 int exa_socket_get_tcp_keepintvl(struct exa_socket * restrict sock);

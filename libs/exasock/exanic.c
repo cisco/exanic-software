@@ -214,7 +214,7 @@ exasock_exanic_ip_dev_destroy(struct exanic_ip_dev *d)
  *
  * The short version is that the groupinfo tells us the ID and port of the
  * current active device. If the "ACTIVE" flag is *not* set on the device that
- * is described by the groupinfo, then it means that there is on active device
+ * is described by the groupinfo, then it means that there is no active device
  * in the bond group.
  *
  * We also sometimes need to maintain an open handle to an exanic device which

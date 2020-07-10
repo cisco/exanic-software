@@ -1651,24 +1651,28 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 
             if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
             {
+                struct exa_mcast_membership *tmp_memb;
+
                 /* Joining multicast groups with mixed (exanic and
                  * non-exanic) interfaces on the same socket is not
                  * supported. An attempt to enable bypass on such a socket
                  * would cause no ability to receive multicast packets from
                  * groups joined with non-exanic interfaces.
                  */
-                if (sock->ip_membership.num_not_bypassed > 0)
+                if (sock->mcast_num_not_bypassed > 0)
                 {
                     errno = EOPNOTSUPP;
                     goto err_exit;
                 }
 
-                /* FIXME: No support for multiple multicast groups joined on
-                 * the same accelerated socket
-                 */
-                if (sock->ip_membership.mcast_ep_valid)
+                /* Don't allow duplicate membership additions.*/
+                tmp_memb = exa_socket_ip_memberships_find(sock,
+                                                          mcast_ep.multiaddr,
+                                                          mcast_ep.interface,
+                                                          NULL);
+                if (tmp_memb != NULL)
                 {
-                    errno = EOPNOTSUPP;
+                    errno = EINVAL;
                     goto err_exit;
                 }
             }
@@ -1684,20 +1688,27 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
 
             if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
             {
-                if (sock->bypass_state != EXA_BYPASS_ACTIVE
-                    || !sock->ip_membership.mcast_ep_valid ||
-                    (sock->ip_membership.mcast_ep.interface !=
-                            mcast_ep.interface) ||
-                    (sock->ip_membership.mcast_ep.multiaddr !=
-                            mcast_ep.multiaddr))
+                struct exa_mcast_membership *tmp_memb;
+
+                if (sock->bypass_state != EXA_BYPASS_ACTIVE)
                 {
                     errno = EINVAL;
+                    goto err_exit;
+                }
+
+                tmp_memb = exa_socket_ip_memberships_find(sock,
+                                                          mcast_ep.multiaddr,
+                                                          mcast_ep.interface,
+                                                          NULL);
+                if (tmp_memb == NULL)
+                {
+                    errno = EADDRNOTAVAIL;
                     goto err_exit;
                 }
             }
             else
             {
-                if (sock->ip_membership.num_not_bypassed == 0)
+                if (sock->mcast_num_not_bypassed == 0)
                 {
                     errno = EINVAL;
                     goto err_exit;
@@ -1740,39 +1751,52 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
                 assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
             }
 
+            if (exa_socket_ip_memberships_add(sock, &mcast_ep) != 0)
+            {
+                errno = EINVAL;
+                goto err_exit;
+            }
+
             if (sock->bound)
             {
                 ret = exa_socket_add_mcast(sock, &mcast_ep);
                 if (ret == -1)
+                {
+                    exa_socket_ip_memberships_remove_and_free(sock, &mcast_ep);
                     goto err_exit;
+                }
             }
-
-            sock->ip_membership.mcast_ep = mcast_ep;
-            sock->ip_membership.mcast_ep_valid = true;
         }
         else
         {
-            sock->ip_membership.num_not_bypassed++;
+            sock->mcast_num_not_bypassed++;
         }
         break;
 
     case IP_DROP_MEMBERSHIP:
         if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
         {
+            struct exa_mcast_membership *deltmp;
+
+            deltmp = exa_socket_ip_memberships_remove(sock, &mcast_ep);
+            assert(deltmp != NULL);
+
             if (sock->bound)
             {
                 ret = exa_socket_del_mcast(sock, &mcast_ep);
                 if (ret == -1)
+                {
+                    exa_socket_ip_memberships_free(deltmp);
                     goto err_exit;
+                }
             }
 
-            sock->ip_membership.mcast_ep_valid = false;
-            sock->ip_membership.mcast_ep.interface = htonl(INADDR_ANY);
-            sock->ip_membership.mcast_ep.multiaddr = htonl(INADDR_ANY);
+
+            exa_socket_ip_memberships_free(deltmp);
         }
         else
         {
-            sock->ip_membership.num_not_bypassed--;
+            sock->mcast_num_not_bypassed--;
         }
         break;
 
@@ -2100,7 +2124,7 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
             errno = EPERM;
             goto err_exit;
         }
-        if (sock->ip_membership.num_not_bypassed > 0)
+        if (sock->mcast_num_not_bypassed > 0)
         {
             /* Enabling bypass on a socket which already has joined a multicast
              * group with a non-exanic interface is not supported. It would
@@ -2110,18 +2134,21 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
             errno = EOPNOTSUPP;
             goto err_exit;
         }
-        if (sock->ip_membership.mcast_ep_valid)
-        {
-            /* FIXME: Receiving packets of more than one multiple multicast
-             * group on the same accelerated socket is not supported.
-             */
-            errno = EOPNOTSUPP;
-            goto err_exit;
-        }
 
         ret = parse_mreq(optval, optlen, &mcast_ep, &is_exanic);
         if (ret == -1)
             goto err_exit;
+
+        /* Don't allow duplicate membership additions.*/
+        if (exa_socket_ip_memberships_find(sock,
+                                           mcast_ep.multiaddr,
+                                           mcast_ep.interface,
+                                           NULL) != NULL)
+        {
+            errno = EINVAL;
+            goto err_exit;
+        }
+
         if (mcast_ep.interface == htonl(INADDR_ANY))
         {
             /* This socket will be receiving packets of the multicast group
@@ -2148,15 +2175,22 @@ setsockopt_exasock(struct exa_socket * restrict sock, int sockfd, int optname,
             assert(sock->bypass_state == EXA_BYPASS_ACTIVE);
         }
 
+        if (exa_socket_ip_memberships_add(sock, &mcast_ep) != 0)
+        {
+            errno = EINVAL;
+            goto err_exit;
+        }
+
         if (sock->bound)
         {
             ret = exa_socket_add_mcast(sock, &mcast_ep);
             if (ret == -1)
+            {
+                exa_socket_ip_memberships_remove_and_free(sock, &mcast_ep);
                 goto err_exit;
+            }
         }
 
-        sock->ip_membership.mcast_ep = mcast_ep;
-        sock->ip_membership.mcast_ep_valid = true;
         break;
 
     case SO_EXA_ATE:

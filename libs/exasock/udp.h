@@ -122,9 +122,39 @@ exa_udp_mcast_insert(int fd, struct exa_mcast_endpoint * restrict mc_ep)
 }
 
 static inline void
+exa_udp_mcast_insert_all(int fd)
+{
+    struct exa_socket *esk = exa_socket_get(fd);
+    struct exa_mcast_membership *tmp_memb;
+
+    assert(esk != NULL);
+
+    for (tmp_memb = esk->ip_memberships; tmp_memb != NULL;
+         tmp_memb = tmp_memb->next)
+    {
+        exa_udp_mcast_insert(fd, &tmp_memb->mcast_ep);
+    }
+}
+
+static inline void
 exa_udp_mcast_remove(int fd, struct exa_mcast_endpoint * restrict mc_ep)
 {
     exa_hashtable_mcast_remove(&__exa_udp_sockfds, fd, mc_ep);
+}
+
+static inline void
+exa_udp_mcast_remove_all(int fd)
+{
+    struct exa_socket *esk = exa_socket_get(fd);
+    struct exa_mcast_membership *tmp_memb;
+
+    assert(esk != NULL);
+
+    for (tmp_memb = esk->ip_memberships; tmp_memb != NULL;
+         tmp_memb = tmp_memb->next)
+    {
+        exa_udp_mcast_remove(fd, &tmp_memb->mcast_ep);
+    }
 }
 
 static inline int
