@@ -47,6 +47,8 @@ ssize_t (*__libc_send)(int, const void *, size_t, int);
 ssize_t (*__libc_sendto)(int, const void *, size_t, int,
                          const struct sockaddr *, socklen_t);
 ssize_t (*__libc_sendmsg)(int, const struct msghdr *, int);
+int (*__libc_sendmmsg)(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+                       int flags);
 ssize_t (*__libc_read)(int, void *, size_t);
 ssize_t (*__libc_readv)(int, const struct iovec *iov, int iovcnt);
 ssize_t (*__libc_read_chk)(int, void *, size_t, size_t);
@@ -106,6 +108,7 @@ __exasock_override_init()
         __libc_send = dlsym(RTLD_NEXT, "send");
         __libc_sendto = dlsym(RTLD_NEXT, "sendto");
         __libc_sendmsg = dlsym(RTLD_NEXT, "sendmsg");
+        __libc_sendmmsg = dlsym(RTLD_NEXT, "sendmmsg");
         __libc_read = dlsym(RTLD_NEXT, "read");
         __libc_readv = dlsym(RTLD_NEXT, "readv");
         __libc_read_chk = dlsym(RTLD_NEXT, "__read_chk");

@@ -532,6 +532,9 @@ sendmsg_bypass(struct exa_socket * restrict sock, int sockfd,
     }
 }
 
+/* If you modify the logic in this function, be sure to make
+ * accompanying modifictions to `sendmmsg()` as well
+ */
 __attribute__((visibility("default")))
 ssize_t
 sendmsg(int sockfd, const struct msghdr *msg, int flags)
@@ -600,6 +603,114 @@ sendmsg(int sockfd, const struct msghdr *msg, int flags)
     }
 
     TRACE_RETURN(LONG, ret);
+    return ret;
+}
+
+/* If you modify the logic in this function, be sure to make
+ * accompanying modifictions to `sendmsg()` as well
+ */
+__attribute__((visibility("default")))
+int
+sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+	 int flags)
+{
+    struct exa_socket * restrict sock = exa_socket_get(sockfd);
+    int ret = 0;
+    int i;
+
+    TRACE_CALL("sendmmsg");
+    TRACE_ARG(INT, sockfd);
+    TRACE_ARG(MMSG_PTR, msgvec, SSIZE_MAX);
+    TRACE_ARG(INT, vlen);
+    TRACE_LAST_ARG(BITS, flags, msg_flags);
+    TRACE_FLUSH();
+
+    if (sock == NULL)
+    {
+        if (flags & MSG_EXA_WARM)
+        {
+            WARNING_MSGWARM(sockfd);
+            for (i = 0; i < vlen; i++)
+            {
+                ret += __iovec_total_len(msgvec[i].msg_hdr.msg_iov,
+                                         msgvec[i].msg_hdr.msg_iovlen);
+            }
+        }
+        else
+            ret = LIBC(sendmmsg, sockfd, msgvec, vlen, flags);
+
+        TRACE_RETURN(INT, ret);
+        return ret;
+    }
+
+    /* We need to process each destination address one by one. */
+    for (i = 0; i < vlen; i++)
+    {
+        struct msghdr *currmsg = &msgvec[i].msg_hdr;
+        int tmpret;
+
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE && currmsg->msg_name != NULL)
+        {
+            exa_write_lock(&sock->lock);
+
+            if (auto_bind(sock, sockfd,
+                          currmsg->msg_name, currmsg->msg_namelen) != 0)
+            {
+                exa_write_unlock(&sock->lock);
+
+                /* If no messages were successfully sent at all, return -1 */
+                if (ret == 0)
+                    ret = -1;
+
+                /* ENETUNREACH not a standard return value for sendmmsg, but it
+                 * best reflects this situation.
+                 */
+                errno = ENETUNREACH;
+                TRACE_RETURN(INT, ret);
+                return ret;
+            }
+
+            exa_rwlock_downgrade(&sock->lock);
+        }
+        else
+            exa_read_lock(&sock->lock);
+
+        assert(exa_read_locked(&sock->lock));
+
+        tmpret = 0;
+        if (sock->bypass_state != EXA_BYPASS_ACTIVE)
+        {
+            exa_read_unlock(&sock->lock);
+            if (flags & MSG_EXA_WARM)
+            {
+                WARNING_MSGWARM(sockfd);
+                tmpret = __iovec_total_len(currmsg->msg_iov, currmsg->msg_iovlen);
+            }
+            else
+                tmpret = LIBC(sendmsg, sockfd, currmsg, flags);
+        }
+        else
+        {
+            tmpret = sendmsg_bypass(sock, sockfd, currmsg, flags);
+            exa_read_unlock(&sock->lock);
+        }
+
+        if (tmpret < 0)
+        {
+            /* Exit early on the first failure, returning the number
+             * of successfully sent msgs.
+             */
+            if (ret == 0)
+                ret = tmpret;
+
+            TRACE_RETURN(INT, ret);
+            return ret;
+        }
+        else
+            ret += (tmpret > 0) ? 1 : 0;
+    }
+
+    TRACE_RETURN(INT, ret);
     return ret;
 }
 

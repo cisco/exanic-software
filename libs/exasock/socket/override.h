@@ -30,6 +30,8 @@ extern ssize_t (*__libc_send)(int, const void *, size_t, int);
 extern ssize_t (*__libc_sendto)(int, const void *, size_t, int,
                                 const struct sockaddr *, socklen_t);
 extern ssize_t (*__libc_sendmsg)(int, const struct msghdr *, int);
+extern int (*__libc_sendmmsg)(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+                              int flags);
 extern ssize_t (*__libc_read)(int, void *, size_t);
 extern ssize_t (*__libc_readv)(int, const struct iovec *iov, int iovcnt);
 extern ssize_t (*__libc_read_chk)(int, void *, size_t, size_t);
