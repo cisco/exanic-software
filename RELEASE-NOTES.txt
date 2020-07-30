@@ -1,3 +1,70 @@
+===============================================
+Release notes for ExaNIC software release 2.5.0
+===============================================
+
+This release includes several exasock improvements including support for bonding
+in active-backup mode.  It also adds support for the upcoming ExaNIC X100 card,
+and fixes compilation on RHEL 8.2 and other Linux kernels up to v5.8.  A more
+complete list of changes and bug fixes are included at the bottom of these
+release notes.
+
+Supported distributions
+-----------------------
+The following Linux distributions are officially supported and have been tested
+with this release:
+
+* RHEL 8.2 (kernel 4.18.0-193)
+* RHEL 7.8 (kernel 3.10.0-1127)
+* CentOS 8.2 (kernel 4.18.0-193)
+* CentOS 7.8 (kernel 3.10.0-1127)
+* Ubuntu 20.04 LTS (kernel 5.4.0-42)
+* SuSE Enterprise Linux 12 SP4 (kernel 4.12.14-95)
+
+While we strive for broad Linux compatibility in our software, Cisco TAC may not
+be able to provide support for other distributions or custom kernels.
+
+Supported firmware versions
+---------------------------
+There are no dependencies between specific versions of software and specific
+versions of firmware.  However, if a problem is encountered, please update to
+the latest firmware version before contacting support.  The following firmware
+versions have been tested with this release:
+
+* ExaNIC X25: 20190805 / FDK 2.7.0
+* ExaNIC X40: 20180215 / 20190219 (40G) / FDK 2.7.0
+* ExaNIC X10: 20180409 / 20180215 (bridging/mirroring) / FDK 2.7.0
+* ExaNIC GM:  20180622
+* ExaNIC HPT: 20180221
+* ExaNIC V5P: 20180117 / FDK 2.7.0
+* ExaNIC V9P: FDK 2.7.0
+
+Note on userspace/kernel compatibility
+--------------------------------------
+We highly recommend updating all components of ExaNIC software (i.e. drivers,
+libraries and utilities) at the same time if possible.  There have been no ABI
+changes and we expect 2.4.x drivers to work with 2.5.x libraries and 2.5.x
+drivers to work with 2.4.x libraries, however it is impractical for us to test
+the full matrix of possibilities for every supported configuration.
+
+Change log
+----------
+2.5.0 [2020-07-30]
+* exasock: support for bonded ExaNIC devices in active-backup mode
+* exasock: support for sendmmsg()
+* exasock: support for listening to multiple multicast groups, and for receiving
+  both multicast and unicast, on the same UDP socket
+* exanic-config: add options to disable padding and CRC insertion on TX, subject
+  to firmware support (coming soon to X25/X100, check firmware changelog)
+* exanic-fwupdate: fix two race conditions, one causing a crash on hot reload
+* driver: improve allocation of TX feedback slots, to avoid running out of TX
+  feedback slots before TX buffer memory
+* driver: retry reading card serial number if first attempt fails
+* driver: fix possible race condition during driver unload
+* Compile fixes for RHEL 8.2 / kernel versions up to v5.8
+* New improved perf-test utilities with fine-grained control over transmit and
+  receive modes
+* Support for ExaNIC X100
+
 2.4.1 [2020-01-06]
 * driver: fix kernel panic with Linux kernel versions 4.16 and 4.17 as a
   result of i2c_bit_add_bus changes

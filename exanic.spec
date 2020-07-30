@@ -1,5 +1,5 @@
 Name:           exanic
-Version:        2.4.1-git
+Version:        2.5.0-git
 Release:        1%{?dist}
 
 Summary:        ExaNIC drivers and software
@@ -100,7 +100,7 @@ dkms remove -m %{name} -v %{version}-%{release} --all --rpm_safe_upgrade
 
 %files
 %defattr(-,root,root,-)
-%doc LICENSE.txt changelog.txt docs/README.txt
+%doc LICENSE.txt RELEASE-NOTES.txt docs/README.txt
 
 %files dkms
 %defattr(-,root,root,-)
