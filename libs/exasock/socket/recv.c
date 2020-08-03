@@ -1070,10 +1070,13 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
                              flags & ~MSG_WAITFORONE);
         if (ret == -1)
         {
-            /* no more data, and user wants non-blocking behaviour */
-            if (errno == EAGAIN
-                && (flags & MSG_WAITFORONE)
-                && (i > 0))
+            /*
+             * Per Linux behaviour, if at least one message has been received when
+             * an error occurs, return it.  If some permanent error has occurred
+             * such as the socket no longer being valid, this error will be returned
+             * on the next call to recvmmsg.
+             */
+            if (i > 0)
                 ret = i;
             goto out;
         }
