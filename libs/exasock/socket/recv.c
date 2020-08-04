@@ -1078,7 +1078,7 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
              */
             if (i > 0)
                 ret = i;
-            goto out;
+            goto out_unlock;
         }
 
         msgvec[i].msg_len = ret;
@@ -1091,7 +1091,7 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
             {
                 errno = EAGAIN;
                 ret = -1;
-                goto out;
+                goto out_unlock;
             }
 
             /*
@@ -1106,12 +1106,14 @@ recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
             ts_sub(&t_max, &t_now, (struct timespec*)timeout);
 
             if (ts_after_eq(&t_now, &t_max))
-                goto out;
+                goto out_unlock;
         }
 
         if (flags & MSG_WAITFORONE)
             flags |= MSG_DONTWAIT;
     }
+
+ out_unlock:
     exa_read_unlock(&sock->lock);
 
  out:
