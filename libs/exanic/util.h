@@ -115,6 +115,16 @@ char *exanic_get_extended_devkit_memory(exanic_t *exanic);
 int exanic_is_devkit_demo(exanic_t *exanic);
 
 /**
+ * \brief Check if a devkit image has been built with a free version of the devkit.
+ *
+ * \param[in]   exanic
+ *      A valid ExaNIC handle
+ *
+ * \return 1 if image was built with a free devkit, 0 otherwise.
+ */
+int exanic_is_devkit_free(exanic_t *exanic);
+
+/**
  * \brief Return the sysfs path of an ExaNIC device
  *
  * \param[in]   exanic

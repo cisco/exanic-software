@@ -246,10 +246,10 @@ enum
     REG_EXANIC_DEVKIT_MEMORY_OFFSET     = 35,
 
     /**
-     * [RO] Reads 1 if this is a time-limited demo devkit image.
+     * [RO] FDK license type: 0=licensed/full, 1=evaluation, 2=free.
      * Availability: ExaNIC Development Kits
      */
-    REG_EXANIC_DEVKIT_DEMO_IMAGE        = 36,
+    REG_EXANIC_DEVKIT_LICENSE_TYPE      = 36,
 
     /**
      * [RO] For devkit images, this is the user version provided in at compile

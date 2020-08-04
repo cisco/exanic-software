@@ -559,7 +559,8 @@ void show_device_info(const char *device, int port_number, int verbose)
         unsigned user_version;
         user_version = exanic_register_read(exanic,
                         REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_USER_VERSION));
-        printf("  Customer version: %u (%x)\n", user_version, user_version);
+        printf("  Customer version: %u (%x)%s\n", user_version, user_version,
+                                    exanic_is_devkit_free(exanic) ? " (free)" : "");
     }
 
     if (hwinfo->flags & EXANIC_HW_FLAG_PWR_SENSE)

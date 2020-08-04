@@ -83,7 +83,12 @@ char *exanic_get_extended_devkit_memory(exanic_t *exanic)
 
 int exanic_is_devkit_demo(exanic_t *exanic)
 {
-    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_DEMO_IMAGE)] == 1;
+    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_LICENSE_TYPE)] == 1;
+}
+
+int exanic_is_devkit_free(exanic_t *exanic)
+{
+    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_LICENSE_TYPE)] == 2;
 }
 
 int exanic_get_sysfs_path(exanic_t *exanic, char *buf, size_t len)
