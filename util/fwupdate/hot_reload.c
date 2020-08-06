@@ -255,28 +255,43 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         close(parent_config_fd);
     }
 
-    if (dir == NULL)
+    for (attempts = 0; attempts < 3; attempts++)
     {
-        fprintf(stderr, "ERROR: device did not reappear at %s after hot reload. If you cannot find the card in lspci, a host reboot or recovery mode boot may be required.\n", sysfs_path);
-        return NULL;
-    }
+        if (dir == NULL)
+        {
+            fprintf(stderr, "ERROR: device did not reappear at %s after hot reload. If you cannot find the card in lspci, a host reboot or recovery mode boot may be required.\n", sysfs_path);
+            return NULL;
+        }
 
-    /* Find a file in this directory that looks like a network interface */
-    while ((dirent = readdir(dir)) != NULL)
-    {
-        if (strcmp(dirent->d_name, ".") && strcmp(dirent->d_name, "..") && dirent->d_type == DT_DIR)
+        /* Find a file in this directory that looks like a network interface */
+        while ((dirent = readdir(dir)) != NULL)
+        {
+            if (strcmp(dirent->d_name, ".") && strcmp(dirent->d_name, "..") && dirent->d_type == DT_DIR)
+                break;
+        }
+
+        if (dirent == NULL)
+        {
+            fprintf(stderr, "ERROR: unable to find any network interfaces in directory: %s\n", attr_path);
+            return NULL;
+        }
+
+        if (exanic_find_port_by_interface_name(dirent->d_name, new_device_name, sizeof(new_device_name), &new_device_port) == 0)
             break;
+
+        /*
+         * Try again to address a race condition where the interface could get renamed between the readdir and
+         * find_port.  We try a couple of times as, if we're very unlucky, the second time we could have chosen
+         * a different interface that's also in the process of being renamed.
+         */
+        closedir(dir);
+        dir = opendir(attr_path);
     }
 
-    if (dirent == NULL)
-    {
-        fprintf(stderr, "ERROR: unable to find network interface in directory: %s\n", attr_path);
-        return NULL;
-    }
-
-    if (exanic_find_port_by_interface_name(dirent->d_name, new_device_name, sizeof(new_device_name), &new_device_port) == -1)
+    if (attempts == 3)
     {
         fprintf(stderr, "ERROR: unable to get exanic device name for interface name: %s\n", dirent->d_name);
+        closedir(dir);
         return NULL;
     }
     closedir(dir);
