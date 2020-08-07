@@ -64,7 +64,7 @@ mkdir -p %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic %{buildr
          %{buildroot}/usr/src/%{name}-%{version}-%{release}/include
 cp -r modules %{buildroot}/usr/src/%{name}-%{version}-%{release}/
 cp libs/exanic/{ioctl.h,pcie_if.h,fifo_if.h,const.h,checksum*.h,hw_info.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exanic
-cp libs/exasock/kernel/{api.h,structs.h,consts.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
+cp libs/exasock/kernel/{api.h,structs.h,consts.h,exasock-bonding.h} %{buildroot}/usr/src/%{name}-%{version}-%{release}/libs/exasock/kernel
 cp include/exanic_version.h %{buildroot}/usr/src/%{name}-%{version}-%{release}/include
 
 
