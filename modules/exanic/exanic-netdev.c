@@ -1515,6 +1515,9 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_sset_count         = exanic_netdev_get_sset_count,
     .get_coalesce           = exanic_netdev_get_coalesce,
     .set_coalesce           = exanic_netdev_set_coalesce,
+#ifdef ETHTOOL_COALESCE_RX_USECS
+    .supported_coalesce_params = ETHTOOL_COALESCE_RX_USECS,
+#endif
 
 #if defined(ETHTOOL_GMODULEINFO) && ! __RH_ETHTOOL_OPS_EXT
     .get_module_info        = exanic_netdev_get_module_info,
