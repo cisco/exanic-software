@@ -257,6 +257,13 @@ enum
      * Availability: ExaNIC Development Kits
      */
     REG_EXANIC_DEVKIT_USER_VERSION      = 37,
+
+    /**
+     * [RO] For devkit images, this is a run-time or compile-time configurable id
+     * provided by custom logic from within the user_application wrapper.
+     * Availability: ExaNIC Development Kits
+     */
+    REG_EXANIC_DEVKIT_APPLICATION_ID    = 43,
 };
 #define REG_EXANIC_OFFSET(reg) (REG_EXANIC_BASE + (reg) * sizeof(uint32_t))
 #define REG_EXANIC_INDEX(reg) (REG_EXANIC_OFFSET(reg) / sizeof(uint32_t))

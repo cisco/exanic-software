@@ -557,10 +557,15 @@ void show_device_info(const char *device, int port_number, int verbose)
     if (function == EXANIC_FUNCTION_DEVKIT)
     {
         unsigned user_version;
+        unsigned application_id;
         user_version = exanic_register_read(exanic,
                         REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_USER_VERSION));
+        application_id = exanic_register_read(exanic,
+                        REG_EXANIC_INDEX(REG_EXANIC_DEVKIT_APPLICATION_ID));
         printf("  Customer version: %u (%x)%s\n", user_version, user_version,
                                     exanic_is_devkit_free(exanic) ? " (free)" : "");
+        if (application_id != 0)
+            printf("  Application ID: %u (%x)\n", application_id, application_id);
     }
 
     if (hwinfo->flags & EXANIC_HW_FLAG_PWR_SENSE)
