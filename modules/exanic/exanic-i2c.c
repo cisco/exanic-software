@@ -359,12 +359,9 @@ exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
     struct exanic_i2c_data *exanic_data = algo_data->data;
     struct exanic_i2c_data_qsfp_common *exanic_data_qsfp;
     struct exanic *exanic = exanic_data->exanic;
-
-    int phys_port = 0;
-    bool toggle_modsel = false;
     bool page_switch = false;
-
     int ret;
+
     if (in_atomic() || irqs_disabled())
     {
         ret = mutex_trylock(&exanic_data->exanic->i2c_lock);
@@ -382,23 +379,42 @@ exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
     if (exanic_data->type == EXANIC_I2C_ADAP_QSFP ||
         exanic_data->type == EXANIC_I2C_ADAP_QSFPDD)
     {
-        page_switch = exanic_data_qsfp->flags.fields.page_switch;
-        toggle_modsel = true;
-        phys_port = exanic_data_qsfp->phys_port;
-    }
-
-    if (toggle_modsel)
-    {
-        /* drive modsel low to select module */
         volatile uint32_t *registers = exanic_registers(exanic);
-        registers[REG_HW_INDEX(REG_HW_I2C_GPIO)] &=
-            ~(1 << (EXANIC_GPIO_MOD0NSEL + phys_port));
-        msleep(2);
+        uint32_t gpio = registers[REG_HW_INDEX(REG_HW_I2C_GPIO)];
+        int phys_port = exanic_data_qsfp->phys_port;
+
+        /* ensure MODSELn is low to select desired module for I2C */
+        if (gpio & (1 << (EXANIC_GPIO_MOD0NSEL + phys_port)))
+        {
+            uint32_t deselect_mask = ~((1 << EXANIC_GPIO_MOD0NSEL) - 1),
+                     select_mask = ~(1 << (EXANIC_GPIO_MOD0NSEL + phys_port));
+            deselect_mask &= select_mask;
+
+            /* desired module not selected - select it first - this allows us
+             * to overlap new module setup time with old module hold time */
+            gpio &= select_mask;
+            registers[REG_HW_INDEX(REG_HW_I2C_GPIO)] = gpio;
+
+            /* ensure hold time requirement from last I2C transaction is met
+             * before deselecting old module */
+            msleep(2);
+
+            /* deselect old module(s) */
+            gpio |= deselect_mask;
+            registers[REG_HW_INDEX(REG_HW_I2C_GPIO)] = gpio;
+
+            /* ensure setup time on deselection is met, and also wait remaining
+             * setup time for new module selection (spec says 2ms, but some
+             * modules appear to require up to 20ms for new module selection) */
+            msleep(18);
+        }
+
+        page_switch = exanic_data_qsfp->flags.fields.page_switch;
     }
 
     ret = exanic_i2c_reset(exanic_data);
     if (ret)
-        goto modsel_unassert;
+        goto unlock;
 
     if (!page_switch)
         goto do_xfer;
@@ -430,22 +446,13 @@ exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
     }
 
     if (ret)
-        goto modsel_unassert;
+        goto unlock;
 
 do_xfer:
     /* perform i2c transfer */
     ret = exanic_data->xfer_wrapped(adap, msgs, num);
 
-modsel_unassert:
-    if (toggle_modsel)
-    {
-        /* drive modsel high to deselect module */
-        volatile uint32_t *registers = exanic_registers(exanic);
-        registers[REG_HW_INDEX(REG_HW_I2C_GPIO)] |=
-            (1 << (EXANIC_GPIO_MOD0NSEL + phys_port));
-        msleep(2);
-    }
-
+unlock:
     mutex_unlock(&exanic_data->exanic->i2c_lock);
     return ret;
 }
