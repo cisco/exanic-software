@@ -14,6 +14,9 @@
 #include <linux/miscdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/net_tstamp.h>
+#ifndef NETIF_F_IP_CSUM
+#include <linux/netdev_features.h>
+#endif
 
 #include "../../libs/exanic/pcie_if.h"
 #include "../../libs/exanic/fifo_if.h"
@@ -333,7 +336,8 @@ static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
                                             char **rx_buf_ptr,
                                             uint32_t *chunk_id,
                                             uint8_t *matched_filter,
-                                            int *more_chunks)
+                                            uint16_t *chunk_status,
+                                            bool *more_chunks)
 {
     union {
         struct rx_chunk_info info;
@@ -341,6 +345,7 @@ static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
     } u;
 
     u.data = rx->buffer[rx->next_chunk].u.data;
+    *chunk_status = u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK;
 
     if (u.info.generation == rx->generation)
     {
@@ -364,16 +369,13 @@ static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
         if (u.info.length != 0)
         {
             /* Last chunk */
-            if (u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK)
-                return -(u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK);
-
-            *more_chunks = 0;
+            *more_chunks = false;
             return u.info.length;
         }
         else
         {
             /* More chunks to come */
-            *more_chunks = 1;
+            *more_chunks = true;
             return EXANIC_RX_CHUNK_PAYLOAD_SIZE;
         }
     }
@@ -386,7 +388,8 @@ static ssize_t exanic_receive_chunk_inplace(struct exanic_netdev_rx *rx,
     {
         /* Got lapped? */
         exanic_rx_catchup(rx);
-        return -EXANIC_RX_FRAME_SWOVFL;
+        *chunk_status = EXANIC_RX_FRAME_SWOVFL;
+        return -1;
     }
 }
 
@@ -1060,6 +1063,14 @@ static int exanic_netdev_change_mtu(struct net_device *ndev, int new_mtu)
     return 0;
 }
 
+#ifdef NETIF_F_RXALL
+int exanic_set_features(struct net_device *netdev, netdev_features_t features)
+{
+    netdev->features = features;
+    return 0;
+}
+#endif
+
 /**
  * Handle ioctl request on a ExaNIC interface.
  */
@@ -1171,6 +1182,10 @@ static struct net_device_ops exanic_ndos = {
     .ndo_change_mtu_rh74     = exanic_netdev_change_mtu,
 #else
     .ndo_change_mtu          = exanic_netdev_change_mtu,
+#endif
+
+#ifdef NETIF_F_RXALL
+    .ndo_set_features        = exanic_set_features,
 #endif
 
 };
@@ -1593,9 +1608,10 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
     int received = 0, chunk_count = 0;
     ssize_t len;
     uint32_t chunk_id = 0, tstamp;
-    uint8_t matched_filter;
+    uint8_t matched_filter = 0;
+    uint16_t chunk_status;
     char *ptr = NULL;
-    int more_chunks = 0;
+    bool more_chunks = false;
     ktime_t interval;
 
     while (received < budget && chunk_count < POLL_MAX_CHUNKS)
@@ -1611,25 +1627,57 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         }
 
         chunk_count++;
-        len = exanic_receive_chunk_inplace(rx, &ptr, &chunk_id, &matched_filter, &more_chunks);
+        len = exanic_receive_chunk_inplace(rx, &ptr, &chunk_id, &matched_filter, &chunk_status, &more_chunks);
         if (len == 0)
-            break;
-        else if (len < 0)
         {
-            /* Receive error */
-            ndev->stats.rx_errors++;
-            if (len == -EXANIC_RX_FRAME_SWOVFL)
-                ndev->stats.rx_fifo_errors++;
-            else if (len == -EXANIC_RX_FRAME_CORRUPT)
-                ndev->stats.rx_crc_errors++;
-            dev_kfree_skb(priv->skb);
-            priv->skb = NULL;
-            received++;
-            continue;
+            /* No (more) packet chunks currently waiting. */
+            break;
         }
-        else if (len > skb_tailroom(priv->skb))
+
+        if (chunk_status)
+        {
+            ndev->stats.rx_errors++;
+
+            /* If there's been a chunk error, no more chunks on this frame */
+            more_chunks = false;
+
+            switch (chunk_status)
+            {
+            case EXANIC_RX_FRAME_CORRUPT:
+                ndev->stats.rx_crc_errors++;
+                break;
+            case EXANIC_RX_FRAME_ABORTED:
+                ndev->stats.rx_length_errors++;
+                break;
+            case EXANIC_RX_FRAME_SWOVFL: /* Implies len < 0 */
+                ndev->stats.rx_fifo_errors++;
+                if ( priv->skb->len == 0 )
+                {
+                    /* There is no frame data so far received, so try again, but
+                     * don't bother to reallocate the SKB since we have a fresh
+                     * one already */
+                    continue;
+                }
+                break;
+            }
+
+            /* We have frame data, drop it unless the user has asked us not to */
+#ifdef NETIF_F_RXALL
+            if ( !(ndev->features & NETIF_F_RXALL) )
+#endif
+            {
+                dev_kfree_skb (priv->skb);
+                priv->skb = NULL;
+                continue;
+            }
+        }
+
+        if (len > skb_tailroom(priv->skb))
         {
             /* Packet too large */
+            ndev->stats.rx_errors++;
+            ndev->stats.rx_length_errors++;
+
             len = skb_tailroom(priv->skb);
             priv->length_error = true;
         }
@@ -1665,6 +1713,12 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
                 received++;
                 continue;
             }
+
+            /* Take the last 4B (CRC) off the frame unless user wants it */
+#ifdef NETIF_F_RXFCS
+            if ( !(ndev->features & NETIF_F_RXFCS) )
+#endif
+                skb_trim(priv->skb, priv->skb->len - 4);
 
             priv->skb->protocol = eth_type_trans(priv->skb, ndev);
 
@@ -1789,6 +1843,19 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
          * interface */
         priv->bypass_only = true;
     }
+
+    /*
+     * ExaNICs are different to other NICs because hardware is cut-through. This
+     * means that they forward CRCs and broken frames by default. Other NICs
+     * will drop these by default. So, while forwarding CRCs and broken frames
+     * is a HW feature on most NICs, it is actually a SW feature on ExaNICs,
+     * (ie to strip CRCs and drop broken frames). To keep the user facing
+     * experience consistent, we mark these as HW features here, but actually
+     * implement in SW in the SKB RX path.
+     */
+#ifdef NETIF_F_RXALL
+    ndev->hw_features = NETIF_F_RXALL | NETIF_F_RXFCS ;
+#endif
 
     err = register_netdev(ndev);
     if (err)
