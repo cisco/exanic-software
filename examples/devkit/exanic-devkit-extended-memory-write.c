@@ -31,6 +31,7 @@ int main(int argc, char **argv)
     char *device;
     char *leftover;
     size_t offset;
+    volatile uint32_t *application_registers;
 
     if (argc != 3)
         goto usage_error;
@@ -47,7 +48,17 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if ((application_registers = exanic_get_extended_devkit_registers(exanic)) == NULL)
+    {
+        fprintf(stderr, "%s: %s\n", argv[1], exanic_get_last_error());
+        return -1;
+    }
+
     write_to_extended_memory(exanic, offset);
+
+    /* Dummy register write to flush write-combining cache */
+    application_registers[0] = 0x00C0FFEE;
+
     exanic_release_handle(exanic);
 
     return 0;
