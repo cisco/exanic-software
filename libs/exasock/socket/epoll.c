@@ -375,6 +375,13 @@ epoll_pwait_spin_check_fd(int fd)
 
     exa_read_lock(&sock->lock);
 
+    /* Check if socket still exists */
+    if (sock->state == NULL)
+    {
+        exa_read_unlock(&sock->lock);
+        return;
+    }
+
     exa_lock(&sock->state->rx_lock);
     exa_notify_tcp_read_update(sock);
     exa_unlock(&sock->state->rx_lock);
@@ -444,10 +451,28 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
             while (next_rd != s->next_write)
             {
                 sock = exa_socket_get(s->fd_ready[next_rd]);
-                if (!exa_trylock(&sock->state->rx_lock))
+
+                if (!exa_read_trylock(&sock->lock))
                     break;
+
+                if (sock->state == NULL)
+                {
+                    /* Socket no longer exists */
+                    exa_read_unlock(&sock->lock);
+                    EXASOCK_EPOLL_FD_READY_IDX_INC(next_rd);
+                    continue;
+                }
+
+                if (!exa_trylock(&sock->state->rx_lock))
+                {
+                    exa_read_unlock(&sock->lock);
+                    break;
+                }
                 exa_notify_tcp_read_update(sock);
                 exa_unlock(&sock->state->rx_lock);
+
+                exa_read_unlock(&sock->lock);
+
                 EXASOCK_EPOLL_FD_READY_IDX_INC(next_rd);
             }
             s->next_read = next_rd;
