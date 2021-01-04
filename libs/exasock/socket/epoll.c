@@ -155,7 +155,7 @@ epoll_ctl_add(struct exa_notify * restrict no, int epfd,
     if (sock->bypass_state != EXA_BYPASS_ACTIVE)
     {
         /* Check that we have space to record the epoll membership */
-        if (sock->num_epoll_fd > MAX_NUM_EPOLL)
+        if (sock->num_epoll_fd >= MAX_NUM_EPOLL)
         {
             errno = ENOMEM;
             return -1;
