@@ -24,6 +24,67 @@
 #include "exanic-phyops-cmis.h"
 #include "exanic-structs.h"
 
+typedef struct
+{
+    /* mapping between ExaNIC capability bits and ethtool link modes */
+    uint32_t capability;
+    const uint8_t* link_modes;
+} exa_caps_ethtool_modes_mapping_t;
+
+#define CAP_ETHTOOL_LINK_MODES_TABLE_END (255)
+#define CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(cap, ...) \
+    const uint8_t supported_modes_##cap##_ [] = {__VA_ARGS__, CAP_ETHTOOL_LINK_MODES_TABLE_END}; \
+    exa_caps_ethtool_modes_mapping_t _##cap##_link_modes_entry = \
+    { \
+        .capability = cap, \
+        .link_modes = supported_modes_##cap##_, \
+    }
+
+#define ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(cap) \
+    &_##cap##_link_modes_entry,
+
+
+CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(EXANIC_CAP_100M, _ETHTOOL_LINK_MODE_100baseT_Full_BIT, _ETHTOOL_LINK_MODE_10baseT_Full_BIT);
+
+CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(EXANIC_CAP_1G, _ETHTOOL_LINK_MODE_1000baseT_Full_BIT, _ETHTOOL_LINK_MODE_1000baseKX_Full_BIT);
+
+CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(EXANIC_CAP_10G, _ETHTOOL_LINK_MODE_10000baseKR_Full_BIT);
+
+CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(EXANIC_CAP_40G,
+        _ETHTOOL_LINK_MODE_40000baseCR4_Full_BIT,
+        _ETHTOOL_LINK_MODE_40000baseSR4_Full_BIT,
+        _ETHTOOL_LINK_MODE_40000baseLR4_Full_BIT);
+
+CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(EXANIC_CAP_25G, _ETHTOOL_LINK_MODE_25000baseKR_Full_BIT, _ETHTOOL_LINK_MODE_25000baseCR_Full_BIT);
+CAP_ETHTOOL_LINK_MODES_TABLE_ENTRY(EXANIC_CAP_25G_S, _ETHTOOL_LINK_MODE_25000baseKR_Full_BIT, _ETHTOOL_LINK_MODE_25000baseCR_Full_BIT);
+
+
+static const exa_caps_ethtool_modes_mapping_t* caps2ethtool_modes [] =
+{
+    ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(EXANIC_CAP_100M)
+    ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(EXANIC_CAP_1G)
+    ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(EXANIC_CAP_10G)
+    ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(EXANIC_CAP_25G)
+    ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(EXANIC_CAP_25G_S)
+    ADD_ETHTOOL_LINKMODES_PER_CAPABILITY(EXANIC_CAP_40G)
+    NULL
+};
+
+static const unsigned int lp_techs_to_ethtoolmode [] =
+{
+    [TECH_ABILITY_1000BASE_KX] =   _ETHTOOL_LINK_MODE_1000baseKX_Full_BIT,
+    [TECH_ABILITY_10GBASE_KX4] =   _ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
+    [TECH_ABILITY_10GBASE_KR] =    _ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
+    [TECH_ABILITY_40GBASE_KR4] =   _ETHTOOL_LINK_MODE_40000baseKR4_Full_BIT,
+    [TECH_ABILITY_40GBASE_CR4] =   _ETHTOOL_LINK_MODE_40000baseCR4_Full_BIT,
+    [TECH_ABILITY_100GBASE_CR10] = _ETHTOOL_LINK_MODE_100000baseCR4_Full_BIT,
+    [TECH_ABILITY_100GBASE_KP4] =  _ETHTOOL_LINK_MODE_100000baseKR4_Full_BIT,
+    [TECH_ABILITY_100GBASE_KR4] =  _ETHTOOL_LINK_MODE_100000baseKR4_Full_BIT,
+    [TECH_ABILITY_100GBASE_CR4] =  _ETHTOOL_LINK_MODE_100000baseCR4_Full_BIT,
+    [TECH_ABILITY_25GBASE_KR_S] =  _ETHTOOL_LINK_MODE_25000baseCR_Full_BIT,
+    [TECH_ABILITY_25GBASE_KR] =    _ETHTOOL_LINK_MODE_25000baseCR_Full_BIT,
+};
+
 /* Decode SFF-8024 identification byte to determine pluggable transceiver type */
 #define SFF_8024_ID_SFP(id)             ((id) == 0x03)
 #define SFF_8024_ID_QSFP(id)            ((id) == 0x0C || (id) == (0x0D) ||\
@@ -66,6 +127,7 @@ static bool exanic_speed_capable(uint32_t caps, uint32_t speed)
     return ((speed == SPEED_100 && (caps & EXANIC_CAP_100M)) ||
             (speed == SPEED_1000 && (caps & EXANIC_CAP_1G)) ||
             (speed == SPEED_10000 && (caps & EXANIC_CAP_10G)) ||
+            (speed == SPEED_25000 && ((caps & EXANIC_CAP_25G) || (caps & EXANIC_CAP_25G_S))) ||
             (speed == SPEED_40000 && (caps & EXANIC_CAP_40G)));
 }
 
@@ -363,6 +425,49 @@ static void __exanic_phyops_poweroff(struct exanic *exanic, int port)
     writel(reg, &regs[REG_HW_INDEX(REG_HW_POWERDOWN)]);
 }
 
+static int set_25g_autoneg_link_modes(struct exanic *exanic, int port,
+                                      const exanic_phyops_configs_t *configs,
+                                      uint32_t cap_mask)
+{
+    volatile uint32_t *regs = exanic_registers(exanic);
+    uint32_t caps = exanic->caps & cap_mask;
+    if (LINK_CONFIGS_GET_ADVERTISING(configs))
+    {
+        /* Advertise only the modes which are requested by ethtool */
+        int i;
+        const unsigned int* ptr = lp_techs_to_ethtoolmode;
+        bool matches = false;
+        uint32_t autoneg_caps = readl(&regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+        autoneg_caps &= ~EXANIC_AUTONEG_ABILITY_MASK;
+        for (i = 0; i < (sizeof(lp_techs_to_ethtoolmode) / sizeof(lp_techs_to_ethtoolmode[0])); i++)
+        {
+            unsigned long int val = (1ULL << ptr[i]);
+            if (LINK_CONFIGS_GET_ADVERTISING(configs) & val)
+            {
+                autoneg_caps |= (1 << i);
+                matches = true;
+            }
+        }
+
+        if (matches)
+            writel(autoneg_caps, &regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+        else
+            return -EOPNOTSUPP;
+    }
+    else
+    {
+        /* if no specific modes are provided, advertise modes which are relevant to 25G capabilities */
+        uint32_t autoneg_caps = readl(&regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+        autoneg_caps &= ~(EXANIC_AUTONEG_ABILITY_MASK);
+        if (caps & EXANIC_CAP_25G)
+            autoneg_caps |= EXANIC_25G_AUTONEG_SUPPORTED_TECHS;
+        else
+            autoneg_caps |= EXANIC_25G_S_AUTONEG_SUPPORTED_TECHS;
+        writel(autoneg_caps, &regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+    }
+    return 0;
+}
+
 /* common set_configs implementation
  * cap_mask: bitmask applied to ExaNIC capability register */
 static int
@@ -373,14 +478,29 @@ __exanic_phyops_set_configs_ex(struct exanic *exanic, int port,
                                                       uint32_t, uint32_t))
 {
     volatile uint32_t *regs = exanic_registers(exanic);
-    uint32_t reg, speed, caps;
+    uint32_t reg, speed, speed_reg, caps;
     bool autoneg_enable;
 
-    caps = readl(&regs[REG_EXANIC_INDEX(REG_EXANIC_CAPS)]) & cap_mask;
+    caps = exanic->caps & cap_mask;
     speed = LINK_CONFIGS_GET_SPEED(configs);
-    reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_SPEED)]);
+    reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
+    autoneg_enable = LINK_CONFIGS_GET(configs, autoneg);
 
-    if (reg != speed)
+    if (IS_25G_SUPPORTED(caps))
+    {
+        if (autoneg_enable)
+        {
+            int ret = set_25g_autoneg_link_modes(exanic, port, configs, cap_mask);
+            if (ret)
+                return ret;
+        }
+        else
+            /* clear capabilities in AN ability register */
+            writel(0, &regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+    }
+
+    speed_reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_SPEED)]);
+    if (speed_reg != speed)
     {
         if (!exanic_speed_capable(caps, speed))
             return -EINVAL;
@@ -405,13 +525,11 @@ __exanic_phyops_set_configs_ex(struct exanic *exanic, int port,
         exanic_save_speed(exanic, port, speed);
     }
 
-    reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
-    autoneg_enable = LINK_CONFIGS_GET(configs, autoneg);
-
     if (autoneg_enable)
         reg |= EXANIC_PORT_FLAG_AUTONEG_ENABLE;
     else
         reg &= ~EXANIC_PORT_FLAG_AUTONEG_ENABLE;
+
     writel(reg, &regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
 
     /* save autoneg config to EEPROM */
@@ -429,48 +547,85 @@ __exanic_phyops_set_configs(struct exanic *exanic, int port,
                                           ~0, NULL);
 }
 
+void add_ethtool_modes(const exa_caps_ethtool_modes_mapping_t* entry_ptr, exanic_phyops_configs_t *configs)
+{
+    const uint8_t* lm_ptr = entry_ptr->link_modes;
+    while(*lm_ptr != CAP_ETHTOOL_LINK_MODES_TABLE_END)
+    {
+        LINK_CONFIGS_SET_SUPPORTED_BIT(configs, *lm_ptr);
+        LINK_CONFIGS_SET_ADVERTISING_BIT(configs, *lm_ptr++);
+    }
+}
+
+static void
+get_25G_autoneg_info(struct exanic *exanic, int port,
+                            exanic_phyops_configs_t *configs)
+{
+    volatile uint32_t *regs = exanic_registers(exanic);
+
+    /* get link partner advertised techs when there is a link and
+     * we are operating in autoneg mode and autoneg has been done */
+    uint32_t autoneg_lp_ability = readl(&regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_LP_ABILITY)]);
+    uint32_t autoneg_lp_tech_ability = LINK_PARTNER_TECHS(autoneg_lp_ability);
+    unsigned int i = 0;
+    for_each_set_bit(i, (const unsigned long*)&autoneg_lp_tech_ability, EXANIC_AUTONEG_LINK_PARTNER_TECH_ABILITY_BIT_FIELD_SIZE)
+        LINK_CONFIGS_SET_LP_ADVERTISING_BIT(configs, lp_techs_to_ethtoolmode[i]);
+
+#ifdef ETHTOOL_SFECPARAM
+    if (autoneg_lp_ability & FEC_CAPABILITY_RS_FEC)
+        LINK_CONFIGS_SET_LP_ADVERTISING(configs, FEC_RS);
+    if (autoneg_lp_ability & FEC_CAPABILITY_BASER)
+        LINK_CONFIGS_SET_LP_ADVERTISING(configs, FEC_BASER);
+    LINK_CONFIGS_SET_LP_ADVERTISING(configs, FEC_NONE);
+
+    LINK_CONFIGS_SET_SUPPORTED(configs, FEC_BASER);
+    LINK_CONFIGS_SET_ADVERTISING(configs, FEC_BASER);
+
+    LINK_CONFIGS_SET_SUPPORTED(configs, FEC_NONE);
+    LINK_CONFIGS_SET_ADVERTISING(configs, FEC_NONE);
+
+    if (exanic->caps & EXANIC_CAP_25G)
+    {
+        LINK_CONFIGS_SET_SUPPORTED(configs, FEC_RS);
+        LINK_CONFIGS_SET_ADVERTISING(configs, FEC_RS);
+    }
+#endif
+}
+
 /* generic link setting getter */
 static int
 __exanic_phyops_get_configs(struct exanic *exanic, int port,
                             exanic_phyops_configs_t *configs)
 {
     volatile uint32_t *regs = exanic_registers(exanic);
-    uint32_t reg = readl(&regs[REG_EXANIC_INDEX(REG_EXANIC_CAPS)]);
+    uint32_t reg;
+    uint32_t port_flags = readl(&regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
+    const exa_caps_ethtool_modes_mapping_t** mptr = caps2ethtool_modes;
 
     LINK_CONFIGS_ZERO(configs);
     LINK_CONFIGS_SET_SUPPORTED(configs, FIBRE);
 
-    if (reg & EXANIC_CAP_100M)
+    while(*mptr)
     {
-        LINK_CONFIGS_SET_SUPPORTED(configs, 100baseT_Full);
-        LINK_CONFIGS_SET_SUPPORTED(configs, Autoneg);
+        /* For every capability bit set, return supported link modes */
+        if (exanic->caps & (*mptr)->capability)
+            add_ethtool_modes(*mptr, configs);
+        mptr++;
     }
 
-    if (reg & EXANIC_CAP_1G)
-    {
-        LINK_CONFIGS_SET_SUPPORTED(configs, 1000baseT_Full);
-        LINK_CONFIGS_SET_SUPPORTED(configs, 1000baseKX_Full);
-        LINK_CONFIGS_SET_SUPPORTED(configs, Autoneg);
-    }
-
-    if (reg & EXANIC_CAP_10G)
-        LINK_CONFIGS_SET_SUPPORTED(configs, 10000baseKR_Full);
-
-    if (reg & EXANIC_CAP_40G)
-    {
-        LINK_CONFIGS_SET_SUPPORTED(configs, 40000baseCR4_Full);
-        LINK_CONFIGS_SET_SUPPORTED(configs, 40000baseSR4_Full);
-        LINK_CONFIGS_SET_SUPPORTED(configs, 40000baseLR4_Full);
-    }
+    if (IS_25G_SUPPORTED(exanic->caps) && (port_flags & EXANIC_PORT_FLAG_AUTONEG_ENABLE))
+        get_25G_autoneg_info(exanic, port, configs);
 
     reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_SPEED)]);
     LINK_CONFIGS_SET_SPEED(configs, reg);
-
     LINK_CONFIGS_SET(configs, duplex, DUPLEX_FULL);
-    LINK_CONFIGS_SET(configs, port, PORT_FIBRE);
-    LINK_CONFIGS_SET(configs, transceiver, XCVR_INTERNAL);
 
+    LINK_CONFIGS_SET(configs, port, PORT_FIBRE);
+    LINK_CONFIGS_SET_SUPPORTED(configs, Autoneg);
+    LINK_CONFIGS_SET_ADVERTISING(configs, Autoneg);
+    
     reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
+
     if (reg & EXANIC_PORT_FLAG_AUTONEG_ENABLE)
         LINK_CONFIGS_SET(configs, autoneg, AUTONEG_ENABLE);
     else
@@ -478,6 +633,127 @@ __exanic_phyops_get_configs(struct exanic *exanic, int port,
 
     return 0;
 }
+
+#ifdef ETHTOOL_SFECPARAM
+static int
+__exanic_phyops_set_fecparam(struct exanic *exanic, int port, const exanic_phyops_fecparams_t* fp)
+{
+    volatile uint32_t* regs = exanic_registers(exanic);
+
+    uint32_t port_flags = readl(&regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
+    uint32_t autoneg_reg = readl(&regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+    uint32_t old_autoneg_reg = autoneg_reg;
+    bool autoneg_enabled = !!(port_flags & EXANIC_PORT_FLAG_AUTONEG_ENABLE);
+
+    /* clear bits related to fec capability and enforcement fec mode */
+    old_autoneg_reg = autoneg_reg;
+    autoneg_reg &= ~(EXANIC_AUTONEG_FEC_CAPABILITY_MASK);
+    port_flags &= ~(EXANIC_PORT_FLAG_FORCE_FEC_MASK);
+
+    if (!IS_25G_SUPPORTED(exanic->caps))
+        return -EOPNOTSUPP;
+
+    if ((fp->fec & ETHTOOL_FEC_AUTO) && autoneg_enabled)
+    {
+        /* if FEC should be auto-selected, then enable all supported FEC modes bits in capabilities */
+        uint32_t fec_cap = EXANIC_SUPPORTED_FECS(exanic->caps);
+        autoneg_reg |= fec_cap;
+    }
+    else if ((fp->fec & ETHTOOL_FEC_AUTO) && !autoneg_enabled)
+    {
+        /* TODO: generate a warning that FEC-auto mode is not supported when autoneg is off */
+        return -EOPNOTSUPP;
+    }
+    else if (fp->fec & ETHTOOL_FEC_BASER)
+    {
+        /* adding capability to the autoneg capability field, if autoneg is enabled */
+        if (autoneg_enabled)
+            autoneg_reg |= FEC_CAPABILITY_BASER;
+        else
+            port_flags |= EXANIC_PORT_FLAG_FORCE_BASER_FEC;
+    }
+    else if (fp->fec & ETHTOOL_FEC_RS)
+    {
+        if (autoneg_enabled)
+            /* autoneg is enabled then set RSFEC in capabilities */
+            autoneg_reg |= FEC_CAPABILITY_RS_FEC;
+        else
+            /* forcing FEC to RS_FEC when auto-neg is not enabled */
+            port_flags |= EXANIC_PORT_FLAG_FORCE_RS_FEC;
+    }
+
+    writel(autoneg_reg, &regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_ABILITY)]);
+    writel(port_flags, &regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
+
+    if (autoneg_enabled)
+    {
+        /* always restart autoneg, value may be stale */
+        writel(EXANIC_PORT_AUTONEG_RESTART, &regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_CONTROL)]);
+        writel(0, &regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_CONTROL)]);
+    }
+    return 0;
+}
+
+/* generic get FEC settings */
+static int
+__exanic_phyops_get_fecparam(struct exanic *exanic, int port, exanic_phyops_fecparams_t* fp)
+{
+    volatile uint32_t *regs = exanic_registers(exanic);
+    uint32_t speed;
+
+    if (!IS_25G_SUPPORTED(exanic->caps))
+    {
+        /* FEC is only supported on 25G firmware */
+        fp->fec = ETHTOOL_FEC_NONE;
+        fp->active_fec = ETHTOOL_FEC_NONE;
+        return 0;
+    }
+
+    /* return which one we support depending on the capabilities (25G or 25G_S) */
+    fp->fec = EXANIC_SUPPORTED_ETHTOOL_FECS(exanic->caps);
+
+    /* we also support no FEC */
+    fp->fec |= ETHTOOL_FEC_OFF;
+
+    /* set active initially to off */
+    fp->active_fec = ETHTOOL_FEC_OFF;
+
+    speed = readl(&regs[REG_PORT_INDEX(port, REG_PORT_SPEED)]);
+    if (speed == SPEED_25000)
+    {
+        uint32_t flags_reg = readl(&regs[REG_PORT_INDEX(port, REG_PORT_FLAGS)]);
+        uint32_t port_status = readl(&regs[REG_PORT_INDEX(port, REG_PORT_STATUS)]);
+        bool link_is_up = port_status & EXANIC_PORT_STATUS_LINK;
+        bool autoneg_is_on = flags_reg & EXANIC_PORT_FLAG_AUTONEG_ENABLE;
+
+        if (autoneg_is_on && link_is_up)
+        {
+            /* When autoneg is on and the link is up, get fec_active value from resolved bits */
+            uint32_t autoneg_status = readl(&regs[REG_EXTENDED_PORT_INDEX(port, REG_EXTENDED_PORT_AN_STATUS)]);
+            if (autoneg_status & EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_BASER_FEC)
+                fp->active_fec = ETHTOOL_FEC_BASER;
+            else if (autoneg_status & EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_RS_FEC)
+                fp->active_fec = ETHTOOL_FEC_RS;
+            else
+                fp->active_fec = ETHTOOL_FEC_OFF;
+        }
+        else if (!autoneg_is_on && link_is_up)
+        {
+            /* if auto-neg is off and link is up, we will get active from the force FEC bits */
+            if (flags_reg & EXANIC_PORT_FLAG_FORCE_RS_FEC)
+                fp->active_fec = ETHTOOL_FEC_RS;
+            else if(flags_reg & EXANIC_PORT_FLAG_FORCE_BASER_FEC)
+                fp->active_fec = ETHTOOL_FEC_BASER;
+            else
+                fp->active_fec = ETHTOOL_FEC_OFF;
+        }
+        else
+            /* if link is down, just set to off */
+            fp->active_fec = ETHTOOL_FEC_OFF;
+    }
+    return 0;
+}
+#endif /* ETHTOOL_SFECPARAM */
 
 /* generic link status getter */
 static uint32_t
@@ -835,6 +1111,10 @@ generic_phyops:
 
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = __exanic_phyops_set_configs,
+#ifdef ETHTOOL_SFECPARAM
+        .get_fecparam = __exanic_phyops_get_fecparam,
+        .set_fecparam = __exanic_phyops_set_fecparam,
+#endif /* ETHTOOL_SFECPARAM */
         .get_link_status = __exanic_phyops_get_link_status,
 #ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
@@ -859,6 +1139,10 @@ sfp_phyops:
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = sfp_marvell ? __exanic_phyops_set_configs_marvell:
                                      __exanic_phyops_set_configs,
+#ifdef ETHTOOL_SFECPARAM
+        .get_fecparam = __exanic_phyops_get_fecparam,
+        .set_fecparam = __exanic_phyops_set_fecparam,
+#endif /* ETHTOOL_SFECPARAM */
         .get_link_status = __exanic_phyops_get_link_status,
 #ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
@@ -881,6 +1165,10 @@ qsfp_phyops:
 
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = __exanic_phyops_set_configs,
+#ifdef ETHTOOL_SFECPARAM
+        .get_fecparam = __exanic_phyops_get_fecparam,
+        .set_fecparam = __exanic_phyops_set_fecparam,
+#endif /* ETHTOOL_SFECPARAM */
         .get_link_status = __exanic_phyops_get_link_status,
 #ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
@@ -903,6 +1191,10 @@ cmis_phyops:
 
         .get_configs = __exanic_phyops_get_configs,
         .set_configs = __exanic_phyops_set_configs_cmis,
+#ifdef ETHTOOL_SFECPARAM
+        .get_fecparam = __exanic_phyops_get_fecparam,
+        .set_fecparam = __exanic_phyops_set_fecparam,
+#endif /* ETHTOOL_SFECPARAM */
         .get_link_status = __exanic_phyops_get_link_status,
 #ifdef ETHTOOL_GMODULEINFO
         .get_module_info = __exanic_phyops_get_module_info,
@@ -1023,6 +1315,24 @@ int exanic_phyops_set_configs(struct exanic *exanic, int port,
         return exanic->port[port].phy_ops.set_configs(exanic, port, s);
     return -EOPNOTSUPP;
 }
+
+#ifdef ETHTOOL_SFECPARAM
+int exanic_phyops_get_fecparam(struct exanic *exanic, int port,
+                              struct ethtool_fecparam *fp)
+{
+    if (exanic->port[port].phy_ops.get_fecparam)
+        return exanic->port[port].phy_ops.get_fecparam(exanic, port, fp);
+    return -EOPNOTSUPP;
+}
+
+int exanic_phyops_set_fecparam(struct exanic *exanic, int port,
+                               struct ethtool_fecparam *fp)
+{
+    if (exanic->port[port].phy_ops.set_fecparam)
+        return exanic->port[port].phy_ops.set_fecparam(exanic, port, fp);
+    return -EOPNOTSUPP;
+}
+#endif /* ETHTOOL_SFECPARAM */
 
 int exanic_phyops_get_link_status(struct exanic *exanic, int port, uint32_t *link)
 {

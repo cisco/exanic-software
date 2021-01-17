@@ -17,9 +17,7 @@
 #include "ptp_clock_compat.h"
 #endif
 #include <linux/ethtool.h>
-#ifndef ETHTOOL_GET_TS_INFO
-#include "ethtool_ts_info.h"
-#endif
+#include "ethtool_compat.h"
 
 #include <exanic/exanic.h>
 #include <exanic/config.h>

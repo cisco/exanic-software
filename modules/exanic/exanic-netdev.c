@@ -1190,13 +1190,13 @@ static struct net_device_ops exanic_ndos = {
 
 };
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#ifdef ETHTOOL_GLINKSETTINGS
 static int exanic_netdev_get_link_ksettings(struct net_device *ndev,
                                             struct ethtool_link_ksettings *settings)
-#else // LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#else /* ETHTOOL_GLINKSETTINGS */
 static int exanic_netdev_get_settings(struct net_device *ndev,
                                       struct ethtool_cmd *settings)
-#endif // LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#endif /* ETHTOOL_GLINKSETTINGS */
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     struct exanic *exanic = priv->exanic;
@@ -1205,13 +1205,13 @@ static int exanic_netdev_get_settings(struct net_device *ndev,
     return exanic_phyops_get_configs(exanic, port_no, settings);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#ifdef ETHTOOL_GLINKSETTINGS
 static int exanic_netdev_set_link_ksettings(struct net_device *ndev,
                                             const struct ethtool_link_ksettings *settings)
-#else
+#else /* ETHTOOL_GLINKSETTINGS */
 static int exanic_netdev_set_settings(struct net_device *ndev,
                                       struct ethtool_cmd *settings)
-#endif
+#endif /* ETHTOOL_GLINKSETTINGS */
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     struct exanic *exanic = priv->exanic;
@@ -1225,6 +1225,33 @@ static int exanic_netdev_set_settings(struct net_device *ndev,
 
     return ret;
 }
+
+#ifdef ETHTOOL_SFECPARAM
+static int exanic_netdev_set_fecparam(struct net_device *ndev, struct ethtool_fecparam *fp)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct exanic *exanic = priv->exanic;
+    int port_no = priv->port;
+    struct mutex *mutex = exanic_mutex(priv->exanic);
+    int ret;
+
+    mutex_lock(mutex);
+    ret = exanic_phyops_set_fecparam(exanic, port_no, fp);
+    mutex_unlock(mutex);
+
+    return 0;
+}
+
+static int exanic_netdev_get_fecparam(struct net_device *ndev, struct ethtool_fecparam *fp)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct exanic *exanic = priv->exanic;
+    int port_no = priv->port;
+
+    return exanic_phyops_get_fecparam(exanic, port_no, fp);
+}
+
+#endif /* ETHTOOL_SFECPARAM */
 
 static void exanic_netdev_get_drvinfo(struct net_device *ndev,
                                       struct ethtool_drvinfo *info)
@@ -1488,7 +1515,7 @@ static int exanic_netdev_get_eeprom_len(struct net_device *ndev)
 }
 
 static int exanic_netdev_get_eeprom(struct net_device *ndev,
-			                        struct ethtool_eeprom *eeprom, u8 *bytes)
+                                    struct ethtool_eeprom *eeprom, u8 *bytes)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     struct exanic *exanic = priv->exanic;
@@ -1504,7 +1531,7 @@ static int exanic_netdev_get_eeprom(struct net_device *ndev,
 }
 
 static int exanic_netdev_set_eeprom(struct net_device *ndev,
-			                        struct ethtool_eeprom *eeprom, u8 *bytes)
+                                    struct ethtool_eeprom *eeprom, u8 *bytes)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     struct exanic *exanic = priv->exanic;
@@ -1542,13 +1569,19 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_ts_info            = exanic_netdev_get_ts_info,
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#ifdef ETHTOOL_GLINKSETTINGS
     .get_link_ksettings     = exanic_netdev_get_link_ksettings,
     .set_link_ksettings     = exanic_netdev_set_link_ksettings,
-#else
+#else /* ETHTOOL_GLINKSETTINGS */
     .get_settings           = exanic_netdev_get_settings,
     .set_settings           = exanic_netdev_set_settings,
-#endif
+#endif /* ETHTOOL_GLINKSETTINGS */
+
+#ifdef ETHTOOL_SFECPARAM
+    .get_fecparam           = exanic_netdev_get_fecparam,
+    .set_fecparam           = exanic_netdev_set_fecparam,
+#endif /* ETHTOOL_SFECPARAM */
+
 #if defined (ETHTOOL_PHYS_ID) && !__RH_ETHTOOL_OPS_EXT
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
     .set_phys_id            = exanic_netdev_set_phys_id,

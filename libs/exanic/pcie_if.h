@@ -607,6 +607,56 @@ enum
      * Availability: X4, X2
      */
     REG_EXTENDED_PORT_NUM_HASH_FUNCTIONS            = 2,
+
+    /**
+     * [RW] Clause 73 autonegotiation - control
+     * [0] Restart autonegotiation
+     * [8] Disable nonce check to allow loopback
+     * Availability: 25G capable firmware only
+     */
+    REG_EXTENDED_PORT_AN_CONTROL                    = 16,
+
+    /**
+     * [RW] Clause 73 autonegotiation - advertised ability
+     * [10:0] Technology ability
+     * [19:16] FEC capability
+     * [24:20] Tx nonce seed
+     * Availability: 25G capable firmware only
+     */
+    REG_EXTENDED_PORT_AN_ABILITY                    = 17,
+
+    /**
+     * [RO] Clause 73 autonegotiation - status
+     * [0] Autonegotiated link successfully
+     * [8] Link partner supports autonegotiation
+     * [14:12] Resolved PMD (one of PMD_*)
+     * [16] Resolved FEC is BASER-FEC
+     * [17] Resolved FEC is RS-FEC
+     * Availability: 25G capable firmware only
+     */
+    REG_EXTENDED_PORT_AN_STATUS                     = 18,
+
+    /**
+     * [RO] Clause 73 autonegotiation - link partner ability
+     * [10:0] Technology ability
+     * [19:16] FEC capability
+     * Availability: 25G capable firmware only
+     */
+    REG_EXTENDED_PORT_AN_LP_ABILITY                 = 19,
+
+    /**
+     * [RW] Clause 73 autonegotiation - delay before initial link-up check,
+     *  in units of 20ns
+     * Availability: 25G capable firmware only
+     */
+    REG_EXTENDED_PORT_AN_LINK_TIMER                 = 20,
+
+    /**
+     * [RO] Clause 73 autonegotiation - arbiter state (see
+     *  exanic_port_autoneg_arbiter_state_t)
+     * Availability: 25G capable firmware only
+     */
+    REG_EXTENDED_PORT_AN_ARB_STATE                  = 21
 };
 
 #define REG_EXTENDED_PORT_OFFSET(port, reg) \
@@ -1270,7 +1320,11 @@ typedef enum
     EXANIC_CAP_10G              = 0x04000000, /**< 10G supported */
     EXANIC_CAP_40G              = 0x08000000, /**< 40G supported */
     EXANIC_CAP_100G             = 0x10000000, /**< 100G supported */
+    EXANIC_CAP_25G              = 0x20000000, /**< 25G  supported */
+    EXANIC_CAP_25G_S            = 0x40000000, /**< 25G base-r fec supported */
 } exanic_caps_t;
+
+#define IS_25G_SUPPORTED(caps) ((((caps) & EXANIC_CAP_25G) || ((caps) & EXANIC_CAP_25G_S)) ? (1) : (0))
 
 /**
  * \brief Clock correction control bits
@@ -1444,14 +1498,17 @@ typedef enum
     EXANIC_PORT_FLAG_PROMISCUOUS        = 0x01,
 
     /**
-     * For Forwarding device ports 0-2 only.
-     * If enabled, every incoming packet updates the MAC for that port
+     * If enabled BASER-FEC will be forced when autonegotiation is disabled
      */
-    EXANIC_PORT_FLAG_MAC_LEARNING_MODE  = 0x02,
+    EXANIC_PORT_FLAG_FORCE_BASER_FEC    = 0x02,
 
     /**
-     * Enable auto-negotiation
-     * Availability: X4, X2
+     * If enabled RS-FEC will be forced when autonegotiation is disabled
+     */
+    EXANIC_PORT_FLAG_FORCE_RS_FEC       = 0x04,
+
+    /**
+     * Enable autonegotiation
      */
     EXANIC_PORT_FLAG_AUTONEG_ENABLE     = 0x08,
 
@@ -1470,8 +1527,11 @@ typedef enum
     /**
      * If enabled, this port will not append CRCs to TX frames
      */
-    EXANIC_PORT_FLAG_DISABLE_TX_CRC     = 0x40,
+    EXANIC_PORT_FLAG_DISABLE_TX_CRC     = 0x40
+
 } exanic_port_flags_t;
+
+#define EXANIC_PORT_FLAG_FORCE_FEC_MASK (0x06)
 
 /**
  * \brief DMA address width configuration bits
@@ -1588,6 +1648,154 @@ enum
     EXANIC_PORT_HASH_FUNCTION_MASK  = 0xF00,
     EXANIC_PORT_HASH_FUNCTION_SHIFT = 8,
 };
+
+/**
+ * \brief EXANIC_PORT_AUTONEG_1 bits
+ */
+typedef enum
+{
+    EXANIC_PORT_AUTONEG_RESTART         = 0x00000001,
+    EXANIC_DISABLE_NONCE_MATCH_CHECK    = 0x00000100
+} exanic_autoneg_control_t;
+
+/**
+ * \brief EXANIC_PORT_AUTONEG_2 bits
+ */
+enum
+{
+    EXANIC_AUTONEG_ABILITY_MASK         = 0x000007FF,
+    EXANIC_AUTONEG_ABILITY_SHIFT        = 0,
+    EXANIC_AUTONEG_FEC_CAPABILITY_MASK  = 0x000F0000,
+    EXANIC_AUTONEG_FEC_CAPABILITY_SHIFT = 16,
+    EXANIC_AUTONEG_TX_NONCE_SEED        = 0x00F00000,
+    EXANIC_AUTONEG_TX_NONCE_SEED_SHIFT  = 20,
+};
+
+#define AUTONEG_CAPS(reg) (((reg) & EXANIC_AUTONEG_ABILITY_MASK) >> EXANIC_AUTONEG_ABILITY_SHIFT)
+
+enum
+{
+    AUTONEG_TECH_ABILITY_1000_BASE_KX   = 0x00000001,
+    AUTONEG_TECH_ABILITY_10G_BASE_KX4   = 0x00000002,
+    AUTONEG_TECH_ABILITY_10G_BASE_KR    = 0x00000004,
+    AUTONEG_TECH_ABILITY_40G_BASE_KR4   = 0x00000008,
+    AUTONEG_TECH_ABILITY_40G_BASE_CR4   = 0x00000010,
+    AUTONEG_TECH_ABILITY_100G_BASE_CR10 = 0x00000020,
+    AUTONEG_TECH_ABILITY_100G_BASE_KP4  = 0x00000040,
+    AUTONEG_TECH_ABILITY_100G_BASE_KR4  = 0x00000080,
+    AUTONEG_TECH_ABILITY_100G_BASE_CR4  = 0x00000100,
+    AUTONEG_TECH_ABILITY_25G_BASE_KR_S  = 0x00000200,
+    AUTONEG_TECH_ABILITY_25G_BASE_KR    = 0x00000400,
+};
+
+enum
+{
+    AUTONEG_TECH_ABILITY_1000_BASE_KX_BIT_NUM   = 0,
+    AUTONEG_TECH_ABILITY_10G_BASE_KX4_BIT_NUM   = 1,
+    AUTONEG_TECH_ABILITY_10G_BASE_KR_BIT_NUM    = 2,
+    AUTONEG_TECH_ABILITY_40G_BASE_KR4_BIT_NUM   = 3,
+    AUTONEG_TECH_ABILITY_40G_BASE_CR4_BIT_NUM   = 4,
+    AUTONEG_TECH_ABILITY_100G_BASE_CR10_BIT_NUM = 5,
+    AUTONEG_TECH_ABILITY_100G_BASE_KP4_BIT_NUM  = 6,
+    AUTONEG_TECH_ABILITY_100G_BASE_KR4_BIT_NUM  = 7,
+    AUTONEG_TECH_ABILITY_100G_BASE_CR4_BIT_NUM  = 8,
+    AUTONEG_TECH_ABILITY_25G_BASE_KR_S_BIT_NUM  = 9,
+    AUTONEG_TECH_ABILITY_25G_BASE_KR_BIT_NUM    = 10,
+    AUTONEG_TECH_ABILITY_END_BIT                = 11
+};
+
+enum
+{
+    FEC_CAPABILITY_RS_FEC = 0x00040000,
+    FEC_CAPABILITY_BASER  = 0x00080000
+};
+
+/**
+ * \brief EXANIC_PORT_AUTONEG_3 bits
+ */
+typedef enum
+{
+    EXANIC_PORT_AUTONEG_FLAGS_LINK_IS_GOOD            = 0x00000001,
+    EXANIC_PORT_AUTONEG_FLAGS_LINK_PARTNER_IS_AUTONEG = 0x00000100,
+    EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_BASER_FEC      = 0x00010000,
+    EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_RS_FEC         = 0x00020000
+} exanic_autoneg_flags_t;
+
+enum
+{
+    EXANIC_AUTONEG_HCD_MASK  = 0x00007000,
+    EXANIC_AUTONEG_HCD_SHIFT = 12
+};
+
+#define AUTONEG_HCD_VALUE(reg) (((reg) & EXANIC_AUTONEG_HCD_MASK) >> EXANIC_AUTONEG_HCD_SHIFT)
+
+enum
+{
+    UNRESOLVED   = 0,
+    PMD_10G_KR   = 1,
+    PMD_40G_CR4  = 2,
+    PMD_25G_CR   = 3,
+    PMD_25G_CR_S = 4,
+};
+/**
+ * \brief EXANIC_PORT_AUTONEG_4 bits
+ */
+enum
+{
+    EXANIC_AUTONEG_LINK_PARTNER_TECH_ABILITY_MASK    = 0x000007FF,
+    EXANIC_AUTONEG_LINK_PARTNER_TECH_ABILITY_BIT_FIELD_SIZE = 11,
+    EXANIC_AUTONEG_LINK_PARTNER_TECH_ABILITY_SHIFT   = 0,
+    EXANIC_AUTONEG_LINK_PARTNER_FEC_CAPABILITY_MASK  = 0x000F0000,
+    EXANIC_AUTONEG_LINK_PARTNER_FEC_CAPABILITY_SHIFT = 16
+};
+
+#define LINK_PARTNER_TECHS(reg) (((reg) & EXANIC_AUTONEG_LINK_PARTNER_TECH_ABILITY_MASK) >> EXANIC_AUTONEG_LINK_PARTNER_TECH_ABILITY_SHIFT)
+
+typedef enum
+{
+    TECH_ABILITY_1000BASE_KX,
+    TECH_ABILITY_10GBASE_KX4,
+    TECH_ABILITY_10GBASE_KR,
+    TECH_ABILITY_40GBASE_KR4,
+    TECH_ABILITY_40GBASE_CR4,
+    TECH_ABILITY_100GBASE_CR10,
+    TECH_ABILITY_100GBASE_KP4,
+    TECH_ABILITY_100GBASE_KR4,
+    TECH_ABILITY_100GBASE_CR4,
+    TECH_ABILITY_25GBASE_KR_S,
+    TECH_ABILITY_25GBASE_KR,
+} exa_link_partner_ability_t;
+
+/**
+ * \brief EXANIC_PORT_AUTONEG_6 bits
+ */
+enum
+{
+    EXANIC_AUTONEG_ARBITER_STATE_MASK  = 0x0000000F,
+    EXANIC_AUTONEG_ARBITER_STATE_SHIFT = 0
+};
+
+#define AUTONEG_ARBITER_STATE(reg) (((reg) & EXANIC_AUTONEG_ARBITER_STATE_MASK) >> EXANIC_AUTONEG_ARBITER_STATE_SHIFT)
+
+typedef enum
+{
+    EXANIC_PORT_ARBITER_AUTONEG_ENABLE              = 0,
+    EXANIC_PORT_ARBITER_TRANSMIT_ENABLE             = 1,
+    EXANIC_PORT_ARBITER_ABILITY_DETECT              = 2,
+    EXANIC_PORT_ARBITER_ACK_DETECT                  = 3,
+    EXANIC_PORT_ARBITER_COMPLETE_ACK                = 4,
+    EXANIC_PORT_ARBITER_NEXT_PAGE_WAIT              = 5,
+    EXANIC_PORT_ARBITER_AN_GOOD_CHECK               = 6,
+    EXANIC_PORT_ARBITER_AN_GOOD                     = 7,
+    EXANIC_PORT_ARBITER_LINK_STATUS_CHECK           = 8,
+    EXANIC_PORT_ARBITER_PARALLEL_DETECTION_FAULT    = 9,
+    EXANIC_PORT_ARBITER_END                         = 10
+} exanic_port_autoneg_arbiter_state_t;
+
+#define EXANIC_SUPPORTED_FECS(caps) (caps & EXANIC_CAP_25G) ? (FEC_CAPABILITY_BASER | FEC_CAPABILITY_RS_FEC) : ((caps | EXANIC_CAP_25G_S) ? (FEC_CAPABILITY_BASER) : (0))
+#define EXANIC_SUPPORTED_ETHTOOL_FECS(caps) (caps & EXANIC_CAP_25G) ? (ETHTOOL_FEC_BASER | ETHTOOL_FEC_RS) : ((caps & EXANIC_CAP_25G_S) ? (ETHTOOL_FEC_BASER) : (0))
+#define EXANIC_25G_AUTONEG_SUPPORTED_TECHS (AUTONEG_TECH_ABILITY_10G_BASE_KR | AUTONEG_TECH_ABILITY_25G_BASE_KR | AUTONEG_TECH_ABILITY_25G_BASE_KR_S)
+#define EXANIC_25G_S_AUTONEG_SUPPORTED_TECHS (AUTONEG_TECH_ABILITY_10G_BASE_KR | AUTONEG_TECH_ABILITY_25G_BASE_KR_S)
 
 /**
  * \brief Hash function identifiers.

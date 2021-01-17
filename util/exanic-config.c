@@ -19,12 +19,7 @@
 #include "ptp_clock_compat.h"
 #endif
 #include <linux/ethtool.h>
-#ifndef ETHTOOL_GET_TS_INFO
-#include "ethtool_ts_info.h"
-#endif
-#ifndef SPEED_40000
-#define SPEED_40000 40000
-#endif
+#include "ethtool_compat.h"
 
 #include <exanic/port.h>
 #include <exanic/util.h>
@@ -227,6 +222,88 @@ int ethtool_set_speed(int fd, char *ifname, uint32_t speed)
     ethtool_cmd_speed_set(&cmd, speed);
 
     return ethtool_ioctl(fd, ifname, &cmd);
+}
+
+static int set_fec_via_register_access(const char* device, int port_number, uint32_t fec)
+{
+    exanic_t* exanic = acquire_handle(device);
+    if (exanic == NULL)
+        return -1;
+
+    uint32_t caps = exanic_register_read(exanic, REG_EXANIC_INDEX(REG_EXANIC_CAPS));
+    uint32_t port_flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS));
+    uint32_t autoneg_caps = exanic_register_read(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_ABILITY));
+    uint32_t old_autoneg_caps = autoneg_caps;
+    bool autoneg_enabled = !!(port_flags & EXANIC_PORT_FLAG_AUTONEG_ENABLE);
+
+    /* clear bits related to fec capability and enforcement fec mode */
+    old_autoneg_caps = autoneg_caps;
+    autoneg_caps &= ~(EXANIC_AUTONEG_FEC_CAPABILITY_MASK);
+    port_flags &= ~(EXANIC_PORT_FLAG_FORCE_FEC_MASK);
+
+    if (!IS_25G_SUPPORTED(caps))
+    {
+        /* there is no support for FEC in cards other than 25G */
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+
+    if ((fec & ETHTOOL_FEC_AUTO) && autoneg_enabled)
+    {
+        /* if FEC should be auto-selected, then enable all supported FEC modes bits in capabilities */
+        uint32_t fec_cap = EXANIC_SUPPORTED_FECS(caps);
+        autoneg_caps |= fec_cap;
+    }
+    else if ((fec & ETHTOOL_FEC_AUTO) && !autoneg_enabled)
+    {
+        fprintf(stderr, "Auto FEC is not supported when autoneg is turned off\n");
+        return -1;
+    }
+    else if (fec & ETHTOOL_FEC_BASER)
+    {
+        /* adding capability to the autoneg capability field, if autoneg is enabled */
+        if (autoneg_enabled)
+            autoneg_caps |= FEC_CAPABILITY_BASER;
+        else
+            port_flags |= EXANIC_PORT_FLAG_FORCE_BASER_FEC;
+    }
+    else if (fec & ETHTOOL_FEC_RS)
+    {
+        if (autoneg_enabled)
+            /* autoneg is enabled then set RSFEC in capabilities */
+            autoneg_caps |= FEC_CAPABILITY_RS_FEC;
+        else
+            /* forcing fec to RS_FEC when auto-neg is not enabled */
+            port_flags |= EXANIC_PORT_FLAG_FORCE_RS_FEC;
+    }
+
+    exanic_register_write(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_ABILITY), autoneg_caps);
+    exanic_register_write(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS), port_flags);
+
+    if (autoneg_enabled && (old_autoneg_caps != autoneg_caps))
+    {
+        /* restart autoneg if a new configuration applied  */
+        exanic_register_write(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_CONTROL), EXANIC_PORT_AUTONEG_RESTART);
+        exanic_register_write(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_CONTROL), 0);
+    }
+    return 0;
+}
+
+static int ethtool_set_fec(int fd, char* ifname, int port_number, uint32_t fec, const char* device)
+{
+    int result;
+    struct ethtool_fecparam cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.cmd = ETHTOOL_SFECPARAM;
+    cmd.fec = fec;
+
+    /* if ethtool_ioctl operation fails because ethtool fec command is not supported
+     * then we should fall back to direct register access for fec setup */
+
+    if((result = ethtool_ioctl(fd, ifname, &cmd)) == -1 && errno == EOPNOTSUPP)
+        result = set_fec_via_register_access(device, port_number, fec);
+
+    return result;
 }
 
 int ethtool_set_priv_flags(int fd, char *ifname, uint32_t flags)
@@ -442,6 +519,148 @@ void show_serial_number(exanic_t *exanic)
 
 close_file:
     close(fd);
+}
+
+static void show_port_autoneg_status(const char* device, int port_number, int verbose)
+{
+    uint32_t autoneg_caps;
+    uint32_t autoneg_status, autoneg_lp_ability;
+    uint32_t autoneg_lp_tech_ability;
+
+    exanic_t* exanic= acquire_handle(device);
+
+    static const char* tech_ability_bit_to_ethtool_mode [] =
+    {
+        [AUTONEG_TECH_ABILITY_1000_BASE_KX_BIT_NUM]   = "1000BaseKX",
+        [AUTONEG_TECH_ABILITY_10G_BASE_KX4_BIT_NUM]   = "10000BaseKX4",
+        [AUTONEG_TECH_ABILITY_10G_BASE_KR_BIT_NUM]    = "10000BaseKR",
+        [AUTONEG_TECH_ABILITY_40G_BASE_KR4_BIT_NUM]   = "40000BaseKR4",
+        [AUTONEG_TECH_ABILITY_40G_BASE_CR4_BIT_NUM]   = "40000BaseCR4",
+        [AUTONEG_TECH_ABILITY_100G_BASE_CR10_BIT_NUM] = "100000BaseCR10",
+        [AUTONEG_TECH_ABILITY_100G_BASE_KP4_BIT_NUM]  = "100000BaseKP4",
+        [AUTONEG_TECH_ABILITY_100G_BASE_KR4_BIT_NUM]  = "100000BaseKR4",
+        [AUTONEG_TECH_ABILITY_100G_BASE_CR4_BIT_NUM]  = "100000BaseCR4",
+        [AUTONEG_TECH_ABILITY_25G_BASE_KR_S_BIT_NUM]  = "25000BaseKR_S",
+        [AUTONEG_TECH_ABILITY_25G_BASE_KR_BIT_NUM]    = "25000BaseKR",
+        [AUTONEG_TECH_ABILITY_END_BIT]                = NULL
+    };
+
+    static const char* hcd_string_value [] =
+    {
+        [UNRESOLVED]   = "unresolved",
+        [PMD_10G_KR]   = "10000BaseKR",
+        [PMD_40G_CR4]  = "40000BaseCR4",
+        [PMD_25G_CR]   = "25000BaseCR",
+        [PMD_25G_CR_S] = "25000BaseCR_S",
+    };
+
+    static const char* arbiter_state_string[] =
+    {
+        [EXANIC_PORT_ARBITER_AUTONEG_ENABLE]           = "AUTONEG ENABLE",
+        [EXANIC_PORT_ARBITER_TRANSMIT_ENABLE]          = "TRANSMIT DISABLE",
+        [EXANIC_PORT_ARBITER_ABILITY_DETECT]           = "ABILITY DETECT",
+        [EXANIC_PORT_ARBITER_ACK_DETECT]               = "ACK DETECT",
+        [EXANIC_PORT_ARBITER_COMPLETE_ACK]             = "COMPLETE ACK",
+        [EXANIC_PORT_ARBITER_NEXT_PAGE_WAIT]           = "NEXT PAGE WAIT",
+        [EXANIC_PORT_ARBITER_AN_GOOD_CHECK]            = "AN GOOD CHECK",
+        [EXANIC_PORT_ARBITER_AN_GOOD]                  = "AN GOOD",
+        [EXANIC_PORT_ARBITER_LINK_STATUS_CHECK]        = "LINK STATUS CHECK",
+        [EXANIC_PORT_ARBITER_PARALLEL_DETECTION_FAULT] = "PARALLEL DETECTION FAULT",
+        [EXANIC_PORT_ARBITER_END]                      = NULL
+    };
+
+    uint32_t caps = exanic_register_read(exanic, REG_EXANIC_INDEX(REG_EXANIC_CAPS));
+    uint32_t port_flags = exanic_register_read(exanic, REG_PORT_INDEX(port_number, REG_PORT_FLAGS));
+    bool autoneg_enabled = (port_flags & EXANIC_PORT_FLAG_AUTONEG_ENABLE) ? (true) : (false);
+
+    if (!IS_25G_SUPPORTED(caps))
+    {
+        fprintf(stderr, "This feature is not supported by non-25G compatible ExaNICs\n");
+        return;
+    }
+
+    printf("Autoneg enable: %s\n", autoneg_enabled ? "on" : "off");
+    if (!autoneg_enabled)
+        return;
+
+    /* print arbiter state */
+    if (verbose)
+    {
+        uint32_t reg = exanic_register_read(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_ARB_STATE));
+        printf("Arbiter state: %s\n" , arbiter_state_string[AUTONEG_ARBITER_STATE(reg)]);
+    }
+
+    printf("Advertising modes:\n");
+    autoneg_caps = AUTONEG_CAPS(exanic_register_read(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_ABILITY)));
+
+    for (int i = 0; i < AUTONEG_TECH_ABILITY_END_BIT; i++)
+    {
+        const char* s = tech_ability_bit_to_ethtool_mode[i];
+        if ((autoneg_caps & (1 << i)) && s != NULL)
+            printf("\t%s\n", s);
+    }
+
+    printf("Supported FEC:\n");
+    printf("\tOff\n");
+    if (autoneg_caps & FEC_CAPABILITY_RS_FEC)
+        printf("\tRS\n");
+    if (autoneg_caps & FEC_CAPABILITY_BASER)
+        printf("\tBase-R\n");
+
+    autoneg_status = exanic_register_read(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_STATUS));
+    autoneg_lp_ability = exanic_register_read(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_LP_ABILITY));
+
+    if (!(autoneg_status & EXANIC_PORT_AUTONEG_FLAGS_LINK_PARTNER_IS_AUTONEG))
+        return;
+
+    printf("Resolved HCD: %s\n", hcd_string_value[AUTONEG_HCD_VALUE(autoneg_status)]);
+
+    if (autoneg_status & EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_BASER_FEC)
+        printf("Resolved FEC: BaseR\n");
+    else if (autoneg_status & EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_RS_FEC)
+        printf("Resolved FEC: RS\n");
+    else
+        printf("Resolved FEC: None\n");
+
+
+    printf("LP advertising:\n");
+    autoneg_lp_tech_ability = LINK_PARTNER_TECHS(autoneg_lp_ability);
+    for (int i = 0; i < AUTONEG_TECH_ABILITY_END_BIT; i++)
+    {
+        const char* s = tech_ability_bit_to_ethtool_mode[i];
+        if ((autoneg_lp_tech_ability & (1 << i)) && s != NULL)
+            printf("\t%s\n", s);
+    }
+
+    printf("LP FEC capability:\n");
+    printf("\tOff\n");
+    if (autoneg_lp_ability & FEC_CAPABILITY_RS_FEC)
+        printf("\tRS\n");
+    if (autoneg_lp_ability & FEC_CAPABILITY_BASER)
+        printf("\tBase-R\n");
+}
+
+
+static void autoneg_command(const char* progname, const char* device, int port_number, int argc, char* argv[])
+{
+    if (argc > 0 && strcmp(argv[0], "status") == 0)
+    {
+        if (argc == 1)
+        {
+            /* if command is "autoneg status" */
+            show_port_autoneg_status(device, port_number, false);
+            return;
+        }
+        else if (argc == 2 && strcmp(argv[1], "-v") == 0)
+        {
+            /* if command is "autoneg status -v" */
+            show_port_autoneg_status(device, port_number, true);
+            return;
+        }
+    }
+    fprintf(stderr, "exanic-config version %s\n", EXANIC_VERSION_TEXT);
+    fprintf(stderr, "Autoneg status:\n");
+    fprintf(stderr, "   %s <device> autoneg status {-v}\n", progname);
 }
 
 void show_device_info(const char *device, int port_number, int verbose)
@@ -1115,19 +1334,65 @@ void set_speed(const char *device, int port_number, uint32_t speed)
         exit(1);
     }
 
-    if ((speed != SPEED_100) && (speed != SPEED_1000) &&
-        (speed != SPEED_10000) && (speed != SPEED_40000))
-    {
-        fprintf(stderr, "%s:%d: Invalid speed requested\n", device, port_number);
-        exit(1);
-    }
-
     /* Set speed */
     if (ethtool_set_speed(fd, ifname, speed) == -1)
     {
         fprintf(stderr, "%s:%d: %s\n", device, port_number,
                 (errno == EINVAL) ? "Requested speed not supported on this port"
                                   : strerror(errno));
+        exit(1);
+    }
+
+    close(fd);
+}
+
+static void set_fec(const char* device, int port_number, const char* fec)
+{
+    int fd;
+    uint32_t ethtool_fec = 0;
+    char ifname[IFNAMSIZ];
+    static const char* fec_modes_to_ethtool_config_bit[] =
+    {
+        [ETHTOOL_FEC_NONE_BIT]  = "",
+        [ETHTOOL_FEC_AUTO_BIT]  = "auto",
+        [ETHTOOL_FEC_OFF_BIT]   = "off",
+        [ETHTOOL_FEC_RS_BIT]    = "RS",
+        [ETHTOOL_FEC_BASER_BIT] = "BaseR",
+        NULL
+    };
+
+    const char** ptr = fec_modes_to_ethtool_config_bit;
+
+    get_interface_name(device, port_number, ifname, IFNAMSIZ);
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1)
+    {
+        fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
+        exit(1);
+    }
+
+    while(*ptr != NULL)
+    {
+        if(!strcmp(*ptr, fec))
+            break;
+        ptr++;
+    }
+
+    if (*ptr == NULL)
+    {
+        fprintf(stderr, "%s:%d: Requested fec %s is not found\n", device, port_number, fec);
+        close(fd);
+        exit(1);
+    }
+
+    ethtool_fec = 1 << (ptr - fec_modes_to_ethtool_config_bit);
+
+    if (ethtool_set_fec(fd, ifname, port_number, ethtool_fec, device) == -1)
+    {
+        fprintf(stderr, "%s:%d: %s\n", device, port_number,
+                (errno == EINVAL) ? "Requested fec type not supported on this port"
+                                  : strerror(errno));
+        close(fd);
         exit(1);
     }
 
@@ -2448,6 +2713,11 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
         show_device_info(device, port_number, 1);
         return 0;
     }
+    else if (argc >= 3 && strcmp(argv[2], "autoneg") == 0 && port_number != -1)
+    {
+        autoneg_command(argv[0], device, port_number, argc - 3, &argv[3]);
+        return 0;
+    }
     else if (argc == 4 && strcmp(argv[2], "sfp") == 0
             && strcmp(argv[3], "status") == 0 && port_number != -1)
     {
@@ -2531,6 +2801,12 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
             return 1;
 
         set_speed(device, port_number, speed);
+        return 0;
+    }
+    else if (argc == 4 && strcmp(argv[2], "fec") == 0 &&
+            port_number != 1)
+    {
+        set_fec(device, port_number, argv[3]);
         return 0;
     }
     else if (argc == 4 && strcmp(argv[2], "pps-out") == 0 &&
@@ -2751,6 +3027,8 @@ usage_error:
     fprintf(stderr, "   %s <interface> bypass-only { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <interface> promisc { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <interface> speed <speed>\n", argv[0]);
+    fprintf(stderr, "   %s <interface> autoneg status [-v]\n", argv[0]);
+    fprintf(stderr, "   %s <interface> fec { auto | off | RS | BaseR }\n", argv[0]);
     fprintf(stderr, "   %s <interface> disable-tx-padding { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <interface> disable-tx-crc { on | off }\n", argv[0]);
     fprintf(stderr, "   %s <device> pps-out { on | off }\n", argv[0]);
