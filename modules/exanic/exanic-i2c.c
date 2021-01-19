@@ -769,16 +769,11 @@ int exanic_i2c_xcvr_write(struct exanic *exanic, int port_number,
                          uint8_t devaddr, uint8_t regaddr, uint8_t *buffer,
                          size_t size)
 {
-    int ret;
     struct i2c_adapter *xcvr_adap = exanic_xcvr_i2c_adapter(exanic, port_number);
     if (!xcvr_adap)
         return -ENODEV;
 
-    ret = exanic_i2c_write(xcvr_adap, devaddr, regaddr, buffer, size);
-    if (ret)
-        return ret;
-
-    return exanic_i2c_wait_write_cycle(xcvr_adap, devaddr, EEPROM_WRITE_TIMEOUT);
+    return exanic_i2c_write(xcvr_adap, devaddr, regaddr, buffer, size);
 }
 
 int exanic_i2c_xcvr_sff8024_id(struct exanic *exanic, int port, uint8_t *id)
