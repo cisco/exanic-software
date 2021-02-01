@@ -46,6 +46,12 @@ MODULE_PARM_DESC(ate_win_limit_off, "Disable TCP window limitation in ATE");
 #define __GETNAME_NO_SOCKLEN_PARAM
 #endif
 
+/* Linux v5.9+ introduces a sockptr_t type and the constructor function
+ * USER_SOCKPTR(p), prior to this setsockopt() accepts a pointer directly */
+#ifndef _LINUX_SOCKPTR_H
+#define USER_SOCKPTR(p) (p)
+#endif
+
 struct exasock_tcp_conn_counters
 {
     bool        initialized;
@@ -3354,9 +3360,9 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     if (level == SOL_SOCKET)
-        ret = sock_setsockopt(tcp->sock, level, optname, optval, optlen);
+        ret = sock_setsockopt(tcp->sock, level, optname, USER_SOCKPTR(optval), optlen);
     else
-        ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, optval, optlen);
+        ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, USER_SOCKPTR(optval), optlen);
 
     return ret;
 }
@@ -3364,19 +3370,11 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
 int exasock_tcp_getsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int *optlen)
 {
-    int ret;
-    mm_segment_t old_fs;
-
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
-    old_fs = get_fs();
-    set_fs(KERNEL_DS);
-    ret = tcp->sock->ops->getsockopt(tcp->sock, level, optname, optval, optlen);
-    set_fs(old_fs);
-
-    return ret;
+    return tcp->sock->ops->getsockopt(tcp->sock, level, optname, optval, optlen);
 }
 
 int __init exasock_tcp_init(void)

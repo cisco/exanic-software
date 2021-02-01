@@ -30,6 +30,12 @@
 #define __GETNAME_NO_SOCKLEN_PARAM
 #endif
 
+/* Linux v5.9+ introduces a sockptr_t type and the constructor function
+ * USER_SOCKPTR(p), prior to this setsockopt() accepts a pointer directly */
+#ifndef _LINUX_SOCKPTR_H
+#define USER_SOCKPTR(p) (p)
+#endif
+
 struct exasock_udp
 {
     struct exasock_hdr          hdr;
@@ -469,9 +475,9 @@ int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
     BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
     if (level == SOL_SOCKET)
-        ret = sock_setsockopt(udp->sock, level, optname, optval, optlen);
+        ret = sock_setsockopt(udp->sock, level, optname, USER_SOCKPTR(optval), optlen);
     else
-        ret = udp->sock->ops->setsockopt(udp->sock, level, optname, optval, optlen);
+        ret = udp->sock->ops->setsockopt(udp->sock, level, optname, USER_SOCKPTR(optval), optlen);
 
     return ret;
 }
@@ -479,19 +485,11 @@ int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
 int exasock_udp_getsockopt(struct exasock_udp *udp, int level, int optname,
                            char __user *optval, unsigned int *optlen)
 {
-    int ret;
-    mm_segment_t old_fs;
-
     BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(udp->hdr.socket.domain != AF_INET);
     BUG_ON(udp->hdr.socket.type != SOCK_DGRAM);
 
-    old_fs = get_fs();
-    set_fs(KERNEL_DS);
-    ret = udp->sock->ops->getsockopt(udp->sock, level, optname, optval, optlen);
-    set_fs(old_fs);
-
-    return ret;
+    return udp->sock->ops->getsockopt(udp->sock, level, optname, optval, optlen);
 }
 
 int __init exasock_udp_init(void)
