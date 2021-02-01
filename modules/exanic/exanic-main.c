@@ -14,7 +14,7 @@
 #include <linux/etherdevice.h>
 #include <linux/nodemask.h>
 #include <linux/pci.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+#ifndef PCIE_LINK_STATE_L0S
 #include <linux/pci-aspm.h>
 #endif
 #include <linux/interrupt.h>
