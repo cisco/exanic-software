@@ -139,7 +139,8 @@ int exanic_i2c_init(struct exanic *exanic);
 void exanic_i2c_exit(struct exanic *exanic);
 
 /* EEPROM functions */
-int exanic_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN]);
+int exanic_get_mac_addr(struct exanic *exanic, unsigned char mac_addr[ETH_ALEN]);
+int exanic_get_serial(struct exanic *exanic, char *serial, size_t len);
 int exanic_save_feature_cfg(struct exanic *exanic);
 int exanic_save_speed(struct exanic *exanic, unsigned port,
                       unsigned speed);

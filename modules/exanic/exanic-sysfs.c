@@ -26,22 +26,12 @@ exanic_serial_number_show(struct device *dev, struct device_attribute *attr,
 {
     struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
     struct exanic *exanic = pci_get_drvdata(pdev);
-    ssize_t ret = 0;
     char *ptr = buf;
-    int i;
 
     if (!exanic->serial[0])
         return -EOPNOTSUPP;
 
-    for (i = 0; i < sizeof(exanic->serial); i++)
-    {
-        int chars = sprintf(ptr, "%02hhX", exanic->serial[i]);
-        ptr += chars;
-        ret += chars;
-    }
-
-    ret += sprintf(ptr, "\n");
-    return ret;
+    return snprintf(ptr, PAGE_SIZE, "%s\n", exanic->serial);
 }
 
 static DEVICE_ATTR(serial, 0444, exanic_serial_number_show, NULL);

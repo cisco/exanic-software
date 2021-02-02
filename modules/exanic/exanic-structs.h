@@ -128,10 +128,7 @@ struct exanic
     uint32_t caps;
 
     char name[10];
-
-    /* the port 0 MAC address stored in the EEPROM is treated as
-     * the device serial number */
-    uint8_t serial[ETH_ALEN];
+    char serial[20];
 
     struct net_device *ndev[EXANIC_MAX_PORTS];
 

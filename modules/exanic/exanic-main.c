@@ -1285,34 +1285,60 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_info_page_alloc;
     }
 
-    /* Get serial number in EEPROM to use as MAC address */
+    /* Get serial number in EEPROM */
     {
-        int serial_retries;
-        int max_serial_retries = 5;
-        for (serial_retries = 0; serial_retries < max_serial_retries; serial_retries++)
+        int retries;
+        int max_retries = 5;
+        for (retries = 0; retries < max_retries; retries++)
         {
-            if (exanic_get_serial(exanic, mac_addr) == 0)
+            if (exanic_get_serial(exanic, exanic->serial,
+                                  sizeof(exanic->serial)) == 0)
                 break;
             else
                 dev_err(dev, "Could not read serial number, retry attempt "
-                        "%d of %d.\n", serial_retries + 1, max_serial_retries);
+                        "%d of %d.\n", retries + 1, max_retries);
             udelay(1);
         }
 
-        if (serial_retries < max_serial_retries)
+        if (retries < max_retries && exanic->serial[0])
+            dev_info(dev, "Serial number: %s\n", exanic->serial);
+    }
+
+    /* Get MAC address in EEPROM */
+    {
+        int retries;
+        int max_retries = 5;
+        for (retries = 0; retries < max_retries; retries++)
         {
-            dev_info(dev, "Serial number: %pM\n", mac_addr);
-            memcpy(exanic->serial, mac_addr, ETH_ALEN);
+            if (exanic_get_mac_addr(exanic, mac_addr) == 0)
+                break;
+            else
+                dev_err(dev, "Could not read MAC address, retry attempt "
+                        "%d of %d.\n", retries + 1, max_retries);
+            udelay(1);
+        }
+
+        if (retries < max_retries)
+        {
+            dev_info(dev, "MAC address: %pM\n", mac_addr);
+            if (!exanic->serial[0])
+            {
+                /* Using MAC address as serial number */
+                snprintf(exanic->serial, sizeof(exanic->serial),
+                         "%02X%02X%02X%02X%02X%02X",
+                         mac_addr[0], mac_addr[1], mac_addr[2],
+                         mac_addr[3], mac_addr[4], mac_addr[5]);
+            }
 
             if (!is_valid_ether_addr(mac_addr))
             {
-                dev_err(dev, "Serial number is not a valid MAC address.\n");
+                dev_err(dev, "MAC address is not valid\n");
                 memcpy(mac_addr, next_mac_addr, ETH_ALEN);
             }
         }
         else
         {
-            dev_err(dev, "Failed to read serial number.\n");
+            dev_err(dev, "Failed to read MAC address\n");
             memcpy(mac_addr, next_mac_addr, ETH_ALEN);
         }
     }

@@ -12,10 +12,13 @@
 /* ExaNIC EEPROM block size */
 #define EXANIC_EEPROM_BLOCK_SIZE                256
 
-/* serial number, port 0 MAC */
-#define EXANIC_EEPROM_SERIAL                    0
-#define EXANIC_EEPROM_SERIAL_LEN                6
-#define EXANIC_EEPROM_SERIAL_STRLEN             EXANIC_EEPROM_SERIAL_LEN * 2
+/* port 0 MAC (serial number on Exablaze cards) */
+#define EXANIC_EEPROM_MAC_ADDR                  0
+#define EXANIC_EEPROM_MAC_ADDR_LEN              6
+
+/* serial number (Cisco cards only) */
+#define EXANIC_EEPROM_CISCO_SERIAL              0x10
+#define EXANIC_EEPROM_CISCO_SERIAL_LEN          16
 
 /* X10-GM IP address */
 #define EXANIC_EEPROM_IP_ADDR                   0x20

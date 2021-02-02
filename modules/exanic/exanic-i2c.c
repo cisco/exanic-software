@@ -30,8 +30,12 @@
 
 /* Fields in the exanic eeprom */
 
+/* MAC address */
+#define EXANIC_EEPROM_MAC_ADDR          0x00
+
 /* Serial number */
-#define EXANIC_EEPROM_ADDR_SERIAL       0x00
+#define EXANIC_EEPROM_CISCO_SERIAL      0x10
+#define EXANIC_EEPROM_CISCO_SERIAL_LEN  16
 
 /* Bridging and mirroring configuration */
 #define EXANIC_EEPROM_BRIDGING_CFG      0x40
@@ -688,10 +692,31 @@ void exanic_i2c_exit(struct exanic *exanic)
 
 /* external functions */
 
-int exanic_get_serial(struct exanic *exanic, unsigned char serial[ETH_ALEN])
+int exanic_get_mac_addr(struct exanic *exanic, unsigned char mac_addr[ETH_ALEN])
 {
-    return exanic_i2c_eeprom_read(exanic, EXANIC_EEPROM_ADDR_SERIAL,
-                                  serial, ETH_ALEN);
+    return exanic_i2c_eeprom_read(exanic, EXANIC_EEPROM_MAC_ADDR,
+                                  mac_addr, ETH_ALEN);
+}
+
+int exanic_get_serial(struct exanic *exanic, char *serial, size_t len)
+{
+    size_t i, readlen;
+    int ret;
+
+    readlen = len - 1 < EXANIC_EEPROM_CISCO_SERIAL_LEN ?
+              len - 1 : EXANIC_EEPROM_CISCO_SERIAL_LEN;
+
+    if ((ret = exanic_i2c_eeprom_read(exanic, EXANIC_EEPROM_CISCO_SERIAL,
+                                      serial, readlen)))
+        return ret;
+
+    /* EEPROM string can be terminated by 0xFF */
+    for (i = 0; i < readlen; i++)
+        if (serial[i] == '\xFF')
+            serial[i] = '\0';
+    serial[readlen] = '\0';
+
+    return 0;
 }
 
 int exanic_save_feature_cfg(struct exanic *exanic)

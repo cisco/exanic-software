@@ -407,8 +407,8 @@ void show_serial_number(exanic_t *exanic)
 {
     char syspath[PATH_MAX] = {0};
     char tmp[PATH_MAX + 256];
-    char serial[EXANIC_EEPROM_SERIAL_STRLEN + 1] = {0};
-    int fd;
+    char serial[64] = {0};
+    int fd, ret;
 
     if (exanic_get_sysfs_path(exanic, syspath, sizeof syspath) == -1)
     {
@@ -427,13 +427,16 @@ void show_serial_number(exanic_t *exanic)
     }
 
     /* read serial number from sysfs attribute */
-    if (read(fd, serial, sizeof(serial) - 1) !=
-        EXANIC_EEPROM_SERIAL_STRLEN)
+    ret = read(fd, serial, sizeof(serial) - 1);
+    if (ret == -1)
     {
         fprintf(stderr, "Failed to read from \"%s\": %s\n",
                         tmp, strerror(errno));
         goto close_file;
     }
+
+    if (ret > 0 && serial[ret - 1] == '\n')
+        serial[ret - 1] = '\0';
 
     printf("  Serial number: %s\n", serial);
 
