@@ -425,9 +425,8 @@ static int
 __exanic_phyops_set_configs(struct exanic *exanic, int port,
                             const exanic_phyops_configs_t *configs)
 {
-    /* 100M not supported */
     return __exanic_phyops_set_configs_ex(exanic, port, configs,
-                                          ~EXANIC_CAP_100M, NULL);
+                                          ~0, NULL);
 }
 
 /* generic link setting getter */
@@ -685,9 +684,8 @@ static int
 __exanic_phyops_set_configs_cmis(struct exanic *exanic, int port,
                                  const exanic_phyops_configs_t *configs)
 {
-    /* 100M not supported */
     return __exanic_phyops_set_configs_ex(exanic, port, configs,
-                                          ~EXANIC_CAP_100M,
+                                          ~0,
                                           exanic_phyops_cmis_set_speed);
 }
 
