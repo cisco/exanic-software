@@ -19,9 +19,9 @@ exanic-utils and exanic-devel.
 Summary:        ExaNIC network driver
 Group:          System Environment/Kernel
 %if 0%{?suse_version}
-Requires:       dkms, kernel-source
+Requires:       dkms, kernel-source, make
 %else
-Requires:       dkms, kernel-devel
+Requires:       dkms, kernel-devel, make
 %endif
 BuildArch:      noarch
 %description dkms
