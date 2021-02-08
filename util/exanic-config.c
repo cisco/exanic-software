@@ -477,9 +477,9 @@ void show_device_info(const char *device, int port_number, int verbose)
                     & EXANIC_STATUS_HW_DRAM_PRES;
             printf("  DDR4 DRAM: %s\n", ddr_fitted ? "present" : "not present");
         }
-
-        show_serial_number(exanic);
     }
+
+    show_serial_number(exanic);
 
     if (hwinfo->hwid != -1)
     {
