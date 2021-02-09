@@ -235,7 +235,7 @@ exasock_exanic_ip_propagate_link_state_changes(struct exanic_ip *eip,
 
     if (!exasock_exanic_ip_is_bond(eip))
     {
-        /* In a non-bonded scenario, this branch should only be executed once
+        /* In a non-bonded scenario, this function should only be executed once
          * at init, and never again.
          */
         assert(!exasock_exanic_ip_dev_is_initialized(&eip->dev));
@@ -1141,9 +1141,17 @@ exanic_poll_get_timestamp(struct exa_socket * restrict sock,
 
     if (ctx->rx_hw_timestamp)
     {
-        most_recent_rx_dev = exasock_bond_get_last_rx_dev(ctx->bond);
-        if (most_recent_rx_dev == NULL)
-            most_recent_rx_dev = exasock_exanic_ip_get_active_dev(ctx);
+        if (exasock_exanic_ip_is_bond(ctx))
+        {
+            if (exasock_exanic_ip_dev_is_initialized(&ctx->dev))
+                most_recent_rx_dev = &ctx->dev;
+            else
+                most_recent_rx_dev = exasock_bond_get_last_rx_dev(ctx->bond);
+        }
+        else
+        {
+            most_recent_rx_dev = &ctx->dev;
+        }
         assert(most_recent_rx_dev != NULL);
 
         hwts = exanic_receive_chunk_timestamp(erx, chunk_id);
