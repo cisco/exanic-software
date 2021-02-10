@@ -1,24 +1,28 @@
 ===============================================
-Release notes for ExaNIC software release 2.5.0
+Release notes for ExaNIC software release 2.6.0
 ===============================================
 
-This release includes several exasock improvements including support for bonding
-in active-backup mode.  It also adds support for the upcoming ExaNIC X100 card,
-and fixes compilation on RHEL 8.2 and other Linux kernels up to v5.8.  A more
-complete list of changes and bug fixes are included at the bottom of these
-release notes.
+This release adds support for 25G Ethernet when used with compatible cards and
+firmware versions.  Various known problems with recent kernels have been fixed,
+including compilation issues on RHEL 8.3.  For compatibility with other cards,
+the exanic network driver has been modified to deliver frames without an FCS
+trailer on the kernel network interface by default; this behaviour can be
+changed with ethtool -K ethX rx-fcs on (this does not affect libexanic or other
+kernel bypass applications, which continue to see the FCS).  A more complete
+list of changes and bug fixes are included at the bottom of these release
+notes.
 
 Supported distributions
 -----------------------
 The following Linux distributions are officially supported and have been tested
 with this release:
 
-* RHEL 8.2 (kernel 4.18.0-193)
-* RHEL 7.8 (kernel 3.10.0-1127)
-* CentOS 8.2 (kernel 4.18.0-193)
-* CentOS 7.8 (kernel 3.10.0-1127)
-* Ubuntu 20.04 LTS (kernel 5.4.0-42)
-* SuSE Enterprise Linux 12 SP4 (kernel 4.12.14-95)
+* RHEL 8.3 (kernel 4.18.0-240)
+* RHEL 7.9 (kernel 3.10.0-1160)
+* CentOS 8.3 (kernel 4.18.0-240)
+* CentOS 7.9 (kernel 3.10.0-1160)
+* Ubuntu 20.10 (kernel 5.8.0-43)
+* Ubuntu 20.04.2 LTS (kernel 5.4.0-65)
 
 While we strive for broad Linux compatibility in our software, Cisco TAC may not
 be able to provide support for other distributions or custom kernels.
@@ -30,24 +34,42 @@ versions of firmware.  However, if a problem is encountered, please update to
 the latest firmware version before contacting support.  The following firmware
 versions have been tested with this release:
 
-* ExaNIC X25: 20190805 / FDK 2.7.0
-* ExaNIC X40: 20180215 / 20190219 (40G) / FDK 2.7.0
-* ExaNIC X10: 20180409 / 20180215 (bridging/mirroring) / FDK 2.7.0
-* ExaNIC GM:  20180622
-* ExaNIC HPT: 20180221
-* ExaNIC V5P: 20180117 / FDK 2.7.0
-* ExaNIC V9P: FDK 2.7.0
+* ExaNIC X25:  20210121 / 20210108 (25G beta) / FDK 2.8.0
+* ExaNIC X100: 20201111 / FDK 2.8.0
+* ExaNIC X40:  20180215 / 20190219 (40G) / FDK 2.8.0
+* ExaNIC X10:  20180409 / 20180215 (bridging/mirroring) / FDK 2.8.0
+* ExaNIC GM:   20201126
+* ExaNIC HPT:  20180221
+* ExaNIC V5P:  20180117 / FDK 2.8.0
+* ExaNIC V9P:  20210204 / FDK 2.8.0
 
 Note on userspace/kernel compatibility
 --------------------------------------
 We highly recommend updating all components of ExaNIC software (i.e. drivers,
 libraries and utilities) at the same time if possible.  There have been no ABI
-changes and we expect 2.4.x drivers to work with 2.5.x libraries and 2.5.x
-drivers to work with 2.4.x libraries, however it is impractical for us to test
+changes and we expect 2.5.x drivers to work with 2.6.x libraries and 2.6.x
+drivers to work with 2.5.x libraries, however it is impractical for us to test
 the full matrix of possibilities for every supported configuration.
 
 Change log
 ----------
+2.6.0 [2021-02-10]
+* Initial support for 25G Ethernet (requires firmware with 25G support)
+* Ability to read and display Cisco serial numbers on Cisco branded cards
+* driver: fix issues with setting ports to 100M
+* driver: strip FCS/CRC bytes on kernel ethX network interface by default, can
+  be overridden with ethtool -K ethX rx-fcs on (does not affect libexanic)
+* driver: support for receiving bad frames on kernel ethX network interface
+  with ethtool -K ethX rx-all on (does not affect libexanic)
+* driver: fix module information reading for 10Gtek QSFP-DD modules
+* driver: fix failure to load on kernel 5.7+ with ethtool_check_ops error
+* driver: fix compilation issues on kernel 5.9+
+* exasock: fix segfault getting receive timestamp
+* exasock: fix off-by-one bounds check error in epoll_ctl_add()
+* exasock: epoll code needs to check if socket still exists before polling
+* exanic-config: display serial number by default
+* exanic-config: display customer application ID for FDK images
+
 2.5.0 [2020-07-30]
 * exasock: support for bonded ExaNIC devices in active-backup mode
 * exasock: support for sendmmsg()
