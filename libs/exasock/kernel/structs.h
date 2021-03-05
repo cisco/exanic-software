@@ -276,7 +276,11 @@ struct exa_udp_queue_ftr
     uint32_t hw_ts_nsec;
 };
 
-/* Entry is created after a new connection moves to the ESTABLISHED state */
+/* Entry is created after a new connection moves to the ESTABLISHED state.
+ * Attention!!! Please make sure that after addition/removal of fields the
+ * size of the struct is a power-of-2 size.  If the size of the struct needs
+ * to be increased use the __reserved field.
+ */
 struct exa_tcp_new_connection
 {
     uint32_t local_addr;
@@ -296,7 +300,7 @@ struct exa_tcp_new_connection
     uint16_t peer_wscale;
 
     /* Pad to power of 2 size */
-    uint32_t __reserved[2];
+    uint32_t __reserved[1];
 };
 
 #define EXASOCK_EPOLL_FD_READY_RING_SIZE 512    /* Must be a power of 2 */

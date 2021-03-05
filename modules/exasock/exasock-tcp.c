@@ -251,6 +251,12 @@ struct exasock_tcp_req
 
     struct list_head            list;
     struct hlist_node           hash_node;
+
+    /* tcp_req will be queing packets on its internal queue skb_queue until the connection
+     * is fully accepted and user space socket is constructed. Queueing of the packets
+     * under tcp_req is necessary to avoid packet drops which may happen between the times
+     * when tcp_req is created and connection is accepted by the user space accept call */
+    struct sk_buff_head         skb_queue;
 };
 
 static struct hlist_head *      tcp_buckets;
@@ -281,10 +287,20 @@ static siphash_key_t            tcp_secret;
 static struct sk_buff_head      ate_packets;
 static struct work_struct       ate_skb_proc_work;
 
-#define RX_BUFFER_SIZE          1048576
+/* Attention!!!: both the size of RX_BUFFER and TX_BUFFER must be a power of 2 */
+#define RX_BUFFER_SIZE          (1048576)
 #define RX_BUFFER_MASK          (RX_BUFFER_SIZE - 1)
-#define TX_BUFFER_SIZE          1048576
+#define TX_BUFFER_SIZE          (1048576)
 #define TX_BUFFER_MASK          (TX_BUFFER_SIZE - 1)
+
+#if (RX_BUFFER_SIZE & RX_BUFFER_MASK)
+#error RX_BUFFER_SIZE must be a power of 2
+#endif
+
+#if (TX_BUFFER_SIZE & TX_BUFFER_MASK)
+#error TX_BUFFER_SIZE must be a power of 2
+#endif
+
 
 #define NUM_BUCKETS             4096
 
@@ -357,6 +373,10 @@ static struct exasock_tcp *exasock_tcp_lookup(uint32_t local_addr,
                                               uint32_t peer_addr,
                                               uint16_t local_port,
                                               uint16_t peer_port);
+static struct exasock_tcp_req *exasock_tcp_req_lookup(uint32_t local_addr,
+                                                      uint32_t peer_addr,
+                                                      uint16_t local_port,
+                                                      uint16_t peer_port);
 
 /* this work reclaims all resources allocated for a
  * tcp connection. this function may sleep.
@@ -849,6 +869,7 @@ static void exasock_ate_process_skb(struct sk_buff *skb)
         goto error;
 
     /* Queue the packet to be processed after a short delay */
+    /* skb_queue_head will internally acquire the lock, therefore no locking */
     skb_queue_head(&ate_packets, skb);
     queue_work(tcp_workqueue, &ate_skb_proc_work);
 
@@ -1296,7 +1317,9 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
                        uint32_t local_addr, uint16_t local_port,
                        uint32_t peer_addr, uint16_t peer_port)
 {
-    struct exasock_tcp *old;
+    unsigned long irqflags;
+    struct exasock_tcp*     old;
+    struct exasock_tcp_req* req;
     int err;
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
@@ -1348,6 +1371,33 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
     tcp->dup_acks.win_end = tcp->user_page->p.tcp.rwnd_end;
 
     exasock_tcp_stats_update(tcp);
+
+    spin_lock(&tcp_req_lock);
+    req = exasock_tcp_req_lookup(tcp->local_addr, tcp->peer_addr,
+                                 tcp->local_port, tcp->peer_port);
+
+    /* Check whether there is a pending tcp_req for this pair of ports and IP addresses.
+     * If there is a req we must check check whether it is holding any skb. If there are
+     * skbs we will move them back to the tcp_packets queue before the req gets removed,
+     * and schedule a tcp_rx_work */
+    if (req)
+    {
+        if (!skb_queue_empty(&req->skb_queue))
+        {
+            /* irq must be disabled because this function may be preempted by the
+             * exasock_tcp_intercept function call which is running in softirq context */
+            spin_lock_irqsave(&tcp_packets.lock, irqflags);
+            if (!skb_queue_empty(&req->skb_queue))
+                skb_queue_splice(&req->skb_queue, &tcp_packets);
+            spin_unlock_irqrestore(&tcp_packets.lock, irqflags);
+            queue_delayed_work(tcp_workqueue, &tcp_rx_work, 1);
+        }
+        /* Deleting pending tcp_req. No need to keep it anymore */
+        hlist_del(&req->hash_node);
+        list_del(&req->list);
+        kfree(req);
+    }
+    spin_unlock(&tcp_req_lock);
     return 0;
 }
 
@@ -1643,6 +1693,7 @@ static bool exasock_tcp_intercept(struct sk_buff *skb)
         return false;
 
     /* Queue the packet to be processed after a short delay */
+    /* no need for locking because lock is acquired internally by skb_queue_head function */
     skb_queue_head(&tcp_packets, skb);
     queue_delayed_work(tcp_workqueue, &tcp_rx_work, 1);
     return true;
@@ -2418,6 +2469,11 @@ static void exasock_tcp_req_worker(struct work_struct *work)
 
         if (time_after(jiffies, req->timestamp + TCP_REQUEST_JIFFIES))
         {
+            struct sk_buff* skb;
+            /* delete all queued sk_buff on this req */
+            while((skb = skb_dequeue_tail(&req->skb_queue)) != NULL)
+                dev_kfree_skb_any(skb);
+
             hlist_del(&req->hash_node);
             list_del(&req->list);
             kfree(req);
@@ -2489,6 +2545,10 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
                                      th->dest, th->source);
         if (req != NULL)
         {
+            struct sk_buff* skb;
+            /* Delete all queued sk_buffs on this req */
+            while((skb = skb_dequeue_tail(&req->skb_queue)) != NULL)
+                dev_kfree_skb_any(skb);
             hlist_del(&req->hash_node);
             list_del(&req->list);
         }
@@ -2524,6 +2584,8 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
         /* Default values for options */
         req->mss = EXA_TCP_MSS;
         req->wscale = 0;
+        /* initialize skb queue for skb which are received before the req is established and socket is constructed */
+        skb_queue_head_init(&req->skb_queue);
 
         /* Parse TCP options */
         for (i = 0; i < tcpoptlen && tcpopt[i] != TCPOPT_EOL;
@@ -2576,57 +2638,65 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
             spin_unlock(&tcp_req_lock);
             goto finish_proc;
         }
-
-        req->state = EXA_TCP_ESTABLISHED;
-
-        /* Insert into accepted queue */
-        if (exasock_trylock(&state->rx_lock) == 0)
+        if (req->state == EXA_TCP_ESTABLISHED)
         {
-            /* Lock failed, retry later */
+            /* save packets under the request. these packets will be processed once the connection
+             * corresponding to this request is accepted and the socket to manage it is constructed */
+            skb_queue_head(&req->skb_queue, skb);
             spin_unlock(&tcp_req_lock);
-            return -1;
+            /* return 0 because we dont want the caller of this function to requeue skb to the tcp_packets queue*/
+            return 0;
         }
-
-        read_seq = state->p.tcp.read_seq;
-        recv_seq = state->p.tcp.recv_seq;
-        offs = recv_seq & RX_BUFFER_MASK;
-
-        if (recv_seq - read_seq >= RX_BUFFER_SIZE ||
-            offs + sizeof(struct exa_tcp_new_connection) > RX_BUFFER_SIZE)
+        else
         {
-            /* No space in buffer */
+            req->state = EXA_TCP_ESTABLISHED;
+
+            /* Insert into accepted queue */
+            if (exasock_trylock(&state->rx_lock) == 0)
+            {
+                /* Lock failed, retry later */
+                spin_unlock(&tcp_req_lock);
+                return -1;
+            }
+
+            read_seq = state->p.tcp.read_seq;
+            recv_seq = state->p.tcp.recv_seq;
+            offs = recv_seq & RX_BUFFER_MASK;
+
+            if (recv_seq - read_seq >= RX_BUFFER_SIZE ||
+                offs + sizeof(struct exa_tcp_new_connection) > RX_BUFFER_SIZE)
+            {
+                exasock_unlock(&state->rx_lock);
+                /* No space in buffer, release all locks and delete skb */
+                spin_unlock(&tcp_req_lock);
+                goto finish_proc;
+            }
+            /* This is a compile time assert, struct exa_tcp_new_connection must be power of 2 size */
+            BUILD_BUG_ON((sizeof(struct exa_tcp_new_connection) & (sizeof(struct exa_tcp_new_connection) - 1)));
+            conn = (struct exa_tcp_new_connection *)(tcp->rx_buffer + offs);
+
+            conn->local_addr = req->local_addr;
+            conn->peer_addr = req->peer_addr;
+            conn->local_port = req->local_port;
+            conn->peer_port = req->peer_port;
+            conn->local_seq = req->local_seq;
+            conn->peer_seq = req->peer_seq;
+            conn->peer_window = req->window;
+            conn->peer_mss = req->mss;
+            conn->peer_wscale = req->wscale;
+
+            state->p.tcp.recv_seq = recv_seq +
+                                    sizeof(struct exa_tcp_new_connection);
+
+            exasock_unlock(&state->rx_lock);
+
+            exasock_epoll_update(&tcp->notify);
+
+            /* New connection established - increment counter */
+            tcp->counters.s.listen.reqs_estab++;
+
             spin_unlock(&tcp_req_lock);
-            goto finish_proc;
         }
-
-        conn = (struct exa_tcp_new_connection *)(tcp->rx_buffer + offs);
-
-        conn->local_addr = req->local_addr;
-        conn->peer_addr = req->peer_addr;
-        conn->local_port = req->local_port;
-        conn->peer_port = req->peer_port;
-        conn->local_seq = req->local_seq;
-        conn->peer_seq = req->peer_seq;
-        conn->peer_window = req->window;
-        conn->peer_mss = req->mss;
-        conn->peer_wscale = req->wscale;
-
-        state->p.tcp.recv_seq = recv_seq +
-                                sizeof(struct exa_tcp_new_connection);
-
-        exasock_unlock(&state->rx_lock);
-
-        exasock_epoll_update(&tcp->notify);
-
-        /* Remove from incomplete connections */
-        hlist_del(&req->hash_node);
-        list_del(&req->list);
-        kfree(req);
-
-        /* New connection established - increment counter */
-        tcp->counters.s.listen.reqs_estab++;
-
-        spin_unlock(&tcp_req_lock);
     }
 
 finish_proc:
@@ -2734,7 +2804,10 @@ static void exasock_tcp_rx_worker(struct work_struct *work)
         queue_delayed_work(tcp_workqueue, &tcp_rx_work, 1);
     }
 
+    /* Lock with disabled irqs because rx_worker may be preempted by the exasock_tcp_intercept function which
+     * runs in the softirq context */
     spin_lock_irqsave(&tcp_packets.lock, irqflags);
+    /* skb_queue_splice doenst acquire a lock internally, so we need to protect it using external spinlock */
     skb_queue_splice(&tmp_queue, &tcp_packets);
     spin_unlock_irqrestore(&tcp_packets.lock, irqflags);
 }

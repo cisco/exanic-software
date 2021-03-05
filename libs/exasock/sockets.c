@@ -1165,6 +1165,7 @@ err_update_interfaces:
     exa_unlock(&sock->state->rx_lock);
     exa_unlock(&sock->state->tx_lock);
 err_socket_enable_bypass:
+    exa_write_unlock(&sock->lock);
 err_socket_get:
     exasock_override_off();
     close(fd);
