@@ -6,6 +6,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
@@ -36,6 +37,7 @@
 
 #define FIRMWARE_ID             0xEB000003
 #define FIRMWARE_VERSION        0x00000001
+#define MAC_ADDR_STR_LEN        14
 
 static inline int64_t timenow_ns()
 {
@@ -63,7 +65,8 @@ int main(int argc, char *argv[])
     long num_frames;
     int frame_len_min, frame_len_max, frame_wait_cycles;
     uint8_t src_mac[6];
-    uint32_t src_mac_lower, src_mac_upper;
+    uint8_t dst_mac[6];
+    uint32_t src_mac_lower, src_mac_upper, dst_mac_lower, dst_mac_upper;
     exanic_t *exanic;
     volatile uint32_t *application_registers;
     int opt;
@@ -85,8 +88,9 @@ int main(int argc, char *argv[])
     frame_wait_cycles = 0;
     num_bursts = 0xFFFFFFFF;
     burst_wait_cycles = 0;
+    memset(dst_mac, 0xFF, 6);
 
-    while ((opt = getopt(argc, argv, "c:s:S:g:b:G:")) != -1)
+    while ((opt = getopt(argc, argv, "c:s:S:g:b:G:d:")) != -1)
     {
         switch (opt) {
         case 'c':
@@ -118,6 +122,16 @@ int main(int argc, char *argv[])
             burst_wait_cycles = atoi(optarg);
             if (burst_wait_cycles < 0)
                 goto usage_error;
+            break;
+        case 'd':
+            if(sscanf(optarg, "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx",
+                      &dst_mac[0], &dst_mac[1], &dst_mac[2],
+                      &dst_mac[3], &dst_mac[4], &dst_mac[5]) != 6)
+            {
+                fprintf(stderr, "Invalid DST MAC address specified: %s\n" \
+                        "Format MAC aaddresses as AA:BB:CC:DD:EE:FF\n", optarg);
+                goto usage_error;
+            }
             break;
         default:
             goto usage_error;
@@ -172,6 +186,8 @@ int main(int argc, char *argv[])
     exanic_get_mac_addr(exanic, 0, src_mac);
     src_mac_lower = src_mac[0] | (src_mac[1] << 8) | (src_mac[2] << 16) | (src_mac[3] << 24);
     src_mac_upper = src_mac[4] | (src_mac[5] << 8);
+    dst_mac_lower = dst_mac[0] | (dst_mac[1] << 8) | (dst_mac[2] << 16) | (dst_mac[3]<< 24);
+    dst_mac_upper = dst_mac[4] | (dst_mac[5] << 8);
 
     /* Write packet generator settings to hardware */
     application_registers[REG_NUM_FRAMES] = num_frames;
@@ -180,8 +196,8 @@ int main(int argc, char *argv[])
     application_registers[REG_FRAME_WAIT_CYCLES] = frame_wait_cycles;
     application_registers[REG_SRC_MAC_LOWER] = src_mac_lower;
     application_registers[REG_SRC_MAC_UPPER] = src_mac_upper;
-    application_registers[REG_DST_MAC_LOWER] = 0xffffffff;
-    application_registers[REG_DST_MAC_UPPER] = 0xffff;
+    application_registers[REG_DST_MAC_LOWER] = dst_mac_lower;
+    application_registers[REG_DST_MAC_UPPER] = dst_mac_upper;
     application_registers[REG_ETHERTYPE] = 0xB688;
     application_registers[REG_NUM_BURSTS] = num_bursts;
     /* in current implementation, the burst gap replaces the frame gap for the last frame
@@ -300,6 +316,6 @@ int main(int argc, char *argv[])
     return 0;
 
 usage_error:
-    fprintf(stderr, "Usage: %s <device> [-c num-frames] [-s min-size] [-S max-size] [-g inter-frame-gap] [-b num-bursts] [-G inter-burst-gap]\n", argv[0]);
+    fprintf(stderr, "Usage: %s <device> [-c num-frames] [-s min-size] [-S max-size] [-d dst-mac] [-g inter-frame-gap] [-b num-bursts] [-G inter-burst-gap]\n", argv[0]);
     return -1;
 }
