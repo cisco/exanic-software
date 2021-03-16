@@ -1776,23 +1776,19 @@ setsockopt_ip(struct exa_socket * restrict sock, int sockfd, int optname,
     case IP_DROP_MEMBERSHIP:
         if (is_exanic && sock->bypass_state >= EXA_BYPASS_AVAIL)
         {
-            struct exa_mcast_membership *deltmp;
-
-            deltmp = exa_socket_ip_memberships_remove(sock, &mcast_ep);
-            assert(deltmp != NULL);
-
             if (sock->bound)
             {
+                /* First remove hashtable entry and then remove membership
+                 * from the linked list of memberships and free its memory
+                 */
                 ret = exa_socket_del_mcast(sock, &mcast_ep);
                 if (ret == -1)
                 {
-                    exa_socket_ip_memberships_free(deltmp);
+                    exa_socket_ip_memberships_remove_and_free(sock, &mcast_ep);
                     goto err_exit;
                 }
             }
-
-
-            exa_socket_ip_memberships_free(deltmp);
+            exa_socket_ip_memberships_remove_and_free(sock, &mcast_ep);
         }
         else
         {
