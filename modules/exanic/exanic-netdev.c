@@ -696,6 +696,13 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
     int err;
     unsigned long flags;
 
+    if (tx_buf_size == 0)
+    {
+        netdev_err(ndev, "TX region usable size cannot be 0\n");
+        err = -ENOMEM;
+        goto err_buf_size;
+    }
+
     /* Allocate TX resources */
     err = exanic_alloc_tx_region(priv->ctx, priv->port, tx_buf_size,
                                  &tx_buf_offset);
@@ -768,6 +775,7 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
 err_alloc_tx_feedback:
     exanic_free_tx_region(priv->ctx, priv->port, PAGE_SIZE, tx_buf_offset);
 err_alloc_tx_region:
+err_buf_size:
     return err;
 }
 
@@ -875,6 +883,7 @@ static int exanic_netdev_open(struct net_device *ndev)
     return 0;
 
 err_kernel_start:
+    exanic_disable_port(priv->exanic, priv->port);
 err_enable_port:
     exanic_rx_put(priv->ctx, priv->port);
 err_alloc_rx_dma:
