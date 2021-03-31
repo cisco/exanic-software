@@ -23,6 +23,7 @@
 #define PCI_DEVICE_ID_EXANIC_X25        0x0009
 #define PCI_DEVICE_ID_EXANIC_X100       0x000A
 #define PCI_DEVICE_ID_EXANIC_V9P        0x000B
+#define PCI_DEVICE_ID_EXANIC_V9P_3      0x000C
 
 /* Interface to exanic_(get|set)_feature_cfg */
 enum exanic_feature

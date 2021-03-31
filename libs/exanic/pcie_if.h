@@ -1175,6 +1175,7 @@ typedef enum
     EXANIC_HW_X25           = 9,  /**< ExaNIC X25 */
     EXANIC_HW_X100          = 10, /**< ExaNIC X100 */
     EXANIC_HW_V9P           = 11, /**< ExaNIC V9P */
+    EXANIC_HW_V9P_3         = 12, /**< ExaNIC V9P-3 */
 } exanic_hardware_id_t;
 
 /**
@@ -1210,6 +1211,8 @@ static inline const char * exanic_hardware_id_str(exanic_hardware_id_t id)
             return "ExaNIC X100";
         case EXANIC_HW_V9P:
             return "ExaNIC V9P";
+        case EXANIC_HW_V9P_3:
+            return "ExaNIC V9P-3";
         default:
             return NULL;
     }
