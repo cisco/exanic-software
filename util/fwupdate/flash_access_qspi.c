@@ -133,7 +133,7 @@ static void qspi_release(struct flash_device *flash)
 static bool qspi_erase_block(struct flash_device *flash, flash_address_t address)
 {
     size_t byte_addr = to_byte_address(address);
-    size_t block_size_byte = to_byte_size(flash->block_size);
+    size_t block_size_byte = to_byte_size(flash->main_block_size);
     byte_addr &= (~(block_size_byte - 1));
 
     exanic_register_write(flash->exanic,
@@ -294,12 +294,12 @@ struct flash_device *flash_open_qspi(exanic_t *exanic, bool recovery_partition,
     flash->partition_size = *partition_size = recovery_partition ?
         recovery_size_words : production_size_words;
     flash->partition_start = recovery_partition ? recovery_offset : production_offset;
-    flash->block_size = info->erase_size / BYTES_IN_FLASH_WORDS;
+    flash->main_block_size = info->erase_size / BYTES_IN_FLASH_WORDS;
     flash->burst_buffer_size = info->write_size / BYTES_IN_FLASH_WORDS;
     flash->min_read_size = sizeof(qspi_flash_word_t) / BYTES_IN_FLASH_WORDS;
-    /* no boot area */
-    flash->boot_area_start = flash->partition_size;
-    flash->boot_area_block_size = flash->block_size;
+    /* monolithic device with all blocks the same size */
+    flash->region_1_block_size = flash->main_block_size;
+    flash->region_2_start = flash->region_3_start = chip_size_words;
 
     return flash;
 }

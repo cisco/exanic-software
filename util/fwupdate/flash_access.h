@@ -20,11 +20,14 @@ struct flash_device
     bool is_recovery;
     flash_address_t partition_start;
     flash_size_t partition_size;
-    flash_size_t block_size;
+    flash_size_t main_block_size;
+    flash_size_t region_1_block_size;
+    flash_address_t region_2_start;
+    flash_size_t region_2_block_size;
+    flash_address_t region_3_start;
+    flash_size_t region_3_block_size;
     flash_size_t burst_buffer_size;
     flash_size_t min_read_size;
-    flash_size_t boot_area_block_size;
-    flash_address_t boot_area_start;
     uint32_t status;
 };
 
