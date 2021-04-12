@@ -23,6 +23,10 @@ struct flash_device *flash_open(exanic_t *exanic, bool recovery_partition,
     struct flash_device *flash = info->type == EXANIC_FW_FLASH_QSPI ?
         flash_open_qspi(exanic, recovery_partition, partition_size) :
         flash_open_cfi(exanic, recovery_partition, partition_size);
+
+    if (!flash)
+        return NULL;
+
     if (flash->ops->init && !flash->ops->init(flash))
     {
         flash_close(flash);
