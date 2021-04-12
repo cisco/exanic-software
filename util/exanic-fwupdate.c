@@ -79,7 +79,8 @@ static bool check_target_hardware(const char *firmware_id, exanic_t *exanic)
 
     if (!found_match)
     {
-        fprintf(stderr, "ERROR: card hardware unsupported by this software version\n");
+        fprintf(stderr, "ERROR: firmware ID %s is not supported by this software version\n",
+                        firmware_id);
         return false;
     }
 
