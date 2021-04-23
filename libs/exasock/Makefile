@@ -82,6 +82,7 @@ install: all
 	ln -sf $(EXT_STUB_LIB_FULLNAME) $(LIBDIR)/$(EXT_STUB_LIB_SONAME)
 	ln -sf $(EXT_STUB_LIB_SONAME) $(DEVLIBDIR)/$(EXT_STUB_LIB_LINKNAME)
 	install -m 0644 -D $(SOCK_INCLUDES) $(EXT_INCLUDES) $(INCDIR)/exasock
+	-[ -n "$(DESTDIR)" ] || ldconfig
 
 uninstall:
 	rm -f $(LIBDIR)/exasock/*
