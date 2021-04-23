@@ -951,7 +951,6 @@ static int exanic_probe(struct pci_dev *pdev,
     unsigned port_num;
     const char *hw_id_str;
     const char *function_str;
-    bool unsupported_exanic = false;
     uint32_t dma_cfg;
     u8 mac_addr[ETH_ALEN];
 
@@ -1051,44 +1050,21 @@ static int exanic_probe(struct pci_dev *pdev,
                 "Unsupported exanic interface version: %u (min %u, max %u)\n",
                 exanic->pcie_if_ver, MIN_SUPPORTED_PCIE_IF_VER,
                 MAX_SUPPORTED_PCIE_IF_VER);
-        unsupported_exanic = true;
+        goto err_interface_ver;
     }
 
     hw_id_str = exanic_hardware_id_str(exanic->hw_id);
     if (hw_id_str == NULL)
     {
         dev_err(dev, "Unsupported hardware type: %u\n", exanic->hw_id);
-        unsupported_exanic = true;
+        goto err_hw_id;
     }
 
     function_str = exanic_function_id_str(exanic->function_id);
     if (function_str == NULL)
     {
         dev_err(dev, "Unsupported function type: %u\n", exanic->function_id);
-        unsupported_exanic = true;
-    }
-
-    if (unsupported_exanic)
-    {
-        /* Minimal support for unsupported cards, to allow firmware update. */
-
-        /* Register device (misc_dev.minor already initialized) */
-        exanic->misc_dev.name = exanic->name;
-        exanic->misc_dev.fops = &exanic_fops;
-        exanic->unsupported = true;
-        exanic->num_ports = 0;
-        err = misc_register(&exanic->misc_dev);
-        if (err)
-        {
-            dev_err(dev, "misc_register failed: %d\n", err);
-            goto err_unsupported_exanic;
-        }
-
-        dev_info(dev, "Finished probing %s (minor = %u):\n",
-            exanic->name, exanic->misc_dev.minor);
-        dev_info(dev, "  Unknown exanic version, minimal support enabled\n");
-
-        return 0;
+        goto err_function_id;
     }
 
     /* Make sure card has completed its startup sequence */
@@ -1801,7 +1777,30 @@ err_tx_feedback_alloc:
         iounmap(exanic->tx_region_virt);
 err_dma_mask:
 err_timeout:
-err_unsupported_exanic:
+err_function_id:
+err_hw_id:
+err_interface_ver:
+
+    /* Minimal support for unsupported cards, to allow firmware update. */
+
+    /* Register device (misc_dev.minor already initialized) */
+    exanic->misc_dev.name = exanic->name;
+    exanic->misc_dev.fops = &exanic_fops;
+    exanic->unsupported = true;
+    exanic->num_ports = 0;
+    err = misc_register(&exanic->misc_dev);
+    if (!err)
+    {
+        dev_info(dev, "Finished probing %s (minor = %u):\n",
+            exanic->name, exanic->misc_dev.minor);
+        dev_info(dev, "  Error encountered during probe, minimal support enabled\n");
+        return 0;
+    }
+    else
+        dev_err(dev, "misc_register failed: %d\n", err);
+
+    /* If we get here, no device file was created and we need to error out */
+
     iounmap(exanic->regs_virt);
 err_regs_ioremap:
 err_regs_size:
@@ -1906,8 +1905,12 @@ static void exanic_remove(struct pci_dev *pdev)
     if (exanic->tx_region_virt != NULL)
         iounmap(exanic->tx_region_virt);
 
-    exanic_sysfs_exit(exanic);
-    exanic_i2c_exit(exanic);
+    if (!exanic->unsupported)
+    {
+        exanic_sysfs_exit(exanic);
+        exanic_i2c_exit(exanic);
+    }
+
     misc_deregister(&exanic->misc_dev);
 
     /* If a card reset has been requested post remove, trigger that just before
