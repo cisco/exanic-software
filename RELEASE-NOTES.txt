@@ -1,16 +1,12 @@
 ===============================================
-Release notes for ExaNIC software release 2.6.0
+Release notes for ExaNIC software release 2.6.1
 ===============================================
 
-This release adds support for 25G Ethernet when used with compatible cards and
-firmware versions.  Various known problems with recent kernels have been fixed,
-including compilation issues on RHEL 8.3.  For compatibility with other cards,
-the exanic network driver has been modified to deliver frames without an FCS
-trailer on the kernel network interface by default; this behaviour can be
-changed with ethtool -K ethX rx-fcs on (this does not affect libexanic or other
-kernel bypass applications, which continue to see the FCS).  A more complete
-list of changes and bug fixes are included at the bottom of these release
-notes.
+This is a minor release that adds support for the Cisco Nexus SmartNIC+ V9P-3
+(aka ExaNIC V9P-3), a variant of the V9P with a faster FPGA speed grade.  This
+release also fixes an exasock routing issue seen on Ubuntu 20.04 and 20.10 that
+results in failed connections or unaccelerated connections.  Other minor
+changes are listed in the change log at the bottom of these release notes.
 
 Supported distributions
 -----------------------
@@ -21,8 +17,8 @@ with this release:
 * RHEL 7.9 (kernel 3.10.0-1160)
 * CentOS 8.3 (kernel 4.18.0-240)
 * CentOS 7.9 (kernel 3.10.0-1160)
-* Ubuntu 20.10 (kernel 5.8.0-43)
-* Ubuntu 20.04.2 LTS (kernel 5.4.0-65)
+* Ubuntu 20.10 (kernel 5.8.0-50)
+* Ubuntu 20.04.2 LTS (kernel 5.4.0-72)
 
 While we strive for broad Linux compatibility in our software, Cisco TAC may not
 be able to provide support for other distributions or custom kernels.
@@ -36,10 +32,10 @@ versions have been tested with this release:
 
 * ExaNIC X25:  20210121 / 20210108 (25G beta) / FDK 2.8.0
 * ExaNIC X100: 20201111 / FDK 2.8.0
-* ExaNIC X40:  20180215 / 20190219 (40G) / FDK 2.8.0
-* ExaNIC X10:  20180409 / 20180215 (bridging/mirroring) / FDK 2.8.0
+* ExaNIC X40:  20210323 / 20190219 (40G) / FDK 2.8.0
+* ExaNIC X10:  20210323 / 20180215 (bridging/mirroring) / FDK 2.8.0
 * ExaNIC GM:   20201126
-* ExaNIC HPT:  20180221
+* ExaNIC HPT:  20210323
 * ExaNIC V5P:  20180117 / FDK 2.8.0
 * ExaNIC V9P:  20210204 / FDK 2.8.0
 
@@ -53,6 +49,16 @@ the full matrix of possibilities for every supported configuration.
 
 Change log
 ----------
+2.6.1 [2021-04-30]
+* Support for Nexus SmartNIC (ExaNIC) V9P-3 with faster FPGA
+* driver: provide minimal functionality even if card initialization fails, to
+  enable firmware update to working firmware
+* driver: fix kernel panic on driver unload when card is unsupported
+* exasock: fix routing on Ubuntu 20.xx / Linux kernel 5.4.68+
+* exasock: fix assertion failure during multicast group removal
+* exanic-fwupdate: fix segmentation fault after an error occurs
+* FDK spam example: add option to set DST MAC address
+
 2.6.0 [2021-02-10]
 * Initial support for 25G Ethernet (requires firmware with 25G support)
 * Ability to read and display Cisco serial numbers on Cisco branded cards
