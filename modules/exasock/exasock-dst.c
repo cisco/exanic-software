@@ -317,7 +317,11 @@ static struct net_device *__exasock_dst_get_if(uint32_t *saddr,
 
 #ifndef __FILLS_RT_IIF
     *saddr = fl4->saddr;
-    oif = fl4->flowi4_oif;
+    /* Retrieve value for output interface from dst_entry structure instead of
+     * flowi4. Since 5.4.68 version flowi4_oif field is not updated by
+     * _ip_route_output_key anymore. The most logical is to read the index of
+     * the output interface from the cached route */
+    oif = (*rt)->dst.dev->ifindex;
 #else
     *saddr = (*rt)->rt_src;
     oif = (*rt)->rt_iif;
