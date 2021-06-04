@@ -291,6 +291,7 @@ struct flash_device *flash_open_qspi(exanic_t *exanic, bool recovery_partition,
     flash->exanic = exanic;
     flash->ops = &qspi_ops;
     flash->is_recovery = recovery_partition;
+    flash->device_size = chip_size_words;
     flash->partition_size = *partition_size = recovery_partition ?
         recovery_size_words : production_size_words;
     flash->partition_start = recovery_partition ? recovery_offset : production_offset;

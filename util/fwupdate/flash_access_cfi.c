@@ -373,7 +373,7 @@ struct flash_device *flash_open_cfi(exanic_t *exanic, bool recovery_partition,
         goto error;
     }
 
-    device_size = 1 << (device_size_bits-1);
+    flash->device_size = device_size = 1 << (device_size_bits-1);
     flash->partition_size = *partition_size = device_size / 2;
     flash->partition_start = recovery_partition ? 0 : flash->partition_size;
     flash->is_recovery = recovery_partition;

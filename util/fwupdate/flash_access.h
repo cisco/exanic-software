@@ -18,6 +18,7 @@ struct flash_device
     exanic_t *exanic;
     struct flash_ops *ops;
     bool is_recovery;
+    flash_size_t device_size;
     flash_address_t partition_start;
     flash_size_t partition_size;
     flash_size_t main_block_size;
