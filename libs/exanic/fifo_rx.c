@@ -308,12 +308,16 @@ void __exanic_rx_catchup(exanic_rx_t *rx)
     if (eof_found)
     {
         /* Set next_chunk to the chunk after the most recent end-of-frame */
+        rx->sentinel_chunk = eof_chunk;
+        rx->sentinel_chunk_generation = eof_gen;
         rx->next_chunk = eof_chunk + 1;
         rx->generation = eof_gen;
     }
     else
     {
         /* Set next_chunk to where generation number changes */
+        rx->sentinel_chunk = break_chunk;
+        rx->sentinel_chunk_generation = break_gen;
         rx->next_chunk = break_chunk + 1;
         rx->generation = break_gen;
     }
@@ -339,10 +343,11 @@ ssize_t exanic_receive_frame(exanic_rx_t *rx, char *rx_buf, size_t rx_buf_size,
     {
         size_t size = 0;
 
-        /* Next expected packet */
+        /* Next expected chunk */
         while (1)
         {
-            const char *payload = (char *)rx->buffer[rx->next_chunk].payload;
+            uint32_t current_chunk = rx->next_chunk;
+            const char *payload = (char *)rx->buffer[current_chunk].payload;
 
             /* Advance next_chunk to next chunk */
             rx->next_chunk++;
@@ -360,9 +365,22 @@ ssize_t exanic_receive_frame(exanic_rx_t *rx, char *rx_buf, size_t rx_buf_size,
                     return -EXANIC_RX_FRAME_TRUNCATED;
 
                 memcpy(rx_buf + size, payload, u.info.length);
-                size += u.info.length;
 
-                /* TODO: Recheck that we haven't been lapped */
+                /* Move the sentinel chunk forward. */
+                uint32_t sentinel_chunk = rx->sentinel_chunk;
+                uint8_t sentinel_chunk_generation = rx->sentinel_chunk_generation;
+                rx->sentinel_chunk = current_chunk;
+                rx->sentinel_chunk_generation = u.info.generation;
+
+                /* Check that we couldn't have gotten lapped during memcpy. */
+                if (rx->buffer[sentinel_chunk].u.info.generation !=
+                      sentinel_chunk_generation)
+                {
+                    __exanic_rx_catchup(rx);
+                    return -EXANIC_RX_FRAME_SWOVFL;
+                }
+
+                size += u.info.length;
 
                 if (timestamp != NULL)
                     *timestamp = u.info.timestamp;
@@ -384,13 +402,6 @@ ssize_t exanic_receive_frame(exanic_rx_t *rx, char *rx_buf, size_t rx_buf_size,
                 do
                     u.data = rx->buffer[rx->next_chunk].u.data;
                 while (u.info.generation == (uint8_t)(rx->generation - 1));
-
-                if (u.info.generation != rx->generation)
-                {
-                    /* Got lapped? */
-                    __exanic_rx_catchup(rx);
-                    return -EXANIC_RX_FRAME_SWOVFL;
-                }
             }
         }
     }
@@ -418,6 +429,12 @@ ssize_t exanic_receive_chunk(exanic_rx_t *rx, char *rx_buf, int *more_chunks)
 
     if (u.info.generation == rx->generation)
     {
+        /* Move the sentinel chunk forward. */
+        uint32_t sentinel_chunk = rx->sentinel_chunk;
+        uint8_t sentinel_chunk_generation = rx->sentinel_chunk_generation;
+        rx->sentinel_chunk = rx->next_chunk;
+        rx->sentinel_chunk_generation = u.info.generation;
+
         /* Data is available */
         const char *payload = (char *)rx->buffer[rx->next_chunk].payload;
 
@@ -434,7 +451,12 @@ ssize_t exanic_receive_chunk(exanic_rx_t *rx, char *rx_buf, int *more_chunks)
             /* Last chunk */
             memcpy(rx_buf, payload, u.info.length);
 
-            /* TODO: Recheck that we haven't been lapped */
+            /* Check that we couldn't have gotten lapped during memcpy. */
+            if (rx->buffer[sentinel_chunk].u.info.generation != sentinel_chunk_generation)
+            {
+                __exanic_rx_catchup(rx);
+                return -EXANIC_RX_FRAME_SWOVFL;
+            }
 
             if (u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK)
                 return -(u.info.frame_status & EXANIC_RX_FRAME_ERROR_MASK);
@@ -446,6 +468,13 @@ ssize_t exanic_receive_chunk(exanic_rx_t *rx, char *rx_buf, int *more_chunks)
         {
             /* More chunks to come */
             memcpy(rx_buf, payload, EXANIC_RX_CHUNK_PAYLOAD_SIZE);
+
+            /* Check that we couldn't have gotten lapped during memcpy. */
+            if (rx->buffer[sentinel_chunk].u.info.generation != sentinel_chunk_generation)
+            {
+                __exanic_rx_catchup(rx);
+                return -EXANIC_RX_FRAME_SWOVFL;
+            }
 
             *more_chunks = 1;
             return EXANIC_RX_CHUNK_PAYLOAD_SIZE;
@@ -476,6 +505,12 @@ ssize_t exanic_receive_chunk_ex(exanic_rx_t *rx, char *rx_buf, int *more_chunks,
 
     if (u.info.generation == rx->generation)
     {
+        /* Move the sentinel chunk forward. */
+        uint32_t sentinel_chunk = rx->sentinel_chunk;
+        uint8_t sentinel_chunk_generation = rx->sentinel_chunk_generation;
+        rx->sentinel_chunk = rx->next_chunk;
+        rx->sentinel_chunk_generation = u.info.generation;
+
         /* Data is available */
         const char *payload = (char *)rx->buffer[rx->next_chunk].payload;
         uint8_t length;
@@ -492,7 +527,14 @@ ssize_t exanic_receive_chunk_ex(exanic_rx_t *rx, char *rx_buf, int *more_chunks,
         more = (u.info.length == 0);
         length = more ? EXANIC_RX_CHUNK_PAYLOAD_SIZE : u.info.length;
         memcpy(rx_buf, payload, length);
-        /* TODO: Recheck that we haven't been lapped */
+
+        /* Check that we couldn't have gotten lapped during memcpy. */
+        if (rx->buffer[sentinel_chunk].u.info.generation != sentinel_chunk_generation)
+        {
+            __exanic_rx_catchup(rx);
+            return -EXANIC_RX_FRAME_SWOVFL;
+        }
+
         *more_chunks = more;
         *info = u.info;
         return length;
