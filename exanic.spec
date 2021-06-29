@@ -8,7 +8,7 @@ License:        GPLv2
 URL:            http://exablaze.com/support
 Source:         %{name}-%{version}.tar.gz
 Buildroot:      %_tmppath/%{name}-%{version}-%{release}
-Requires:       exanic-dkms = %{version}-%{release}, exanic-utils = %{version}-%{release}, exanic-devel = %{version}-%{release}
+Requires:       exanic-drivers = %{version}-%{release}, exanic-utils = %{version}-%{release}, exanic-devel = %{version}-%{release}
 Prefix:         /usr
 %description
 Drivers and software for ExaNIC, a low latency network card from
@@ -23,6 +23,8 @@ Requires:       dkms, kernel-source, make
 %else
 Requires:       dkms, kernel-devel, make
 %endif
+Provides:       exanic-drivers = %{version}-%{release}
+
 BuildArch:      noarch
 %description dkms
 This package contains the Linux network drivers for the ExaNIC.  This
