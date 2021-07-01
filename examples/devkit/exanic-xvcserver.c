@@ -151,7 +151,7 @@ int handle_data(int fd, volatile jtag_t *jtag_ptr)
             tms = 0;
             tdi = 0;
             tdo = 0;
-            if (bytesLeft >= 4) {
+            if (bitsLeft >= 32) {
                 memcpy( &tms, & buffer[byteIndex], 4);
                 memcpy( &tdi, & buffer[byteIndex + nr_bytes], 4);
 
