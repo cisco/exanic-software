@@ -12,10 +12,11 @@ HAS_BONDING_KO_HEADER := ${shell test -e $(BONDING_KO_HEADER) && echo 1 || echo 
 # Detect whether this is an RHEL with backported SYSFS
 HAS_NETDEV_CLASS_CREATE_FILE_NS:=${shell grep -c 'netdev_class_create_file_ns' $(srctree)/include/linux/netdevice.h}
 HAS_GENL_POLICY_IN_OPS:=${shell tr '\n' ' ' <$(srctree)/include/net/genetlink.h | grep -co 'struct genl_ops\s*{.*const struct nla_policy\s*\*policy;.*};'}
+USE_SOCKPTR_T:=${shell grep -c 'sockptr_t' $(srctree)/include/net/sock.h}
 
 ccflags-y := -D__HAS_RT_GENID_GETTER=$(HAS_RT_GENID_GETTER) -D__HAS_RT_GENID_GETTER_IPV4=$(HAS_RT_GENID_GETTER_IPV4) -D__HAS_SIPHASH=$(HAS_SIPHASH) \
 	-D__HAS_BONDING_KO_HEADER=$(HAS_BONDING_KO_HEADER) -D__HAS_NETDEV_CLASS_CREATE_FILE_NS=$(HAS_NETDEV_CLASS_CREATE_FILE_NS) \
-	-D__HAS_GENL_POLICY_IN_OPS=$(HAS_GENL_POLICY_IN_OPS)
+	-D__HAS_GENL_POLICY_IN_OPS=$(HAS_GENL_POLICY_IN_OPS) -D__USE_SOCKPTR_T=$(USE_SOCKPTR_T)
 
 NO_PUBLIC_STRUCT_MSG:=NOTE: Exasock-bonding is not supported before Linux 3.19. \
 		Upgrade your kernel, or backport the bonding.ko module \

@@ -48,8 +48,10 @@ MODULE_PARM_DESC(ate_win_limit_off, "Disable TCP window limitation in ATE");
 
 /* Linux v5.9+ introduces a sockptr_t type and the constructor function
  * USER_SOCKPTR(p), prior to this setsockopt() accepts a pointer directly */
-#ifndef _LINUX_SOCKPTR_H
-#define USER_SOCKPTR(p) (p)
+#if __USE_SOCKPTR_T
+#define __USER_SOCKPTR(p) USER_SOCKPTR(p)
+#else
+#define __USER_SOCKPTR(p) (p)
 #endif
 
 struct exasock_tcp_conn_counters
@@ -3433,9 +3435,9 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
     BUG_ON(tcp->hdr.socket.type != SOCK_STREAM);
 
     if (level == SOL_SOCKET)
-        ret = sock_setsockopt(tcp->sock, level, optname, USER_SOCKPTR(optval), optlen);
+        ret = sock_setsockopt(tcp->sock, level, optname, __USER_SOCKPTR(optval), optlen);
     else
-        ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, USER_SOCKPTR(optval), optlen);
+        ret = tcp->sock->ops->setsockopt(tcp->sock, level, optname, __USER_SOCKPTR(optval), optlen);
 
     return ret;
 }
