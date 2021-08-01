@@ -129,6 +129,14 @@ int exanic_port_enabled(exanic_t *exanic, int port_number)
     return exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_ENABLED)];
 }
 
+int exanic_port_autoneg_enabled(exanic_t* exanic, int port_number)
+{
+    if (check_port_configurable(exanic, port_number) == -1)
+        return -1;
+
+    return !!(exanic->registers[REG_PORT_INDEX(port_number, REG_PORT_FLAGS)] & EXANIC_PORT_FLAG_AUTONEG_ENABLE);
+}
+
 int exanic_get_promiscuous_mode(exanic_t *exanic, int port_number)
 {
     uint32_t flags;

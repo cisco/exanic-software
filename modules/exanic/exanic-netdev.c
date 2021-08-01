@@ -1262,6 +1262,15 @@ static int exanic_netdev_get_fecparam(struct net_device *ndev, struct ethtool_fe
 
 #endif /* ETHTOOL_SFECPARAM */
 
+static int exanic_netdev_restart_autoneg(struct net_device* ndev)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct exanic *exanic = priv->exanic;
+    int port_no = priv->port;
+
+    return exanic_phyops_restart_autoneg(exanic, port_no);
+}
+
 static void exanic_netdev_get_drvinfo(struct net_device *ndev,
                                       struct ethtool_drvinfo *info)
 {
@@ -1600,7 +1609,8 @@ static struct ethtool_ops exanic_ethtool_ops = {
 #endif
     .get_eeprom_len         = exanic_netdev_get_eeprom_len,
     .get_eeprom             = exanic_netdev_get_eeprom,
-    .set_eeprom             = exanic_netdev_set_eeprom
+    .set_eeprom             = exanic_netdev_set_eeprom,
+    .nway_reset             = exanic_netdev_restart_autoneg
 };
 
 #if __RH_ETHTOOL_OPS_EXT

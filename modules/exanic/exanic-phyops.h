@@ -14,6 +14,7 @@
 #define _ETHTOOL_LINK_MODE_10baseT_Full_BIT       (1)
 #define _ETHTOOL_LINK_MODE_100baseT_Full_BIT      (3)
 #define _ETHTOOL_LINK_MODE_1000baseT_Full_BIT     (5)
+#define _ETHTOOL_LINK_MODE_Autoneg_BIT            (6)
 #define _ETHTOOL_LINK_MODE_1000baseKX_Full_BIT    (17)
 #define _ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT  (18)
 #define _ETHTOOL_LINK_MODE_10000baseKR_Full_BIT   (19)
@@ -37,6 +38,7 @@
 
 #define LINK_CONFIGS_ZERO(configs) \
         ethtool_link_ksettings_zero_link_mode(configs, supported); \
+        ethtool_link_ksettings_zero_link_mode(configs, advertising); \
         ethtool_link_ksettings_zero_link_mode(configs, lp_advertising);
 
 #define LINK_CONFIGS_SET_SUPPORTED(configs, _item) \
@@ -77,7 +79,10 @@ typedef struct ethtool_fecparam     exanic_phyops_fecparams_t;
 
 #else /* ETHTOOL_GLINKSETTINGS */
 
-#define LINK_CONFIGS_ZERO(configs)
+#define LINK_CONFIGS_ZERO(configs) \
+        (configs)->supported = 0; \
+        (configs)->advertising = 0; \
+        (configs)->lp_advertising = 0;
 
 #define LINK_CONFIGS_SET_SUPPORTED(setting, _item) \
         (configs)->supported |= SUPPORTED_##_item
@@ -169,6 +174,8 @@ struct exanic_phy_ops
     int (*get_module_eeprom)(struct exanic *exanic, int port,
                              struct ethtool_eeprom *, uint8_t *);
 #endif /* ETHTOOL_GMODULEINFO */
+
+    int (*restart_autoneg)(struct exanic *exanic, int port);
 };
 
 /* associate a list of phy operations with port, called either at device
@@ -200,6 +207,8 @@ int exanic_phyops_get_fecparam(struct exanic *exanic, int port,
                                struct ethtool_fecparam *fp);
 int exanic_phyops_set_fecparam(struct exanic *exanic, int port, struct ethtool_fecparam *fp);
 #endif /* ETHTOOL_SFECPARAM */
+
+int exanic_phyops_restart_autoneg(struct exanic *exanic, int port);
 
 #ifdef ETHTOOL_GMODULEINFO
 int exanic_phyops_get_module_info(struct exanic *exanic, int port,

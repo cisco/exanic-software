@@ -63,6 +63,16 @@ int exanic_get_port_status(exanic_t *exanic, int port_number);
  */
 int exanic_port_enabled(exanic_t *exanic, int port_number);
 
+
+
+/**
+ * \brief Return whether a port autonegotiation is enabled
+ *
+ * \return 0 if disabled, or non-zero if enabled, -1 if an error occurred
+ *
+ */
+int exanic_port_autoneg_enabled(exanic_t* exanic, int port_number);
+
 /**
  * \brief Return whether promiscuous mode is enabled or disabled
  *
