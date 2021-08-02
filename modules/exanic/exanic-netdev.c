@@ -867,9 +867,14 @@ static int exanic_netdev_open(struct net_device *ndev)
 
     if (!priv->bypass_only)
     {
-        /* Automatically load ExaNIC sockets support module */
+        /* Automatically load ExaNIC sockets support module. We must use _nowait
+         * here to avoid a deadlock: the exasock module depends on this module;
+         * if we arrive here while this module is in the process of being loaded
+         * or unloaded, the modprobe spawned by request_module might hang
+         * forever waiting for us to reach the ACTIVE state.
+         */
         if (!disable_exasock)
-            request_module("exasock");
+            request_module_nowait("exasock");
 
         /* Start sending and receiving packets in kernel */
         err = exanic_netdev_kernel_start(ndev);
