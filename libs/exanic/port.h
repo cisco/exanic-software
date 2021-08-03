@@ -19,13 +19,6 @@ extern "C" {
 int exanic_get_num_ports(exanic_t *exanic);
 
 /**
- * \brief Return whether mirroring is supported on a port
- *
- * \return 1 if mirroring is supported, 0 if not supported
- */
-int exanic_port_mirror_supported(exanic_t *exanic, int port_number);
-
-/**
  * \brief Return whether RX is supported on a port
  *
  * \return 1 if RX is supported, 0 if not supported
@@ -154,17 +147,6 @@ int exanic_remove_filter(exanic_t *exanic, int port_number, int filter_slot);
  * \return A bitmask of the supported TX types (see \ref exanic_tx_type_id_t).
  */
 int exanic_get_supported_tx_types(exanic_t *exanic, int port_number);
-
-/**
- * \brief Get the current bridging and mirroring configuration on a ExaNIC
- *
- * \param[in]   exanic
- *      A valid ExaNIC handle
- *
- * \return A bitmask of the current configuration
- * (see \ref exanic_feature_cfg_t).
- */
-uint32_t exanic_get_bridging_config(exanic_t *exanic);
 
 typedef struct exanic_port_stats
 {

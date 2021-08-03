@@ -70,22 +70,6 @@ static int check_port_configurable(exanic_t *exanic, int port_number)
     return 0;
 }
 
-int exanic_port_mirror_supported(exanic_t *exanic, int port_number)
-{
-    uint32_t caps = exanic_get_caps(exanic);
-    exanic_hardware_id_t hw_type = exanic_get_hw_type(exanic);
-    bool mirror_fw_avail = (exanic->hw_info.flags & EXANIC_HW_FLAG_MIRROR_FW) != 0;
-    int mirror_output_port = exanic->num_ports ? exanic->num_ports - 1 : 0;
-
-    /*
-     * Check if firmware has mirroring support for a given port.
-     * Always available on the legacy 4-port card regardless of capability bit.
-     */
-    return ((hw_type == EXANIC_HW_X4) ||
-            (mirror_fw_avail && (caps & EXANIC_CAP_MIRRORING))) &&
-            (port_number < mirror_output_port);
-}
-
 int exanic_port_rx_usable(exanic_t *exanic, int port_number)
 {
     return port_number >= 0 && port_number < exanic->num_ports &&
@@ -181,14 +165,6 @@ int exanic_get_supported_tx_types(exanic_t *exanic, int port_number)
         return -1;
     return exanic->registers[
         REG_PORT_INDEX(port_number, REG_PORT_TX_SUPPORTED_TYPES)];
-}
-
-uint32_t exanic_get_bridging_config(exanic_t *exanic)
-{
-    if (check_network_interface(exanic) == -1)
-        return -1;
-    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_FEATURE_CFG)]
-        & EXANIC_FEATURE_BRIDGE_MIRROR_MASK;
 }
 
 int exanic_get_port_stats(exanic_t *exanic, int port_number,

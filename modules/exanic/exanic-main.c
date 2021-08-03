@@ -496,12 +496,30 @@ static bool exanic_port_needs_power(struct exanic *exanic, unsigned port_num)
         if (cfg & port_feature_bits_2port[port_num])
             return true;
     }
-    else
+    else if (exanic->hwinfo.nports == 4)
     {
         /* 4 port card */
         if (cfg & port_feature_bits_4port[port_num])
             return true;
     }
+
+    if (exanic->caps & EXANIC_CAP_EXT_MIRRORING)
+    {
+        /* Extended mirroring configuration is available */
+        uint32_t reg = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_MIRROR_ENABLE_EXT));
+        unsigned out_port = (cfg & EXANIC_FEATURE_MIRROR_OUTPUT_EXT_MASK) >>
+                EXANIC_FEATURE_MIRROR_OUTPUT_EXT_SHIFT;
+
+        /* Port is a mirror source */
+        if (reg & (3 << (2 * port_num)))
+            return true;
+
+        /* Port is the mirror output */
+        if (reg != 0 && port_num == out_port)
+            return true;
+    }
+
     return false;
 }
 
@@ -706,6 +724,7 @@ int exanic_set_mac_addr_regs(struct exanic *exanic, unsigned port_num,
 
 /**
  * Get the register bit mask for the given feature and port.
+ * (Legacy mirroring and bridging bits only)
  */
 static int exanic_feature_bit(struct exanic *exanic, unsigned port_num,
                               enum exanic_feature feature, uint32_t *bit)
@@ -785,18 +804,30 @@ int exanic_get_feature_cfg(struct exanic *exanic, unsigned port_num,
     uint32_t reg, bit;
     int err;
 
-    err = exanic_feature_bit(exanic, port_num, feature, &bit);
-    if (err)
+    /* Extended mirroring configuration */
+    if ((exanic->caps & EXANIC_CAP_EXT_MIRRORING) &&
+            (feature == EXANIC_MIRROR_RX || feature == EXANIC_MIRROR_TX))
     {
-        /* Set state to false if feature is invalid */
-        *state = false;
-        return err;
+        bit = (feature == EXANIC_MIRROR_RX ? 1 : 2) << (2 * port_num);
+        reg = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_MIRROR_ENABLE_EXT));
+        *state = ((reg & bit) != 0);
+        return 0;
     }
 
-    reg = readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
-    *state = ((reg & bit) != 0);
+    /* Legacy mirroring and bridging configuration */
+    err = exanic_feature_bit(exanic, port_num, feature, &bit);
+    if (!err)
+    {
+        reg = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
+        *state = ((reg & bit) != 0);
+        return 0;
+    }
 
-    return 0;
+    /* Set state to false if feature is invalid */
+    *state = false;
+    return err;
 }
 
 /**
@@ -810,27 +841,54 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
     struct device *dev = &exanic->pci_dev->dev;
     uint32_t reg, new_reg, bit;
     unsigned i;
-    int err;
+    int err = 0;
 
-    err = exanic_feature_bit(exanic, port_num, feature, &bit);
-    if (err)
+    if ((exanic->caps & EXANIC_CAP_EXT_MIRRORING) &&
+            (feature == EXANIC_MIRROR_RX || feature == EXANIC_MIRROR_TX))
     {
-        /* Allow setting unsupported feature bits to false */
-        if (!state)
+        /* Extended mirroring configuration */
+        bit = (feature == EXANIC_MIRROR_RX ? 1 : 2) << (2 * port_num);
+        reg = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_MIRROR_ENABLE_EXT));
+
+        if (state)
+            new_reg = reg | bit;
+        else
+            new_reg = reg & ~bit;
+
+        if (reg == new_reg)
             return 0;
-        return err;
+
+        writel(new_reg, exanic->regs_virt +
+            REG_EXANIC_OFFSET(REG_EXANIC_MIRROR_ENABLE_EXT));
+
+        dev_info(dev, DRV_NAME "%u: Port %u %s mirroring %s.\n", exanic->id,
+                port_num, feature == EXANIC_MIRROR_RX ? "RX" : "TX",
+                state ? "enabled" : "disabled");
     }
-
-    reg = readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
-
-    if (state)
-        new_reg = reg | bit;
     else
-        new_reg = reg & ~bit;
-
-    if (reg != new_reg)
     {
-        /* State has changed */
+        /* Legacy mirroring and bridging configuration */
+        err = exanic_feature_bit(exanic, port_num, feature, &bit);
+        if (err)
+        {
+            /* Allow setting unsupported feature bits to false */
+            if (!state)
+                return 0;
+            return err;
+        }
+
+        reg = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
+
+        if (state)
+            new_reg = reg | bit;
+        else
+            new_reg = reg & ~bit;
+
+        if (reg == new_reg)
+            return 0;
+
         writel(new_reg, exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
 
@@ -838,17 +896,17 @@ int exanic_set_feature_cfg(struct exanic *exanic, unsigned port_num,
                 exanic->id, exanic_feature_str(bit),
                 state ? "enabled" : "disabled");
 
-        /* Power up/down ports based on the new bridging and mirroring bits */
-        for (i = 0; i < exanic->num_ports; i++)
-        {
-            if (exanic->port[i].enabled || exanic_port_needs_power(exanic, i))
-                exanic_set_port_power(exanic, i, true);
-            else
-                exanic_set_port_power(exanic, i, false);
-        }
-
-        /* Save new state */
+        /* Save new state to EEPROM */
         exanic_save_feature_cfg(exanic);
+    }
+
+    /* Power up/down ports based on the new bridging and mirroring bits */
+    for (i = 0; i < exanic->num_ports; i++)
+    {
+        if (exanic->port[i].enabled || exanic_port_needs_power(exanic, i))
+            exanic_set_port_power(exanic, i, true);
+        else
+            exanic_set_port_power(exanic, i, false);
     }
 
     return 0;
@@ -1367,6 +1425,18 @@ static int exanic_probe(struct pci_dev *pdev,
             writel(reg, exanic->regs_virt +
                     REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
         }
+    }
+
+    /* Extended mirroring support */
+    if (exanic->caps & EXANIC_CAP_EXT_MIRRORING)
+    {
+        uint32_t reg = readl(exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_FEATURE_CFG));
+        unsigned out_port = (reg & EXANIC_FEATURE_MIRROR_OUTPUT_EXT_MASK) >>
+                EXANIC_FEATURE_MIRROR_OUTPUT_EXT_SHIFT;
+
+        dev_info(dev, DRV_NAME "%u: mirror output port is %u\n",
+                exanic->id, out_port);
     }
 
     /* Configure interrupts */

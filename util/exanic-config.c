@@ -757,6 +757,7 @@ void show_device_info(const char *device, int port_number, int verbose)
     exanic_function_id_t function;
     struct exanic_hw_info *hwinfo;
     time_t rev_date;
+    uint32_t caps;
     int fd;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -766,6 +767,7 @@ void show_device_info(const char *device, int port_number, int verbose)
     hw_type = exanic_get_hw_type(exanic);
     function = exanic_get_function_id(exanic);
     rev_date = exanic_get_hw_rev_date(exanic);
+    caps = exanic_get_caps(exanic);
 
     printf("Device %s:\n", device);
 
@@ -916,12 +918,12 @@ void show_device_info(const char *device, int port_number, int verbose)
          * Check if firmware has bridging support
          * Always available on older cards regardless of capability bit
          */
-        uint32_t caps = exanic_get_caps(exanic);
         if ((caps & EXANIC_CAP_BRIDGING) ||
             hw_type == EXANIC_HW_X4 || hw_type == EXANIC_HW_X2)
         {
-            uint32_t pl_cfg = exanic_get_bridging_config(exanic);
-            printf("  Bridging: %s\n", (pl_cfg & EXANIC_FEATURE_BRIDGE) ?
+            uint32_t reg = exanic_register_read(exanic,
+                    REG_EXANIC_INDEX(REG_EXANIC_FEATURE_CFG));
+            printf("  Bridging: %s\n", (reg & EXANIC_FEATURE_BRIDGE) ?
                     "on (ports 0 and 1)" : "off");
         }
     }
@@ -1003,34 +1005,53 @@ void show_device_info(const char *device, int port_number, int verbose)
         }
 
         if (function == EXANIC_FUNCTION_NIC &&
-            exanic_port_mirror_supported(exanic, i) &&
             (rx_usable || tx_usable))
         {
-            uint32_t pl_cfg;
-            uint32_t rx_bit = 0, tx_bit = 0;
+            int mirror_supported = 0, rx_mirror = 0, tx_mirror = 0;
+            uint32_t reg;
 
-            pl_cfg = exanic_get_bridging_config(exanic);
-
-            switch (i)
+            /* Legacy mirroring configuration bits */
+            if (hw_type == EXANIC_HW_X4 || (caps & EXANIC_CAP_MIRRORING))
             {
-                case 0:
-                    rx_bit = EXANIC_FEATURE_MIRROR_RX_0;
-                    tx_bit = EXANIC_FEATURE_MIRROR_TX_0;
-                    break;
-                case 1:
-                    rx_bit = EXANIC_FEATURE_MIRROR_RX_1;
-                    tx_bit = EXANIC_FEATURE_MIRROR_TX_1;
-                    break;
-                case 2:
-                    rx_bit = EXANIC_FEATURE_MIRROR_RX_2;
-                    tx_bit = EXANIC_FEATURE_MIRROR_TX_2;
-                    break;
+                reg = exanic_register_read(exanic,
+                        REG_EXANIC_INDEX(REG_EXANIC_FEATURE_CFG));
+                switch (i)
+                {
+                    case 0:
+                        rx_mirror = (reg & EXANIC_FEATURE_MIRROR_RX_0) != 0;
+                        tx_mirror = (reg & EXANIC_FEATURE_MIRROR_TX_0) != 0;
+                        break;
+                    case 1:
+                        rx_mirror = (reg & EXANIC_FEATURE_MIRROR_RX_1) != 0;
+                        tx_mirror = (reg & EXANIC_FEATURE_MIRROR_TX_1) != 0;
+                        break;
+                    case 2:
+                        rx_mirror = (reg & EXANIC_FEATURE_MIRROR_RX_2) != 0;
+                        tx_mirror = (reg & EXANIC_FEATURE_MIRROR_TX_2) != 0;
+                        break;
+                }
+
+                if (exanic->num_ports > 0 && i < exanic->num_ports - 1)
+                    mirror_supported = 1;
             }
 
-            printf("    Mirroring: %s\n",
-                    (pl_cfg & rx_bit) && (pl_cfg & tx_bit) ? "RX and TX" :
-                    (pl_cfg & rx_bit) ? "RX only" :
-                    (pl_cfg & tx_bit) ? "TX only" : "off");
+            /* Extended mirroring configuration bits */
+            if (caps & EXANIC_CAP_EXT_MIRRORING)
+            {
+                reg = exanic_register_read(exanic,
+                        REG_EXANIC_INDEX(REG_EXANIC_MIRROR_ENABLE_EXT));
+                rx_mirror = (reg & (1 << (2 * i))) != 0;
+                tx_mirror = (reg & (2 << (2 * i))) != 0;
+                mirror_supported = 1;
+            }
+
+            if (mirror_supported)
+            {
+                printf("    Mirroring: %s\n",
+                        rx_mirror && tx_mirror ? "RX and TX" :
+                        rx_mirror ? "RX only" :
+                        tx_mirror ? "TX only" : "off");
+            }
         }
 
         if ((function == EXANIC_FUNCTION_NIC ||
