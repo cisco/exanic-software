@@ -1,24 +1,29 @@
 ===============================================
-Release notes for ExaNIC software release 2.6.1
+Release notes for ExaNIC software release 2.7.0
 ===============================================
 
-This is a minor release that adds support for the Cisco Nexus SmartNIC+ V9P-3
-(aka ExaNIC V9P-3), a variant of the V9P with a faster FPGA speed grade.  This
-release also fixes an exasock routing issue seen on Ubuntu 20.04 and 20.10 that
-results in failed connections or unaccelerated connections.  Other minor
-changes are listed in the change log at the bottom of these release notes.
+This release fixes compilation on RHEL 8.4 and resolves a lockup issue seen with
+NetworkManager on RHEL 8.  There are also numerous improvements to 25G support
+for SmartNIC K3P-S (ExaNIC X25), and support is added for mirroring on SmartNIC
+K3P-Q (ExaNIC X100) (both features require appropriate firmware).  Other changes
+are listed in the change log at the bottom of these release notes.
+
+Note: this release or later will be required for firmware update functionality
+on new revisions of the Nexus SmartNIC K35-P/K35-Q (ExaNIC X10/X40) and Nexus
+NIC GM/HPT.  These are expected to begin shipping in late 2021.  Please see
+"Note on new K35-P/K35-Q/GM/HPT" below if this is relevant to you.
 
 Supported distributions
 -----------------------
 The following Linux distributions are officially supported and have been tested
 with this release:
 
-* RHEL 8.3 (kernel 4.18.0-240)
+* RHEL 8.4 (kernel 4.18.0-305)
 * RHEL 7.9 (kernel 3.10.0-1160)
-* CentOS 8.3 (kernel 4.18.0-240)
+* CentOS 8.4 (kernel 4.18.0-305)
 * CentOS 7.9 (kernel 3.10.0-1160)
-* Ubuntu 20.10 (kernel 5.8.0-50)
-* Ubuntu 20.04.2 LTS (kernel 5.4.0-72)
+* Ubuntu 21.04 (kernel 5.11.0-25)
+* Ubuntu 20.04.2 LTS (kernel 5.4.0-80)
 
 While we strive for broad Linux compatibility in our software, Cisco TAC may not
 be able to provide support for other distributions or custom kernels.
@@ -30,25 +35,52 @@ versions of firmware.  However, if a problem is encountered, please update to
 the latest firmware version before contacting support.  The following firmware
 versions have been tested with this release:
 
-* ExaNIC X25:  20210121 / 20210108 (25G beta) / FDK 2.8.0
-* ExaNIC X100: 20201111 / FDK 2.8.0
-* ExaNIC X40:  20210323 / 20190219 (40G) / FDK 2.8.0
-* ExaNIC X10:  20210323 / 20180215 (bridging/mirroring) / FDK 2.8.0
-* ExaNIC GM:   20201126
-* ExaNIC HPT:  20210323
-* ExaNIC V5P:  20180117 / FDK 2.8.0
-* ExaNIC V9P:  20210204 / FDK 2.8.0
+* ExaNIC X25:   20210121 / 20210805 (25G) / FDK 2.9.0
+* ExaNIC X100:  20201111 / 20210618 (40G) / FDK 2.9.0
+* ExaNIC X40:   20210323 / 20190219 (40G) / FDK 2.9.0
+* ExaNIC X10:   20210323 / 20180215 (bridging/mirroring) / FDK 2.9.0
+* ExaNIC GM:    20201126
+* ExaNIC HPT:   20210323
+* ExaNIC V5P:   20180117 / FDK 2.9.0
+* ExaNIC V9P:   20210204 / FDK 2.9.0
+* ExaNIC V9P-3: 20210407 / FDK 2.9.0
 
 Note on userspace/kernel compatibility
 --------------------------------------
 We highly recommend updating all components of ExaNIC software (i.e. drivers,
-libraries and utilities) at the same time if possible.  There have been no ABI
-changes and we expect 2.5.x drivers to work with 2.6.x libraries and 2.6.x
-drivers to work with 2.5.x libraries, however it is impractical for us to test
-the full matrix of possibilities for every supported configuration.
+libraries and utilities) at the same time if possible.  There is an exasock ABI
+change in 2.7.0 and thus the kernel exasock module must be upgraded for the new
+exasock to function.  This is not the case for other components, e.g. new
+libexanic can be used with old kernel modules and vice versa, however it is
+impractical for us to test the full matrix of possibilities for every supported
+configuration.
+
+Note on new K35-P/K35-Q/GM/HPT
+------------------------------
+SmartNIC K35-P/K35-Q (ExaNIC X10/X40) continue to be manufactured and supported
+for customers not ready to migrate to the newer SmartNIC K3P-P/K3P-Q (ExaNIC
+X25/X100).  Unfortunately, due to some parts previously used on this family no
+longer being available, new revisions of these cards - as well as Nexus NIC
+GM/HPT - will require 2.7.0+ to be used for firmware update functionality.
+These cards can be identified by Cisco branding and serial numbers, or 'flash
+organization not currently supported' error from exanic-fwupdate.  Strictly it
+is only necessary to upgrade exanic-fwupdate, however as noted above we
+recommend upgrading all components together if possible.
 
 Change log
 ----------
+2.7.0 [2021-08-05]
+* Multiple fixes and improvements to 25G Ethernet support
+* Support for mirroring on Nexus SmartNIC K3P-Q (X100) (with compatible
+  mirroring firmware)
+* Support for Cisco-branded revisions of Nexus SmartNIC K35-S/K35-Q (X10/X40)
+  and GM/HPT, resolves 'flash organization not currently supported' error
+* driver: fix compilation on RHEL 8.4
+* driver: fix deadlock on module load/unload when using NetworkManager
+* exasock: fix hangs in TCP server applications
+* FDK exanic-xvcserver: fix excess bits sent to JTAG chain in some cases;
+  users of this utility should upgrade
+
 2.6.1 [2021-04-30]
 * Support for Nexus SmartNIC (ExaNIC) V9P-3 with faster FPGA
 * driver: provide minimal functionality even if card initialization fails, to
