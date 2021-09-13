@@ -1351,7 +1351,7 @@ typedef enum
 {
     EXANIC_CLK_ADJ_INC          = 0x01000000, /**< Add a tick every n ticks */
     EXANIC_CLK_ADJ_DEC          = 0x00000000, /**< Skip a tick every n ticks */
-    EXANIC_CLK_ADJ_MASK         = 0x00FFFFFF,
+    EXANIC_CLK_ADJ_MAX          = 0x00FFFFFF,
 } exanic_clk_adj_t;
 
 /**

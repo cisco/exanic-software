@@ -378,7 +378,7 @@ static bool exanic_ptp_adj_allowed(struct exanic *exanic)
 static int exanic_phc_adjfreq(struct ptp_clock_info *ptp, s32 delta)
 {
     struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
-    uint32_t reg;
+    uint32_t adj_val;
 
     if (!exanic_ptp_adj_allowed(exanic))
         return -EOPNOTSUPP;
@@ -389,22 +389,26 @@ static int exanic_phc_adjfreq(struct ptp_clock_info *ptp, s32 delta)
     {
         /* Use extended clock correction register
          * Convert from parts per billion to parts per 2^40 */
-        reg = (int32_t)(((int64_t)delta << 31) / 1953125);
+        adj_val = (int32_t)(((int64_t)delta << 31) / 1953125);
 
-        writel(reg, exanic->regs_virt +
+        writel(adj_val, exanic->regs_virt +
                 REG_EXANIC_OFFSET(REG_EXANIC_CLK_ADJ_EXT));
     }
     else
     {
-        if (delta > 0)
-            reg = EXANIC_CLK_ADJ_INC |
-                  ((1000000000 / delta) & EXANIC_CLK_ADJ_MASK);
+        adj_val = (delta == 0) ? 0 : (1000000000 / abs(delta));
+
+        /* If delta is too small to be represented by the maximum adjustment
+         * interval, treat as zero */
+        if (adj_val > EXANIC_CLK_ADJ_MAX)
+            adj_val = 0;
+        else if (delta > 0)
+            adj_val |= EXANIC_CLK_ADJ_INC;
         else if (delta < 0)
-            reg = EXANIC_CLK_ADJ_DEC |
-                  ((1000000000 / -delta) & EXANIC_CLK_ADJ_MASK);
-        else
-            reg = 0;
-        writel(reg, exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_ADJ));
+            adj_val |= EXANIC_CLK_ADJ_DEC;
+
+        writel(adj_val, exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_CLK_ADJ));
     }
 
     return 0;
