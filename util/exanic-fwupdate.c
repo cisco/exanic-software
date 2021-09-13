@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
         report_phase_done();
 
         report_phase("Loading and checking update");
-        data = read_firmware(filename, flash->partition_size,
+        data = read_firmware(filename, flash->partition_size, flash->bit_reverse_bitstream,
                              &data_size, &firmware_id);
         if (!data)
             goto error;

@@ -409,6 +409,8 @@ struct flash_device *flash_open_cfi(exanic_t *exanic, bool recovery_partition,
 
     flash->main_block_size = (block_size_2 > block_size_1) ? block_size_2 : block_size_1;
     flash->min_read_size = 1;
+    /* FPGA bitstreams should be bit-reversed when writing to parallel flash */
+    flash->bit_reverse_bitstream = true;
 
     return flash;
 

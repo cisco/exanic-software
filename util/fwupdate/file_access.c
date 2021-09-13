@@ -76,20 +76,23 @@ static uint8_t *get_field(FILE *fp, size_t length)
     return data;
 }
 
-static flash_word_t *bytes_to_flash_words(uint8_t *buf, size_t size_bytes, flash_size_t *size)
+static flash_word_t *bytes_to_flash_words(uint8_t *buf, size_t size_bytes, bool bit_reverse, flash_size_t *size)
 {
     size_t offset;
-    for (offset = 0; offset < size_bytes; offset += 2)
+    if (bit_reverse)
     {
-        uint8_t b0 = bit_reverse_table[buf[offset]];
-        uint8_t b1 = bit_reverse_table[buf[offset+1]];
-        *(uint16_t *)(&buf[offset]) = (b0 << 8) | b1;
+        for (offset = 0; offset < size_bytes; offset += 2)
+        {
+            uint8_t b0 = bit_reverse_table[buf[offset]];
+            uint8_t b1 = bit_reverse_table[buf[offset+1]];
+            *(uint16_t *)(&buf[offset]) = (b0 << 8) | b1;
+        }
     }
     *size = size_bytes >> 1;
     return (flash_word_t *)buf;
 }
 
-static flash_word_t *read_bit_file(FILE *fp, flash_size_t partition_size,
+static flash_word_t *read_bit_file(FILE *fp, flash_size_t partition_size, bool bit_reverse,
                                    flash_size_t *data_size, const char **firmware_id)
 {
     size_t partition_size_bytes = partition_size<<1;
@@ -170,7 +173,7 @@ static flash_word_t *read_bit_file(FILE *fp, flash_size_t partition_size,
     }
 
     bytes = get_field(fp, data_length);
-    return bytes_to_flash_words(bytes, data_length, data_size);
+    return bytes_to_flash_words(bytes, data_length, bit_reverse, data_size);
 }
 
 
@@ -351,7 +354,8 @@ static flash_word_t *read_gz_file(const char *filename, flash_size_t partition_s
 
 
 flash_word_t *read_firmware(const char *filename, flash_size_t partition_size,
-                            flash_size_t *data_size, const char **firmware_id)
+                            bool bit_reverse_bitstream, flash_size_t *data_size,
+                            const char **firmware_id)
 {
     FILE *fp;
     uint16_t *ret;
@@ -380,7 +384,8 @@ flash_word_t *read_firmware(const char *filename, flash_size_t partition_size,
             ret = read_gz_file(filename, partition_size, data_size, firmware_id);
             break;
         default:
-            ret = read_bit_file(fp, partition_size, data_size, firmware_id);
+            ret = read_bit_file(fp, partition_size, bit_reverse_bitstream,
+                                data_size, firmware_id);
     }
     fclose(fp);
     if (ret == NULL)

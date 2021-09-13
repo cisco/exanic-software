@@ -30,6 +30,7 @@ struct flash_device
     flash_size_t burst_buffer_size;
     flash_size_t min_read_size;
     uint32_t status;
+    bool bit_reverse_bitstream;
 };
 
 struct flash_ops
