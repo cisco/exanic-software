@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <exanic/exanic.h>
+#include <exanic/util.h>
 #include "bitstream_config.h"
 
 static const unsigned char bit_reverse_table[] =
@@ -214,15 +216,21 @@ too_short:
 
 bool check_bitstream_config(struct flash_device *flash, flash_word_t *data, flash_size_t data_size)
 {
-    if (flash->region_3_start != flash->device_size)
+    exanic_hardware_id_t device_hw_id = exanic_get_hw_type(flash->exanic);
+
+    if ((device_hw_id == EXANIC_HW_X10) || (device_hw_id == EXANIC_HW_X40)
+         || (device_hw_id == EXANIC_HW_X10_GM) || (device_hw_id == EXANIC_HW_X10_HPT))
     {
-        /* S29WS part used on new X10/X40 to replace EOL P30 */
-        /* set BPI_SYNC_MODE=0, CCLK=40Mhz, BPI_PAGE_SIZE=8, BPI_1ST_READ_CYCLE=4 */
-        if (!update_bitstream_config(data, data_size, 0, 0x38103fe5, 0x0040000e))
+        if ((flash->region_3_start != flash->device_size) || !flash->supports_unlock_bypass)
         {
-            fprintf(stderr, "ERROR: Failed to update bitstream settings. If this is an Exablaze firmware image, please download a new copy.\n"
-                            "       Otherwise, please contact support for assistance.\n");
-            return false;
+            /* S29WS or S29GL part used on new X10/X40/GM/HPT to replace EOL P30 */
+            /* set BPI_SYNC_MODE=0, CCLK=40Mhz, BPI_PAGE_SIZE=8, BPI_1ST_READ_CYCLE=4 */
+            if (!update_bitstream_config(data, data_size, 0, 0x38103fe5, 0x0040000e))
+            {
+                fprintf(stderr, "ERROR: Failed to update bitstream settings. If this is an Exablaze firmware image, please use a newer version.\n"
+                                "       Otherwise, please contact support for assistance.\n");
+                return false;
+            }
         }
     }
     return true;

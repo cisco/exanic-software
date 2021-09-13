@@ -31,6 +31,7 @@ struct flash_device
     flash_size_t min_read_size;
     uint32_t status;
     bool bit_reverse_bitstream;
+    bool supports_unlock_bypass;
 };
 
 struct flash_ops

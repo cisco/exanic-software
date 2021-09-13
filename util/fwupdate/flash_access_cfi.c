@@ -226,10 +226,13 @@ static bool mt28_init(struct flash_device *flash)
     cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_2, MT28_UNLOCK_DATA_2);
     cfi_flash_write(flash, 0, MT28_READ_ARRAY);
 
-    /* enter unlock bypass mode */
-    cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_1, MT28_UNLOCK_DATA_1);
-    cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_2, MT28_UNLOCK_DATA_2);
-    cfi_flash_write(flash, MT28_UNLOCK_BYPASS_ADDRESS, MT28_UNLOCK_BYPASS_DATA);
+    if (flash->supports_unlock_bypass)
+    {
+        /* enter unlock bypass mode */
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_1, MT28_UNLOCK_DATA_1);
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_2, MT28_UNLOCK_DATA_2);
+        cfi_flash_write(flash, MT28_UNLOCK_BYPASS_ADDRESS, MT28_UNLOCK_BYPASS_DATA);
+    }
     return true;
 }
 
@@ -272,8 +275,21 @@ static bool mt28_check_status(struct flash_device *flash, flash_word_t error_mas
 
 static bool mt28_erase_block(struct flash_device *flash, flash_address_t address)
 {
-    cfi_flash_set_address(flash, address);
-    cfi_flash_write_current(flash, MT28_BLOCK_ERASE_SETUP);
+    if (flash->supports_unlock_bypass)
+    {
+        cfi_flash_set_address(flash, address);
+        cfi_flash_write_current(flash, MT28_BLOCK_ERASE_SETUP);
+    }
+    else
+    {
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_1, MT28_UNLOCK_DATA_1);
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_2, MT28_UNLOCK_DATA_2);
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_1, MT28_BLOCK_ERASE_SETUP);
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_1, MT28_UNLOCK_DATA_1);
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_2, MT28_UNLOCK_DATA_2);
+        cfi_flash_set_address(flash, address);
+    }
+
     cfi_flash_write_current(flash, MT28_BLOCK_ERASE_CONFIRM);
     if (!mt28_check_status(flash, MT28_STATUS_ERASE_ERROR_MASK))
     {
@@ -288,6 +304,12 @@ static bool mt28_burst_program(struct flash_device *flash, flash_address_t addre
         flash_word_t *data, flash_size_t size)
 {
     flash_size_t offset;
+
+    if (!flash->supports_unlock_bypass)
+    {
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_1, MT28_UNLOCK_DATA_1);
+        cfi_flash_write(flash, MT28_UNLOCK_ADDRESS_2, MT28_UNLOCK_DATA_2);
+    }
 
     cfi_flash_set_address(flash, address);
     cfi_flash_write_current(flash, MT28_BUFFER_PROGRAM_SETUP);
@@ -411,6 +433,7 @@ struct flash_device *flash_open_cfi(exanic_t *exanic, bool recovery_partition,
     flash->min_read_size = 1;
     /* FPGA bitstreams should be bit-reversed when writing to parallel flash */
     flash->bit_reverse_bitstream = true;
+    flash->supports_unlock_bypass = (cfi_flash_read(flash, 0x51) != 0);
 
     return flash;
 
