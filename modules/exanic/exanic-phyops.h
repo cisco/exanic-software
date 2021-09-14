@@ -7,6 +7,7 @@
 #define _EXANIC_PHYOPS_H_
 
 #include <linux/version.h>
+#include <linux/ethtool.h> /* for ETHTOOL_* defines */
 
 /* ETHTOOL_LINK_MODE_* constants are part of an enum in the kernel
  * headers, it is difficult to test which bits are defined in any
