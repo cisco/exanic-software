@@ -39,6 +39,8 @@ typedef struct exanic_rx
     int         port_number;
     int         buffer_number;
     volatile    struct rx_chunk *buffer;
+    uint32_t    sentinel_chunk;
+    uint8_t     sentinel_chunk_generation;
     uint32_t    next_chunk;
     uint8_t     generation;
 } exanic_rx_t;
