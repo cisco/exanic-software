@@ -1,17 +1,16 @@
 ===============================================
-Release notes for ExaNIC software release 2.7.0
+Release notes for ExaNIC software release 2.7.1
 ===============================================
 
-This release fixes compilation on RHEL 8.4 and resolves a lockup issue seen with
-NetworkManager on RHEL 8.  There are also numerous improvements to 25G support
-for SmartNIC K3P-S (ExaNIC X25), and support is added for mirroring on SmartNIC
-K3P-Q (ExaNIC X100) (both features require appropriate firmware).  Other changes
-are listed in the change log at the bottom of these release notes.
+This minor release primarily updates the firmware update utility
+exanic-fwupdate.  The update resolves an issue with exanic-fwupdate incorrectly
+flashing .bit firmware on Nexus SmartNIC K3P-Q (ExaNIC X100) cards, and adds
+support for the flash chip used in newer GM and HPT hardware.
 
-Note: this release or later will be required for firmware update functionality
-on new revisions of the Nexus SmartNIC K35-P/K35-Q (ExaNIC X10/X40) and Nexus
-NIC GM/HPT.  These are expected to begin shipping in late 2021.  Please see
-"Note on new K35-P/K35-Q/GM/HPT" below if this is relevant to you.
+This release also addresses an arithmetic overflow error in the clock frequency
+adjustment in the driver.  This error may cause unstable time synchronization on
+some Nexus SmartNIC K3P-P/K3P-Q (ExaNIC X25/X100) cards.  Finally, it fixes a
+driver bug causing hangs at load or unload on Ubuntu systems.
 
 Supported distributions
 -----------------------
@@ -49,26 +48,33 @@ Note on userspace/kernel compatibility
 --------------------------------------
 We highly recommend updating all components of ExaNIC software (i.e. drivers,
 libraries and utilities) at the same time if possible.  There is an exasock ABI
-change in 2.7.0 and thus the kernel exasock module must be upgraded for the new
-exasock to function.  This is not the case for other components, e.g. new
-libexanic can be used with old kernel modules and vice versa, however it is
-impractical for us to test the full matrix of possibilities for every supported
-configuration.
+change in 2.7.x and thus the kernel exasock module must be upgraded for the new
+exasock to function if upgrading from 2.6.x or earlier.  This is not the case
+for other components, e.g. new libexanic can be used with old kernel modules
+and vice versa, however it is impractical for us to test the full matrix of
+possibilities for every supported configuration.
 
 Note on new K35-P/K35-Q/GM/HPT
 ------------------------------
 SmartNIC K35-P/K35-Q (ExaNIC X10/X40) continue to be manufactured and supported
 for customers not ready to migrate to the newer SmartNIC K3P-P/K3P-Q (ExaNIC
 X25/X100).  Unfortunately, due to some parts previously used on this family no
-longer being available, new revisions of these cards - as well as Nexus NIC
-GM/HPT - will require 2.7.0+ to be used for firmware update functionality.
-These cards can be identified by Cisco branding and serial numbers, or 'flash
-organization not currently supported' error from exanic-fwupdate.  Strictly it
-is only necessary to upgrade exanic-fwupdate, however as noted above we
-recommend upgrading all components together if possible.
+longer being available, new revisions of these cards will require 2.7.0+ to be
+used for firmware update functionality.  In addition, newer revisions of the
+Nexus NIC GM/HPT will require 2.7.1+ for firmware update.  These cards can be
+identified by Cisco branding and serial numbers, or 'flash organization not
+currently supported' error from exanic-fwupdate.  Strictly it is only necessary
+to upgrade exanic-fwupdate, however as noted above we recommend upgrading all
+components together if possible.
 
 Change log
 ----------
+2.7.1 [2021-09-15]
+* driver: fix arithmetic overflow error in clock frequency adjustment
+* driver: fix bug causing hangs at module load/unload on Ubuntu systems
+* exanic-fwupdate: fix .bit file flashing on X100
+* exanic-fwupdate: support S29GL-S flash family for new GM/HPT hardware
+
 2.7.0 [2021-08-05]
 * Multiple fixes and improvements to 25G Ethernet support
 * Support for mirroring on Nexus SmartNIC K3P-Q (X100) (with compatible

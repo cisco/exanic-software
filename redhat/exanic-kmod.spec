@@ -3,7 +3,7 @@
 # This is the name of the source package; the binary package is defined by the kmodtool
 # invocation below and will be called kmod-exanic.
 Name:           exanic-kmod
-Version:        2.7.0-git
+Version:        2.7.1-git
 Release:        1%{?dist}
 
 Summary:        ExaNIC pre-built driver modules
