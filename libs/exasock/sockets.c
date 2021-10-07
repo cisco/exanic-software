@@ -142,7 +142,7 @@ exa_socket_ip_memberships_get_denominator_iface(struct exa_socket *esk)
      * if the unicast iface address is different from the mcast
      * denominator iface address.
      */
-    if (esk->bound && !IN_MULTICAST(esk->bind.ip.addr.local))
+    if (esk->bound && !IN_MULTICAST(ntohl(esk->bind.ip.addr.local)))
         if (esk->bind.ip.addr.local != denom)
             return htonl(INADDR_ANY);
 
