@@ -2023,6 +2023,14 @@ exanic_tcp_connecting(struct exa_socket * restrict sock)
 }
 
 bool
+exanic_tcp_established(struct exa_socket * restrict sock)
+{
+    struct exanic_tcp * restrict ctx = sock->ctx.tcp;
+
+    return exa_tcp_established(&ctx->tcp);
+}
+
+bool
 exanic_tcp_listening(struct exa_socket * restrict sock)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;

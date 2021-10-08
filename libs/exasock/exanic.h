@@ -52,6 +52,7 @@ void exanic_tcp_connect(struct exa_socket * restrict sock,
 void exanic_tcp_shutdown_write(struct exa_socket * restrict sock);
 void exanic_tcp_reset(struct exa_socket * restrict sock);
 bool exanic_tcp_connecting(struct exa_socket * restrict sock);
+bool exanic_tcp_established(struct exa_socket * restrict sock);
 bool exanic_tcp_listening(struct exa_socket * restrict sock);
 bool exanic_tcp_writeable(struct exa_socket * restrict sock);
 bool exanic_tcp_write_closed(struct exa_socket *sock);

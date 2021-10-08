@@ -261,6 +261,14 @@ exa_tcp_connecting(struct exa_tcp_conn * restrict ctx)
            state->state == EXA_TCP_SYN_RCVD;
 }
 
+static inline bool
+exa_tcp_established(struct exa_tcp_conn * restrict ctx)
+{
+    struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
+
+    return EXA_TCP_ESTABLISHED == state->state;
+}
+
 /* Return true if the write side of the connection has closed */
 static inline bool
 exa_tcp_write_closed(struct exa_tcp_conn * restrict ctx)
