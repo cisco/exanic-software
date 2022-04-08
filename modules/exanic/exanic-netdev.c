@@ -215,8 +215,14 @@ EXPORT_SYMBOL(exanic_netdev_ate_read_seq);
 int exanic_netdev_ate_send_ctrl(struct net_device *ndev, int ate_id)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    int err;
+    unsigned long flags;
 
-    return exanic_transmit_payload(&priv->tx, ate_id, "\0", 0);
+    spin_lock_irqsave(&priv->tx_lock, flags);
+    err = exanic_transmit_payload(&priv->tx, ate_id, "\0", 0);
+    spin_unlock_irqrestore(&priv->tx_lock, flags);
+
+    return err;
 }
 EXPORT_SYMBOL(exanic_netdev_ate_send_ctrl);
 
