@@ -1425,16 +1425,30 @@ out:
     return err;
 }
 
+#if __HAS_KERNEL_ETHTOOL_COALESCE
+static int exanic_netdev_get_coalesce(struct net_device *ndev,
+                                      struct ethtool_coalesce *ec,
+                                      struct kernel_ethtool_coalesce *kec,
+                                      struct netlink_ext_ack *nea)
+#else /* __HAS_KERNEL_ETHTOOL_COALESCE */
 static int exanic_netdev_get_coalesce(struct net_device *ndev,
                                       struct ethtool_coalesce *ec)
+#endif /* __HAS_KERNEL_ETHTOOL_COALESCE */
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     ec->rx_coalesce_usecs = priv->rx_coalesce_timeout_ns / 1000;
     return 0;
 }
 
+#if __HAS_KERNEL_ETHTOOL_COALESCE
+static int exanic_netdev_set_coalesce(struct net_device *ndev,
+                                      struct ethtool_coalesce *ec,
+                                      struct kernel_ethtool_coalesce *kec,
+                                      struct netlink_ext_ack *nea)
+#else /* __HAS_KERNEL_ETHTOOL_COALESCE */
 static int exanic_netdev_set_coalesce(struct net_device *ndev,
                                       struct ethtool_coalesce *ec)
+#endif /* __HAS_KERNEL_ETHTOOL_COALESCE */
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
 
