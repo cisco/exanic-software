@@ -2087,5 +2087,8 @@ module_exit(exanic_exit);
 MODULE_AUTHOR("Exablaze team <support@exablaze.com>");
 MODULE_DESCRIPTION("ExaNIC network driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION)
+MODULE_VERSION(DRV_VERSION);
+/* MODULE_SUPPORTED_SUPPORTED device has been removed since kernel version 5.12 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0)
 MODULE_SUPPORTED_DEVICE(DRV_NAME);
+#endif
