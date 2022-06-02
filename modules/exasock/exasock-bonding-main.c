@@ -77,17 +77,48 @@ bonding_master_list_unlock(struct bonding *b)
 static bool
 up_bonding_ko_ref_if_zero(struct exabond_info *e)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+   struct module* m;
+   int len = strlen("bonding");
+#endif
+
     if (e->bonding_ko_ref)
         return true;
 
+    /* find_module function has been removed since 5.12.0 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0)
     e->bonding_ko_ref = find_module("bonding");
     if (e->bonding_ko_ref == NULL || !try_module_get(e->bonding_ko_ref))
     {
         e->bonding_ko_ref = NULL;
         return false;
     }
-
     return true;
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0) */
+    rcu_read_lock();
+    list_for_each_entry_rcu(m, &THIS_MODULE->list, list)
+    {
+        if (m->state == MODULE_STATE_UNFORMED)
+            continue;
+
+        if (strlen(m->name) == len &&
+            !memcmp(m->name, "bonding", len))
+        {
+            if (!try_module_get(m))
+            {
+                e->bonding_ko_ref = NULL;
+                rcu_read_unlock();
+                return false;
+            }
+            e->bonding_ko_ref = m;
+            rcu_read_unlock();
+            return true;
+        }
+    }
+    rcu_read_unlock();
+    e->bonding_ko_ref = NULL;
+    return false;
+#endif
 }
 
 static void
