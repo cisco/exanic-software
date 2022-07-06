@@ -2967,7 +2967,7 @@ static void exasock_tcp_conn_worker(struct work_struct *work)
         if (tcp->keepalive.timer > 0)
         {
             tcp->keepalive.timer--;
-            if (tcp->keepalive.timer == 0)
+            if (tcp->keepalive.timer == 0 && state->p.tcp.keepalive.probes)
             {
                 if (tcp->keepalive.probe_cnt < state->p.tcp.keepalive.probes)
                 {
