@@ -1211,8 +1211,16 @@ getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     if (sock != NULL && sock->bypass_state == EXA_BYPASS_ACTIVE)
     {
         exa_read_lock(&sock->lock);
-
-        if (!sock->connected)
+        if (sock->type == SOCK_DGRAM && !sock->connected)
+        {
+            errno = ENOTCONN;
+            ret = -1;
+        }
+        /* if socket is tcp then check tcp socket state directly, 
+           do not rely on connected flag. It is set as soon as connection
+           is in progress and not when it is actually connected */
+        else if (sock->type == SOCK_STREAM &&
+                (exanic_tcp_connecting(sock) || exanic_tcp_write_closed(sock)))
         {
             errno = ENOTCONN;
             ret = -1;
