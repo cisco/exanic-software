@@ -42,6 +42,7 @@
 #include "sys.h"
 #include "dst.h"
 #include "notify.h"
+#include "socket/common.h"
 
 void
 exa_socket_zero(struct exa_socket * restrict sock)
@@ -1102,6 +1103,12 @@ exa_socket_tcp_accept(struct exa_endpoint * restrict endpoint,
 {
     int fd;
     struct exa_socket * restrict sock;
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    struct timespec begin_ts;
+    struct timespec end_ts;
+    struct timespec accept_duration;
+    clock_gettime(CLOCK_REALTIME, &begin_ts);
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 
     /* Create new bypass socket */
     exasock_override_off();
@@ -1144,6 +1151,13 @@ exa_socket_tcp_accept(struct exa_endpoint * restrict endpoint,
         goto err_sys_update;
 
     exanic_tcp_accept(sock, endpoint);
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    clock_gettime(CLOCK_REALTIME, &end_ts);
+    ts_sub(&end_ts, &begin_ts, &accept_duration);
+    sock->state->p.tcp.profile.accept_period.tv_nsec = accept_duration.tv_nsec;
+    sock->state->p.tcp.profile.accept_period.tv_sec  = accept_duration.tv_sec;
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 
     /* The kernel writes to the rx buffer, so we need to poll for updates */
     sock->need_rx_ready_poll = true;

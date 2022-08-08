@@ -23,6 +23,10 @@ exanic-fwupdate: exanic-fwupdate.c fwupdate/flash_access.c fwupdate/flash_access
 exanic-fwupdate:
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
+
+listen-socket-profile-info: listen-socket-profile-info.c
+	$(CC) $(CFLAGS) -DTCP_LISTEN_SOCKET_PROFILING $^ -o $@ $(LDLIBS)
+
 exanic-config: exanic-config.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) $^ -o $@ $(LDLIBS) -lm -lrt
 

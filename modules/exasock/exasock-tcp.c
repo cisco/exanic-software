@@ -14,6 +14,7 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/file.h>
+#include <linux/delay.h>
 #include <net/checksum.h>
 #include <net/tcp.h>
 #if __HAS_SIPHASH
@@ -125,6 +126,27 @@ struct exasock_tcp_rx_seg
     struct list_head seg_list;
 };
 
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+struct tcp_socket_profile_info
+{
+    /* profile_info will only be allocated for listen socket */
+    struct listen_socket_profile_info* profile_info;
+    struct exasock_tcp* listen_socket;
+    struct list_head profile_conns_list_entry;
+    struct list_head profile_conns_list;
+    spinlock_t       profile_conns_list_lock;
+};
+
+struct tcp_req_profile_info
+{
+    uint32_t trylock_failed;
+    uint32_t fins_dropped;
+    uint32_t queued_conns;
+    struct tcp_timestamp initiated_ts;
+    struct tcp_timestamp handshake_completed_ts;
+};
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
+
 struct exasock_tcp
 {
     struct exasock_hdr              hdr;
@@ -202,9 +224,9 @@ struct exasock_tcp
 
     /* fin handshake and garbage collection work */
     struct delayed_work             fin_work;
-    struct delayed_work             gc_work;
     /* list node for queueing on the tw death row */
     struct list_head                death_link;
+    struct list_head                gc_list_link;
 
     struct hlist_node               hash_node;
     bool                            dead_node;
@@ -230,6 +252,10 @@ struct exasock_tcp
 
     /* whether a reset should be sent on exasock_tcp_free() */
     bool                            reset_on_free;
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    struct tcp_socket_profile_info  pr_info_socket;
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 };
 
 struct exasock_tcp_req
@@ -259,6 +285,10 @@ struct exasock_tcp_req
      * under tcp_req is necessary to avoid packet drops which may happen between the times
      * when tcp_req is created and connection is accepted by the user space accept call */
     struct sk_buff_head         skb_queue;
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    struct tcp_req_profile_info pr_info_req;
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 };
 
 static struct hlist_head *      tcp_buckets;
@@ -269,6 +299,7 @@ static struct workqueue_struct *tcp_workqueue;
 /* for running deferred calls to exasock_tcp_gc_worker() */
 static struct workqueue_struct *tcp_gc_workqueue;
 static struct delayed_work      tcp_rx_work;
+static struct delayed_work      tcp_gc_work;
 
 static struct hlist_head *      tcp_req_buckets;
 static LIST_HEAD(               tcp_req_list);
@@ -280,6 +311,10 @@ static struct delayed_work      tcp_req_work;
  */
 static LIST_HEAD(               tcp_wait_death_list);
 static DEFINE_SPINLOCK(         tcp_wait_death_lock);
+static LIST_HEAD(               gc_list);
+static atomic_t                 gc_list_size = ATOMIC_INIT(0);
+static DEFINE_SPINLOCK(         gc_list_lock);
+
 /*
  * random key for generating initial sequence numbers,
  * initialised once and lives until driver unloaded
@@ -390,6 +425,83 @@ static void exasock_tcp_dead(struct kref *ref);
  * deferring exasock_tcp_gc_worker to the cleanup workqueue */
 static void exasock_tcp_free(struct exasock_tcp *tcp);
 
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+#define PROFILE_INFO_SOCK_INIT(tcp) \
+        do \
+        { \
+            if (tcp->pr_info_socket.profile_info == NULL) \
+            { \
+                exasock_listen_socket_profile_info_init(tcp); \
+            } \
+        } while(0)
+
+#define PROFILE_INFO_REQ_INIT(req)                     exasock_listen_socket_profile_info_req_init(req)
+#define PROFILE_INFO_COUNT_DROPPED_CON(tcp) \
+            if (tcp->pr_info_socket.profile_info) tcp->pr_info_socket.profile_info->conns_dropped++
+#define PROFILE_INFO_COUNT_SYN(tcp) \
+            if (tcp->pr_info_socket.profile_info) tcp->pr_info_socket.profile_info->syn_received++
+#define PROFILE_INFO_COUNT_DROPPED_FIN(req)            req->pr_info_req.fins_dropped++
+#define PROFILE_INFO_COUNT_TRYLOCK_FAILED(req)         req->pr_info_req.trylock_failed++
+#define PROFILE_INFO_COUNT_QUEUED_CONNS(req, val)      req->pr_info_req.queued_conns = val;
+#define PROFILE_INFO_ADD_HANDSHAKE_COMPLETED_TIME(req) exasock_listen_socket_profile_info_add_handshake_time(req)
+#define PROFILE_INFO_SOCK_UPDATE(tcp, req)             exasock_listen_socket_profile_info_sock_update(tcp, req)
+#define PROFILE_INFO_REGISTER_SOCK(tcp, tcpl)          exasock_listen_socket_profile_info_sock_register(tcp, tcpl)
+#define PROFILE_INFO_ADD(tcp)                          exasock_listen_socket_profile_info_add(tcp);
+
+#define PROFILE_INFO_RELEASE_LISTEN_SOCKET_REFERENCE(tcp) \
+        do \
+        { \
+            if(tcp->pr_info_socket.listen_socket) \
+            { \
+                /* release reference to listen socket and set to null \
+                * listen_socket is waiting until references from the tcp sockets \
+                * that are created from it are released \
+                * when gc worker runs it will see that tcp->listen_socket is null and will \
+                * skip the process of collecting profile info from this socket */ \
+                kref_put(&tcp->pr_info_socket.listen_socket->refcount, exasock_tcp_dead); \
+                tcp->pr_info_socket.listen_socket = NULL; \
+            } \
+        } while(0)
+
+void exasock_listen_socket_profile_info_init(struct exasock_tcp* tcp);
+void exasock_listen_socket_profile_info_req_init(struct exasock_tcp_req* req);
+void exasock_listen_socket_profile_info_add_handshake_time(struct exasock_tcp_req* req);
+void exasock_listen_socket_profile_info_sock_update(struct exasock_tcp* tcp, struct exasock_tcp_req* req);
+void exasock_listen_socket_profile_info_sock_register(struct exasock_tcp* tcp, struct exasock_tcp* tcpl);
+void exasock_listen_socket_profile_info_add(struct exasock_tcp* tcp);
+int exasock_listen_socket_profile_info_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
+void exasock_tcp_listen_socket_profile_free(struct exasock_tcp_listen_socket_profile* profile);
+struct exasock_tcp_listen_socket_profile* exasock_tcp_find_listen_socket(struct exasock_listen_endpoint* lep);
+void register_event(bool rx, struct exasock_tcp *tcp, int state,
+                    bool fin, bool ack, uint32_t seq_n, uint32_t ack_n,
+                    uint32_t lineno, const char* fname);
+void add_profile_info(struct exasock_tcp *tcp);
+static void ts_sub(const struct tcp_timestamp *a, const struct tcp_timestamp *b, struct tcp_timestamp *d);
+
+#define PROFILE_INFO_REGISTER_TX_EVENT(tcp, state, fin, ack, seq_n, ack_n) \
+    register_event(false, tcp, state, fin, ack, seq_n, ack_n, __LINE__, __FILE__)
+
+#define PROFILE_INFO_REGISTER_RX_EVENT(tcp, state, fin, ack, seq_n, ack_n) \
+    register_event(true, tcp, state, fin, ack, seq_n, ack_n, __LINE__, __FILE__)
+
+#else /* ifdef TCP_LISTEN_SOCKET_PROFILING */
+#define PROFILE_INFO_SOCK_INIT(tcp)
+#define PROFILE_INFO_REQ_INIT(req)
+#define PROFILE_INFO_COUNT_DROPPED_CON(tcp)
+#define PROFILE_INFO_COUNT_SYN(tcp)
+#define PROFILE_INFO_COUNT_DROPPED_FIN(req)
+#define PROFILE_INFO_COUNT_TRYLOCK_FAILED(req)
+#define PROFILE_INFO_COUNT_QUEUED_CONNS(req, val)
+#define PROFILE_INFO_ADD_HANDSHAKE_COMPLETED_TIME(req)
+#define PROFILE_INFO_SOCK_UPDATE(tcp, req)
+#define PROFILE_INFO_REGISTER_SOCK(tcp, tcpl)
+#define PROFILE_INFO_ADD(tcp)
+#define PROFILE_INFO_RELEASE_LISTEN_SOCKET_REFERENCE(tcp)
+#define PROFILE_INFO_REGISTER_TX_EVENT(tcp, state, fin, ack, seq_n, ack_n)
+#define PROFILE_INFO_REGISTER_RX_EVENT(tcp, state, fin, ack, seq_n, ack_n)
+
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
+
 const char *tcp_state_text[EXA_TCP_TIME_WAIT + 1] =
 {
     "EXA_TCP_CLOSED",
@@ -430,6 +542,7 @@ static inline void exasock_tcp_kill_stray(void)
     {
         tcp->reset_on_free =
             tcp->user_page->p.tcp.state != EXA_TCP_TIME_WAIT;
+        PROFILE_INFO_RELEASE_LISTEN_SOCKET_REFERENCE(tcp);
         exasock_tcp_free(tcp);
     }
     rcu_read_unlock();
@@ -1217,8 +1330,8 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
 
     INIT_DELAYED_WORK(&tcp->win_work, exasock_tcp_conn_win_worker);
     INIT_DELAYED_WORK(&tcp->fin_work, exasock_tcp_close_worker);
-    INIT_DELAYED_WORK(&tcp->gc_work,  exasock_tcp_gc_worker);
     INIT_LIST_HEAD(&tcp->death_link);
+    INIT_LIST_HEAD(&tcp->gc_list_link);
 
     hash = exasock_tcp_hash(tcp->local_addr, tcp->peer_addr,
                             tcp->local_port, tcp->peer_port);
@@ -1246,6 +1359,7 @@ struct exasock_tcp *exasock_tcp_alloc(struct socket *sock, int fd)
 
     /* Set tx consistency flag */
     user_page->p.tcp.tx_consistent = 1;
+    user_page->p.tcp.backlog = EXA_SOMAXCONN;
 
     return tcp;
 
@@ -1322,6 +1436,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
     unsigned long irqflags;
     struct exasock_tcp*     old;
     struct exasock_tcp_req* req;
+    struct exasock_tcp *    tcpl;
     int err;
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
@@ -1384,6 +1499,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
      * and schedule a tcp_rx_work */
     if (req)
     {
+        PROFILE_INFO_SOCK_UPDATE(tcp, req);
         if (!skb_queue_empty(&req->skb_queue))
         {
             /* irq must be disabled because this function may be preempted by the
@@ -1399,6 +1515,17 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
         list_del(&req->list);
         kfree(req);
     }
+
+    /* Find listenning socket and add increase its backlog.
+     * By increasing a backlog you allow listen socket to accept more connections */
+    rcu_read_lock();
+    tcpl = exasock_tcp_lookup(tcp->local_addr, INADDR_ANY, tcp->local_port, 0);
+    if (tcpl)
+    {
+        tcpl->user_page->p.tcp.backlog++;
+        PROFILE_INFO_REGISTER_SOCK(tcp, tcpl);
+    }
+    rcu_read_unlock();
     spin_unlock(&tcp_req_lock);
     return 0;
 }
@@ -1523,38 +1650,66 @@ static void exasock_tcp_free(struct exasock_tcp *tcp)
     spin_unlock(&tcp_bucket_lock);
 
     tcp->dead_node = true;
+
+    /* Place a socket in garbage collector list and call garbage collector work */
+    spin_lock(&gc_list_lock);
+    list_add(&tcp->gc_list_link, &gc_list);
+    spin_unlock(&gc_list_lock);
+    atomic_inc(&gc_list_size);
+
     /* defer blocking operations to the GC workqueue */
-    queue_delayed_work(tcp_gc_workqueue, &tcp->gc_work, 0);
+    queue_delayed_work(tcp_gc_workqueue, &tcp_gc_work, 0);
 }
 
 static void exasock_tcp_gc_worker(struct work_struct *work)
 {
-    struct delayed_work *dwork = container_of(work, struct delayed_work, work);
-    struct exasock_tcp *tcp = container_of(dwork, struct exasock_tcp, gc_work);
-    int i;
+    struct exasock_tcp *tcp;
+    int i = 0;
+    int d = 0;
+    int size;
+    size = atomic_read(&gc_list_size);
 
-    spin_lock(&tcp_wait_death_lock);
-    list_del_rcu(&tcp->death_link);
-    spin_unlock(&tcp_wait_death_lock);
-
+    /* Give grace period for other cores if they are still using the reference size number of
+     * sockets which are to be deleted */
     synchronize_rcu();
 
-    /* Wait for refcount to go to 0 */
-    kref_put(&tcp->refcount, exasock_tcp_dead);
-    down(&tcp->dead_sema);
+    while(d < size)
+    {
+        /* Lock garbage-collector socket list, remove from the tail */
+        spin_lock(&gc_list_lock);
+        tcp = list_last_entry(&gc_list, struct exasock_tcp, gc_list_link);
+        list_del(&tcp->gc_list_link);
+        /* Unlock garbage-collector socket list */
+        spin_unlock(&gc_list_lock);
 
-    cancel_delayed_work_sync(&tcp->work);
-    cancel_delayed_work_sync(&tcp->win_work);
+        /* Delete tcp from death list */
+        spin_lock(&tcp_wait_death_lock);
+        list_del_rcu(&tcp->death_link);
+        spin_unlock(&tcp_wait_death_lock);
+        PROFILE_INFO_ADD(tcp);
 
-    /* No readers left, it is now safe to free everything */
-    for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++)
-        exasock_tcp_seg_list_cleanup(&tcp->rx_seg[i].seg_list);
+        /* Wait for refcount to go to 0 */
+        kref_put(&tcp->refcount, exasock_tcp_dead);
+        down(&tcp->dead_sema);
 
-    sockfd_put(tcp->sock);
-    vfree(tcp->user_page);
-    vfree(tcp->rx_buffer);
-    vfree(tcp->tx_buffer);
-    kfree(tcp);
+        cancel_delayed_work_sync(&tcp->work);
+        cancel_delayed_work_sync(&tcp->win_work);
+
+        /* No readers left, it is now safe to free everything */
+        for (i = 0; i < EXA_TCP_MAX_RX_SEGMENTS; i++)
+            exasock_tcp_seg_list_cleanup(&tcp->rx_seg[i].seg_list);
+
+        sockfd_put(tcp->sock);
+        vfree(tcp->user_page);
+        vfree(tcp->rx_buffer);
+        vfree(tcp->tx_buffer);
+        kfree(tcp);
+        d++;
+    }
+
+    /* If there are sockets left in garbage collector list then schedule gc work again */
+    if (atomic_sub_and_test(size, &gc_list_size) == false)
+        queue_delayed_work(tcp_gc_workqueue, &tcp_gc_work, 0);
 }
 
 int exasock_tcp_rx_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma)
@@ -1574,6 +1729,312 @@ int exasock_tcp_state_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma)
     return remap_vmalloc_range(vma, tcp->user_page,
             vma->vm_pgoff - (EXASOCK_OFFSET_SOCKET_STATE / PAGE_SIZE));
 }
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+
+void exasock_listen_socket_profile_info_init(struct exasock_tcp* tcp)
+{
+    struct tcp_socket_profile_info* info = &tcp->pr_info_socket;
+    info->profile_info = vmalloc_user(sizeof(struct listen_socket_profile_info));
+    if (info->profile_info == NULL)
+    {
+        //err = -ENOMEM;
+        /* todo */
+        return;
+    }
+    info->profile_info->index = 0;
+    info->listen_socket = NULL;
+
+    /* init spinlock for conns list */
+    spin_lock_init(&info->profile_conns_list_lock);
+    INIT_LIST_HEAD(&info->profile_conns_list);
+    INIT_LIST_HEAD(&info->profile_conns_list_entry);
+}
+
+void exasock_listen_socket_profile_info_req_init(struct exasock_tcp_req* req)
+{
+    struct timespec64 ts64;
+    req->pr_info_req.trylock_failed = 0;
+    req->pr_info_req.fins_dropped = 0;
+    ktime_get_real_ts64(&ts64);
+    req->pr_info_req.initiated_ts.tv_sec = (long)ts64.tv_sec;
+    req->pr_info_req.initiated_ts.tv_nsec = ts64.tv_nsec;
+}
+
+void exasock_listen_socket_profile_info_add_handshake_time(struct exasock_tcp_req* req)
+{
+    struct timespec64 ts64;
+    ktime_get_real_ts64(&ts64);
+    req->pr_info_req.handshake_completed_ts.tv_sec = (long)ts64.tv_sec;
+    req->pr_info_req.handshake_completed_ts.tv_nsec = ts64.tv_nsec;
+}
+
+void exasock_listen_socket_profile_info_sock_update(struct exasock_tcp* tcp, struct exasock_tcp_req* req)
+{
+    struct tcp_timestamp ts;
+    struct timespec64 ts64;
+    tcp->user_page->p.tcp.profile.trylock_failed = req->pr_info_req.trylock_failed;
+    tcp->user_page->p.tcp.profile.fins_dropped = req->pr_info_req.fins_dropped;
+    tcp->user_page->p.tcp.profile.num_packets = skb_queue_len(&req->skb_queue);
+    tcp->user_page->p.tcp.profile.queue_len = req->pr_info_req.queued_conns;
+    tcp->user_page->p.tcp.profile.local_port = tcp->local_port;
+    tcp->user_page->p.tcp.profile.peer_port = tcp->peer_port;
+
+
+    ktime_get_real_ts64(&ts64);
+    ts.tv_sec = (long)ts64.tv_sec;
+    ts.tv_nsec = ts64.tv_nsec;
+
+    ts_sub(&ts, &req->pr_info_req.initiated_ts, &tcp->user_page->p.tcp.profile.establishment_period);
+    ts_sub(&req->pr_info_req.handshake_completed_ts, &req->pr_info_req.initiated_ts, &tcp->user_page->p.tcp.profile.handshake_period);
+}
+
+void exasock_listen_socket_profile_info_sock_register(struct exasock_tcp* tcp, struct exasock_tcp* tcpl)
+{
+    struct tcp_socket_profile_info* info = &tcp->pr_info_socket;
+    struct tcp_socket_profile_info* info_l = &tcpl->pr_info_socket;
+    if (info_l->profile_info == NULL)
+        return;
+
+    info_l->profile_info->conns_accepted++;
+    info->listen_socket = tcpl;
+    kref_get(&tcpl->refcount);
+    /* acquire listen_list of tcpl using spinlock */
+    /* add this socket to the list */
+    spin_lock(&info_l->profile_conns_list_lock);
+    list_add(&info->profile_conns_list_entry, &info_l->profile_conns_list);
+    spin_unlock(&info_l->profile_conns_list_lock);
+}
+
+void exasock_listen_socket_profile_info_add(struct exasock_tcp* tcp)
+{
+    struct tcp_socket_profile_info* info = &tcp->pr_info_socket;
+    struct list_head* curr;
+    struct list_head* tmp;
+    int r = 0;
+    int i = 0;
+    /* acquire listen_socket_list */
+    /* if not empty, than go through each item and
+        release a reference count */
+
+    if (info->listen_socket)
+    {
+        /* if there is a listen socket, attach profile info to it */
+        add_profile_info(tcp);
+        spin_lock(&info->listen_socket->pr_info_socket.profile_conns_list_lock);
+        list_del(&info->profile_conns_list_entry);
+        spin_unlock(&info->listen_socket->pr_info_socket.profile_conns_list_lock);
+        kref_put(&info->listen_socket->refcount, exasock_tcp_dead);
+    }
+
+    /* if we are removing listenning socket, we should remove references to it from
+     * its connected sockets, profile information about those socket will get lost
+     * only listenning sockets will be allocated profile_info */
+    if (info->profile_info)
+    {
+        spin_lock(&info->profile_conns_list_lock);
+        list_for_each_safe(curr, tmp, &info->profile_conns_list)
+        {
+            struct exasock_tcp* tcp_tmp;
+            struct tcp_socket_profile_info* pi;
+            r++;
+            pi = container_of(curr, struct tcp_socket_profile_info, profile_conns_list_entry);
+            tcp_tmp = container_of(pi, struct exasock_tcp, pr_info_socket);
+            list_del(curr);
+            tcp_tmp->pr_info_socket.listen_socket = NULL;
+        }
+        spin_unlock(&info->profile_conns_list_lock);      
+    }
+
+    for (i = 0; i < r; i++)
+        kref_put(&tcp->refcount, exasock_tcp_dead);
+
+    if (info->profile_info)
+        vfree(info->profile_info);
+}
+
+int exasock_listen_socket_profile_info_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma)
+{
+    if (tcp == NULL)
+        return -EINVAL;
+    if (tcp->pr_info_socket.profile_info == NULL)
+    {
+        /* allocate profile info for listenning socket if it hasnt been done
+           before and it hasnt seen any connection yet */
+        exasock_listen_socket_profile_info_init(tcp);
+        if (tcp->pr_info_socket.profile_info == NULL)
+            return -ENOMEM;
+    }
+    return remap_vmalloc_range(vma, tcp->pr_info_socket.profile_info,
+            vma->vm_pgoff - (EXASOCK_OFFSET_LISTEN_SOCK_PROFILE_INFO / PAGE_SIZE));
+}
+
+void exasock_tcp_listen_socket_profile_free(struct exasock_tcp_listen_socket_profile* profile)
+{
+    struct exasock_tcp* tcp;
+    if (profile == NULL)
+        return;
+
+    tcp = profile->tcp;
+    if (tcp == NULL)
+        return;
+
+    kref_put(&tcp->refcount, exasock_tcp_dead);
+    kfree(profile);
+}
+
+struct exasock_tcp_listen_socket_profile* exasock_tcp_find_listen_socket(struct exasock_listen_endpoint* lep)
+{
+    int err;
+    struct exasock_tcp* tcp;
+    struct exasock_tcp_listen_socket_profile* profile;
+
+    if(lep == NULL)
+    {
+        err = -EFAULT;
+        return ERR_PTR(err);
+    }
+    rcu_read_lock();
+    tcp = exasock_tcp_lookup(lep->local_addr, 0, lep->local_port, 0);
+    if (tcp == NULL)
+    {
+        rcu_read_unlock();
+        err =  -EADDRNOTAVAIL;
+        return ERR_PTR(err);
+    }
+    kref_get(&tcp->refcount);
+    rcu_read_unlock();
+
+    profile = (struct exasock_tcp_listen_socket_profile*) kmalloc(sizeof(struct exasock_tcp_listen_socket_profile), GFP_KERNEL);
+    if (profile == NULL)
+    {
+        kref_put(&tcp->refcount, exasock_tcp_dead);
+        err = -EADDRNOTAVAIL;
+        return ERR_PTR(err);
+    }
+    profile->tcp  = tcp;
+    profile->type = EXASOCK_TYPE_TCP_LISTEN_SOCKET_PROFILE;
+
+    return profile;
+}
+
+static inline bool
+ts_after_eq(const struct tcp_timestamp *a, const struct tcp_timestamp *b)
+{
+    return (a->tv_sec > b->tv_sec) ||
+           (a->tv_sec == b->tv_sec && a->tv_nsec >= b->tv_nsec);
+}
+
+
+static inline void ts_sub(const struct tcp_timestamp *a, const struct tcp_timestamp *b, struct tcp_timestamp *d)
+{
+    if (a->tv_nsec < b->tv_nsec)
+    {
+        d->tv_sec = a->tv_sec - b->tv_sec - 1;
+        d->tv_nsec = 1000000000 - b->tv_nsec + a->tv_nsec;
+    }
+    else
+    {
+        d->tv_sec = a->tv_sec - b->tv_sec;
+        d->tv_nsec = a->tv_nsec - b->tv_nsec;
+    }
+}
+
+void register_event(bool rx, struct exasock_tcp *tcp, int state,
+                    bool fin, bool ack, uint32_t seq_n, uint32_t ack_n,
+                    uint32_t lineno, const char* fname)
+{
+
+    struct exa_socket_state *s = tcp->user_page;
+    struct exa_tcp_state *tcp_st = &s->p.tcp;
+    struct tcp_state_event* ev_ptr;
+    struct tcp_packet_event* pkt_event_ptr;
+    int attempts = 0;
+    const char* fptr;
+    struct timespec64 ts64;
+
+
+    while  (attempts < 100 && !exasock_trylock(&s->rx_lock))
+    {
+        usleep_range(10, 11);
+        attempts++;
+    }
+    if (attempts > 100)
+    {
+        printk("failed to lock, event lost\n");
+        return;
+    }
+
+    if (tcp_st->profile.event_index == 10)
+    {
+        tcp_st->profile.overflow = 1;
+        goto unlock;
+    }
+    ev_ptr = &tcp_st->profile.st_history[tcp_st->profile.event_index++];
+    memset(ev_ptr, 0, sizeof(*ev_ptr));
+    pkt_event_ptr = &ev_ptr->pkt_event;
+
+    ev_ptr->kernel = true;
+
+    pkt_event_ptr->ack = ack_n;
+    pkt_event_ptr->seq = seq_n;
+    pkt_event_ptr->flags = fin << 0 | ack << 4;
+    if (rx)
+        ev_ptr->rx = 1;
+    else
+        ev_ptr->tx = 1;
+
+    ev_ptr->state = state;
+    ev_ptr->line = lineno;
+
+    fptr = fname;
+    fptr = strrchr(fname, '/');
+    if (fptr == NULL)
+        fptr = fname;
+    else
+        fptr += 1;
+
+    strncpy(ev_ptr->fname, fptr, sizeof(ev_ptr->fname) - 1);
+    ev_ptr->fname[sizeof(ev_ptr->fname) - 1] = '\0';
+
+    ktime_get_real_ts64(&ts64);
+    ev_ptr->ts.tv_sec = (long)ts64.tv_sec;
+    ev_ptr->ts.tv_nsec = ts64.tv_nsec;
+
+
+unlock:
+    exasock_unlock(&s->rx_lock);
+}
+
+void add_profile_info(struct exasock_tcp *tcp)
+{
+    struct tcp_socket_profile* pr;
+    struct listen_socket_profile_info* pi;
+    struct exa_tcp_state *state = &tcp->user_page->p.tcp;
+    struct tcp_socket_profile* sock_pr = &state->profile;
+
+    ts_sub(&sock_pr->establishment_period, &sock_pr->handshake_period, &sock_pr->pending_period);
+
+    if (ts_after_eq(&sock_pr->accept_period, &sock_pr->pending_period))
+    {
+        sock_pr->pending_period.tv_nsec = 0;
+        sock_pr->pending_period.tv_sec = 0;
+    }
+    else
+        ts_sub(&sock_pr->pending_period, &sock_pr->accept_period, &sock_pr->pending_period);
+
+    pi = tcp->pr_info_socket.listen_socket->pr_info_socket.profile_info;
+    if (pi == NULL)
+        return;
+
+    pr = &pi->conns[pi->index % NUM_PROFILE_CONNECTIONS];
+    pi->index++;
+
+    memcpy(pr, sock_pr, sizeof(struct tcp_socket_profile));
+    pr->valid = 1;
+}
+
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 
 /* Looks up exasock_tcp struct in hashtable.
  * RCU read lock must be held. */
@@ -1721,6 +2182,7 @@ update_state:
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_ESTABLISHED, EXA_TCP_CLOSE_WAIT))
                 goto update_state;
             tcp_st->ack_pending = true;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_CLOSE_WAIT, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
 
@@ -1738,6 +2200,7 @@ update_state:
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_1, EXA_TCP_TIME_WAIT))
                 goto update_state;
             tcp_st->ack_pending = true;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_TIME_WAIT, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         else if (fw1_fin)
         {
@@ -1745,12 +2208,14 @@ update_state:
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_1, EXA_TCP_CLOSING))
                 goto update_state;
             tcp_st->ack_pending = true;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_CLOSING, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         else if (fw1_ack)
         {
             /* Received ACK for our FIN, but remote peer is not closed */
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_1, EXA_TCP_FIN_WAIT_2))
                 goto update_state;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_FIN_WAIT_2, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
 
@@ -1761,6 +2226,7 @@ update_state:
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_FIN_WAIT_2, EXA_TCP_TIME_WAIT))
                 goto update_state;
             tcp_st->ack_pending = true;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_TIME_WAIT, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
 
@@ -1769,6 +2235,7 @@ update_state:
         {
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_CLOSING, EXA_TCP_TIME_WAIT))
                 goto update_state;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_TIME_WAIT, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
 
@@ -1776,6 +2243,7 @@ update_state:
         if (th_fin && before_eq(seq + len, tcp_st->recv_seq))
         {
             tcp_st->ack_pending = true;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_CLOSE_WAIT, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
 
@@ -1784,6 +2252,7 @@ update_state:
         {
             if (!TCP_STATE_CMPXCHG(tcp_st, EXA_TCP_LAST_ACK, EXA_TCP_CLOSED))
                 goto update_state;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_CLOSED, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
 
@@ -1792,6 +2261,7 @@ update_state:
         {
             tcp->timewait_dupfin = true;
             tcp_st->ack_pending = true;
+            PROFILE_INFO_REGISTER_RX_EVENT(tcp, EXA_TCP_TIME_WAIT, th_fin, th_ack, seq, tcp_st->send_ack);
         }
         break;
     }
@@ -2471,7 +2941,8 @@ static void exasock_tcp_req_worker(struct work_struct *work)
 
         if (time_after(jiffies, req->timestamp + TCP_REQUEST_JIFFIES))
         {
-            struct sk_buff* skb;
+            struct sk_buff*     skb;
+            struct exasock_tcp *tcpl;
             /* delete all queued sk_buff on this req */
             while((skb = skb_dequeue_tail(&req->skb_queue)) != NULL)
                 dev_kfree_skb_any(skb);
@@ -2479,6 +2950,9 @@ static void exasock_tcp_req_worker(struct work_struct *work)
             hlist_del(&req->hash_node);
             list_del(&req->list);
             kfree(req);
+            tcpl = exasock_tcp_lookup(req->local_addr, req->peer_addr, req->local_port, req->peer_port);
+            if(tcpl)
+                tcpl->user_page->p.tcp.backlog++;
             continue;
         }
 
@@ -2562,9 +3036,22 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
         if (th->ack)
             goto finish_proc;
 
+        PROFILE_INFO_SOCK_INIT(tcp);
+        /* If backlog is 0, no more connections are allowed, ignore syn */
+        if (!tcp->user_page->p.tcp.backlog)
+        {
+            PROFILE_INFO_COUNT_DROPPED_CON(tcp);
+            goto finish_proc;
+        }
+
+        spin_lock(&tcp_req_lock);
+        tcp->user_page->p.tcp.backlog--;
+        spin_unlock(&tcp_req_lock);
+
         /* New connection request received - increment counter */
         tcp->counters.s.listen.reqs_rcvd++;
 
+        PROFILE_INFO_COUNT_SYN(tcp);
         /* Create new connection */
         req = kzalloc(sizeof(*req), GFP_KERNEL);
         if (req == NULL)
@@ -2586,6 +3073,8 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
         /* Default values for options */
         req->mss = EXA_TCP_MSS;
         req->wscale = 0;
+        PROFILE_INFO_REQ_INIT(req);
+
         /* initialize skb queue for skb which are received before the req is established and socket is constructed */
         skb_queue_head_init(&req->skb_queue);
 
@@ -2646,24 +3135,37 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
              * corresponding to this request is accepted and the socket to manage it is constructed */
             skb_queue_head(&req->skb_queue, skb);
             spin_unlock(&tcp_req_lock);
-            /* return 0 because we dont want the caller of this function to requeue skb to the tcp_packets queue*/
+            /* Return 0 because we dont want the caller of this function to requeue skb to the tcp_packets queue*/
             return 0;
         }
         else
         {
-            req->state = EXA_TCP_ESTABLISHED;
-
+            if (th->fin)
+            {
+                /* Received fin before initial ack
+                 * put it back in receive queue, ack may have been requed because
+                 * of exasock_trylock failure */
+                spin_unlock(&tcp_req_lock);
+                PROFILE_INFO_COUNT_DROPPED_FIN(req);
+                return -1;
+            }
             /* Insert into accepted queue */
             if (exasock_trylock(&state->rx_lock) == 0)
             {
                 /* Lock failed, retry later */
                 spin_unlock(&tcp_req_lock);
+                PROFILE_INFO_COUNT_TRYLOCK_FAILED(req);
                 return -1;
             }
+            /* Proceed to established state only when we were able to
+             * acquire the rx_lock. In earlier versions request had been
+             * established befor the lock was acquired which was wrong */
+            req->state = EXA_TCP_ESTABLISHED;
 
             read_seq = state->p.tcp.read_seq;
             recv_seq = state->p.tcp.recv_seq;
             offs = recv_seq & RX_BUFFER_MASK;
+            PROFILE_INFO_COUNT_QUEUED_CONNS(req, ((recv_seq - read_seq) / sizeof(struct exa_tcp_new_connection)));
 
             if (recv_seq - read_seq >= RX_BUFFER_SIZE ||
                 offs + sizeof(struct exa_tcp_new_connection) > RX_BUFFER_SIZE)
@@ -2696,7 +3198,7 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
 
             /* New connection established - increment counter */
             tcp->counters.s.listen.reqs_estab++;
-
+            PROFILE_INFO_ADD_HANDSHAKE_COMPLETED_TIME(req);
             spin_unlock(&tcp_req_lock);
         }
     }
@@ -3122,6 +3624,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
         th->ack_seq = htonl(recv_seq + 1);
         th->ack = 1;
         data_allowed = true;
+        PROFILE_INFO_REGISTER_TX_EVENT(tcp, EXA_TCP_CLOSE_WAIT, 0, 1, seq, recv_seq + 1);
         break;
 
     case EXA_TCP_FIN_WAIT_1:
@@ -3132,6 +3635,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
             th->fin = 1;
         th->ack = 1;
         data_allowed = true;
+        PROFILE_INFO_REGISTER_TX_EVENT(tcp, EXA_TCP_FIN_WAIT_1, 0, 1, seq, recv_seq);
         break;
 
     case EXA_TCP_FIN_WAIT_2:
@@ -3140,6 +3644,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
         th->ack_seq = htonl(recv_seq);
         th->ack = 1;
         data_allowed = true;
+        PROFILE_INFO_REGISTER_TX_EVENT(tcp, EXA_TCP_FIN_WAIT_2, 0, 1, seq, recv_seq);
         break;
 
     case EXA_TCP_CLOSING:
@@ -3153,6 +3658,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
         th->ack_seq = htonl(recv_seq + 1);
         th->ack = 1;
         data_allowed = true;
+        PROFILE_INFO_REGISTER_TX_EVENT(tcp, EXA_TCP_CLOSING, 0, 1, seq, recv_seq + 1);
         break;
 
     case EXA_TCP_LAST_ACK:
@@ -3163,6 +3669,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
             th->fin = 1;
         th->ack = 1;
         data_allowed = true;
+        PROFILE_INFO_REGISTER_TX_EVENT(tcp, EXA_TCP_LAST_ACK, 1, 1, seq, recv_seq + 1);
         break;
 
     case EXA_TCP_TIME_WAIT:
@@ -3170,6 +3677,7 @@ static void exasock_tcp_send_segment(struct exasock_tcp *tcp, uint32_t seq,
         th->seq = htonl(seq);
         th->ack_seq = htonl(recv_seq + 1);
         th->ack = 1;
+        PROFILE_INFO_REGISTER_TX_EVENT(tcp, EXA_TCP_TIME_WAIT, 0, 1, seq, recv_seq + 1);
         break;
 
     default:
@@ -3484,6 +3992,7 @@ int __init exasock_tcp_init(void)
 
     INIT_DELAYED_WORK(&tcp_rx_work, exasock_tcp_rx_worker);
     INIT_DELAYED_WORK(&tcp_req_work, exasock_tcp_req_worker);
+    INIT_DELAYED_WORK(&tcp_gc_work, exasock_tcp_gc_worker);
     queue_delayed_work(tcp_workqueue, &tcp_req_work, TCP_TIMER_JIFFIES);
 
     err = exanic_netdev_intercept_add(&exasock_tcp_intercept);

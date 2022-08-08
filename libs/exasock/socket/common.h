@@ -1,6 +1,12 @@
 #ifndef EXASOCK_SOCKET_COMMON_H
 #define EXASOCK_SOCKET_COMMON_H
 
+struct fd_list
+{
+    int    fd;
+    struct fd_list* next;
+};
+
 static inline bool
 ts_vld(const struct timespec *ts)
 {
@@ -63,6 +69,54 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
            (a->tv_sec == b->tv_sec && a->tv_nsec >= b->tv_nsec);
 }
 
+static inline int 
+fdlist_search(struct fd_list* head, int fd)
+{
+    struct fd_list* current = head;
+    while(current)
+    {
+        if (current->fd == fd)
+            return true;
+        current = current->next;
+    }
+    return false;
+}
+
+static inline void 
+fdlist_clear(struct fd_list* head)
+{
+    struct fd_list* current = head;
+    while(current)
+    {
+        struct fd_list* next = current->next;
+        free(current);
+        current = next;
+    }
+}
+
+static inline int 
+fdlist_insert(struct fd_list** head, int fd)
+{
+    if (*head == NULL)
+    {
+        *head = (struct fd_list*) malloc(sizeof(struct fd_list));
+        (*head)->next = NULL;
+        (*head)->fd = fd;
+        return 1;
+    }
+    else if (!fdlist_search(*head, fd))
+    {
+        /* append to the list only when fd is not present there already */
+        struct fd_list* new;
+        new = (struct fd_list*) malloc(sizeof(struct fd_list));
+        new->next = *head;
+        new->fd = fd;
+        *head = new;
+        return 1;
+    }
+    return 0;
+}
+
 /* Socket read lock must be held on entry */
 #define do_socket_poll_nonblock(sock, ready_func, ret, ...)             \
     do                                                                  \
@@ -116,7 +170,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
                 goto __do_socket_poll_block_end;                        \
             }                                                           \
             exa_read_unlock(&sock->lock);                               \
-            exanic_poll();                                              \
+            exanic_poll(NULL);                                          \
             exa_read_lock(&sock->lock);                                 \
             if (gen_id != sock->gen_id)                                 \
             {                                                           \
@@ -203,7 +257,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
                 goto __do_socket_poll_timeout_end;                      \
             }                                                           \
             exa_read_unlock(&sock->lock);                               \
-            exanic_poll();                                              \
+            exanic_poll(NULL);                                          \
             exa_read_lock(&sock->lock);                                 \
             if (gen_id != sock->gen_id)                                 \
             {                                                           \
@@ -233,7 +287,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
             goto __do_socket_wait_nonblock_end;                         \
         }                                                               \
         exa_read_unlock(&sock->lock);                                   \
-        r = exanic_poll();                                              \
+        r = exanic_poll(NULL);                                          \
         exa_read_lock(&sock->lock);                                     \
         exa_unlock(&exasock_poll_lock);                                 \
         if (gen_id != sock->gen_id)                                     \
@@ -285,7 +339,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
         {                                                               \
             int r;                                                      \
             exa_read_unlock(&sock->lock);                               \
-            r = exanic_poll();                                          \
+            r = exanic_poll(NULL);                                      \
             exa_read_lock(&sock->lock);                                 \
             if (gen_id != sock->gen_id)                                 \
             {                                                           \
@@ -365,7 +419,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
         {                                                               \
             int r;                                                      \
             exa_read_unlock(&sock->lock);                               \
-            r = exanic_poll();                                          \
+            r = exanic_poll(NULL);                                      \
             exa_read_lock(&sock->lock);                                 \
             if (gen_id != sock->gen_id)                                 \
             {                                                           \
@@ -419,7 +473,7 @@ ts_after_eq(const struct timespec *a, const struct timespec *b)
             goto __do_socket_wait_tx_nonblock_end;                      \
         }                                                               \
         exa_read_unlock(&sock->lock);                                   \
-        exanic_poll();                                                  \
+        exanic_poll(NULL);                                              \
         exa_read_lock(&sock->lock);                                     \
         exa_unlock(&exasock_poll_lock);                                 \
         if (gen_id != sock->gen_id)                                     \

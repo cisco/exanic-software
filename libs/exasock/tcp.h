@@ -6,6 +6,35 @@
 #define EXA_TCP_KEEPALIVE_PROBES_DEF    9
 #define EXA_TCP_KEEPALIVE_TIME_DEF      7200
 
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+
+#define PROFILE_INFO_INIT_TCP_SEQ(tcp, tcp_state) \
+    do \
+    { \
+        tcp->profile.init_local_seq = tcp_state->local_seq - 1; \
+        tcp->profile.init_peer_seq =  tcp_state->peer_seq - 1; \
+    } while(0);
+
+#define PROFILE_INFO_TCP_TX_RX_EVENT(rx, ctx, state, f, a, seq_n, ack_n) \
+    do \
+    { \
+        struct tcp_packet_event p; \
+        p.flags = (f << 0) | (a << 4); \
+        p.ack = ack_n; \
+        p.seq = seq_n; \
+        register_tcp_event(true, rx, ctx, state, &p, __LINE__, __FILE__); \
+    } while(0);
+
+#define PROFILE_INFO_TCP_SHUTDOWN_EVENT(ctx, state) \
+        register_tcp_event(false, false, ctx, state, NULL, __LINE__, __FILE__);
+
+#else /* ifdef TCP_LISTEN_SOCKET_PROFILING */
+
+#define PROFILE_INFO_TCP_TX_RX_EVENT(rx, ctx, state, f, a, seq_n, ack_n)
+#define PROFILE_INFO_TCP_SHUTDOWN_EVENT(ctx, state)
+#define PROFILE_INFO_INIT_TCP_SEQ(tcp, tcp_state)
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
+
 extern struct exa_hashtable __exa_tcp_sockfds;
 
 struct exa_tcp_conn
@@ -34,6 +63,55 @@ static inline void
 exa_tcp_conn_cleanup(struct exa_tcp_conn * restrict ctx)
 {
 }
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+static inline void register_tcp_event(bool packet, bool rx, struct exa_tcp_conn * restrict ctx,
+                                          int current_state, struct tcp_packet_event* pkt_evt,
+                                          uint32_t lineno, const char* fname)
+{
+    struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
+    struct tcp_state_event* ev_ptr;
+    struct tcp_packet_event* pkt_event_ptr;
+
+    /* this function may take up to a couple of milliseconds
+     * to acquire the rx_lock if server undergoes connection flooding */
+    exa_lock(&ctx->state->rx_lock);
+
+    if (state->profile.event_index == 10)
+    {
+        state->profile.overflow = 1;
+        goto unlock;
+    }
+    ev_ptr = &state->profile.st_history[state->profile.event_index++];
+    memset(ev_ptr, 0, sizeof(*ev_ptr));
+    pkt_event_ptr = &ev_ptr->pkt_event;
+    ev_ptr->kernel = false;
+
+    ev_ptr->state = current_state;
+    ev_ptr->line = lineno;
+
+    strncpy(ev_ptr->fname, fname, sizeof(ev_ptr->fname) - 1);
+    ev_ptr->fname[sizeof(ev_ptr->fname) - 1] = '\0';
+
+    clock_gettime(CLOCK_REALTIME, (struct timespec*)&ev_ptr->ts);
+
+    if (packet)
+    {
+        if (rx)
+            ev_ptr->rx = 1;
+        else
+            ev_ptr->tx = 1;
+        pkt_event_ptr->flags = pkt_evt->flags;
+        pkt_event_ptr->ack = pkt_evt->ack;
+        pkt_event_ptr->seq = pkt_evt->seq;
+    }
+    else
+        ev_ptr->shutdown = 1;
+unlock:
+
+    exa_unlock(&ctx->state->rx_lock);
+}
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 
 /* Calculate the size of the largest segment that can be sent right now,
  * allowing for TCP state, receive window, congestion window and MSS.
@@ -98,13 +176,14 @@ exa_tcp_lookup(struct exa_endpoint * restrict ep)
 }
 
 static inline void
-exa_tcp_listen(struct exa_tcp_conn * restrict ctx)
+exa_tcp_listen(struct exa_tcp_conn * restrict ctx, int backlog)
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
 
     assert(state->state == EXA_TCP_CLOSED);
 
     state->state = EXA_TCP_LISTEN;
+    state->backlog = (backlog > (ctx->state->rx_buffer_size / sizeof(struct exa_tcp_new_connection))) ? EXA_SOMAXCONN : backlog;
 }
 
 static inline bool
@@ -177,6 +256,7 @@ exa_tcp_state_init_acc(struct exa_socket_state * restrict state,
     tcp->rmss = tcp_state->peer_mss;
     tcp->wscale = tcp_state->peer_wscale;
 
+    PROFILE_INFO_INIT_TCP_SEQ(tcp, tcp_state);
     tcp->read_seq = tcp->recv_seq = tcp->proc_seq = tcp_state->peer_seq;
     tcp->adv_wnd_end = tcp->recv_seq + EXA_TCP_SYNACK_WIN;
     tcp->out_of_order.ack_seq = tcp->recv_seq;
@@ -229,12 +309,14 @@ update_state:
                                           EXA_TCP_ESTABLISHED,
                                           EXA_TCP_FIN_WAIT_1))
             goto update_state;
+        PROFILE_INFO_TCP_SHUTDOWN_EVENT(ctx,EXA_TCP_FIN_WAIT_1);
         break;
     case EXA_TCP_CLOSE_WAIT:
         if (!__sync_bool_compare_and_swap(&state->state,
                                           EXA_TCP_CLOSE_WAIT,
                                           EXA_TCP_LAST_ACK))
             goto update_state;
+        PROFILE_INFO_TCP_SHUTDOWN_EVENT(ctx, EXA_TCP_LAST_ACK);
         break;
     default:
         /* Do nothing, write is already closed */
@@ -280,7 +362,8 @@ exa_tcp_clear_ack_pending(struct exa_tcp_conn * restrict ctx)
 {
     struct exa_tcp_state * restrict state = &ctx->state->p.tcp;
 
-    state->ack_pending = false;
+    if(state->state != EXA_TCP_FIN_WAIT_1)
+        state->ack_pending = false;
 }
 
 /* Calculate the value of the window field in the TCP header */
@@ -370,6 +453,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         h->th_seq = htonl(state->send_seq);
         h->th_ack = htonl(recv_seq);
         h->th_flags = TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_ESTABLISHED, 0, 1, state->send_seq, recv_seq);
         break;
 
     case EXA_TCP_CLOSE_WAIT:
@@ -377,12 +461,15 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         h->th_seq = htonl(state->send_seq);
         h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_CLOSE_WAIT, 0, 1, state->send_seq, recv_seq + 1);
+        break;
 
     case EXA_TCP_FIN_WAIT_1:
         /* Send FIN */
         h->th_seq = htonl(state->send_seq);
         h->th_ack = htonl(recv_seq);
         h->th_flags = TH_FIN | TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_FIN_WAIT_1, 1, 1, state->send_seq, recv_seq);
         break;
 
     case EXA_TCP_FIN_WAIT_2:
@@ -390,6 +477,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         h->th_seq = htonl(state->send_seq);
         h->th_ack = htonl(recv_seq);
         h->th_flags = TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_FIN_WAIT_2, 0, 1, state->send_seq, recv_seq);
         break;
 
     case EXA_TCP_CLOSING:
@@ -397,6 +485,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         h->th_seq = htonl(state->send_seq + 1);
         h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_CLOSING, 0, 1, (state->send_seq + 1), (recv_seq + 1));
         break;
 
     case EXA_TCP_LAST_ACK:
@@ -404,6 +493,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         h->th_seq = htonl(state->send_seq);
         h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_FIN | TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_LAST_ACK, 1, 1, state->send_seq, (recv_seq + 1));
         break;
 
     case EXA_TCP_TIME_WAIT:
@@ -411,6 +501,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
         h->th_seq = htonl(state->send_seq + 1);
         h->th_ack = htonl(recv_seq + 1);
         h->th_flags = TH_ACK;
+        PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_TIME_WAIT, 0, 1, state->send_seq + 1, (recv_seq + 1));
         break;
 
     default:
@@ -764,6 +855,7 @@ update_state:
                                               EXA_TCP_CLOSE_WAIT))
                 goto update_state;
             state->ack_pending = true;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_CLOSE_WAIT, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         break;
 
@@ -782,6 +874,7 @@ update_state:
                                               EXA_TCP_TIME_WAIT))
                 goto update_state;
             state->ack_pending = true;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_TIME_WAIT, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         else if (fw1_fin)
         {
@@ -791,6 +884,7 @@ update_state:
                                               EXA_TCP_CLOSING))
                 goto update_state;
             state->ack_pending = true;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_CLOSING, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         else if (fw1_ack)
         {
@@ -799,6 +893,7 @@ update_state:
                                               EXA_TCP_FIN_WAIT_1,
                                               EXA_TCP_FIN_WAIT_2))
                 goto update_state;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_FIN_WAIT_2, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         break;
 
@@ -812,6 +907,7 @@ update_state:
                                               EXA_TCP_TIME_WAIT))
                 goto update_state;
             state->ack_pending = true;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_TIME_WAIT, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         break;
 
@@ -823,6 +919,7 @@ update_state:
                                               EXA_TCP_CLOSING,
                                               EXA_TCP_TIME_WAIT))
                 goto update_state;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_TIME_WAIT, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         break;
 
@@ -842,6 +939,7 @@ update_state:
                                               EXA_TCP_LAST_ACK,
                                               EXA_TCP_CLOSED))
                 goto update_state;
+            PROFILE_INFO_TCP_TX_RX_EVENT(true, ctx, EXA_TCP_LAST_ACK, !!(flags & TH_FIN), !!(flags & TH_ACK), data_seq, state->send_ack);
         }
         break;
     }

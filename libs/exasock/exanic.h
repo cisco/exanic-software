@@ -17,7 +17,7 @@ void exanic_ip_release_all(void);
 
 void exanic_ip_update_timestamping(const char *ifname);
 
-int exanic_poll(void);
+int exanic_poll(int* expected_fd);
 void exanic_work(uint64_t now);
 
 /* Functions for sending UDP packets on an ExaNIC */

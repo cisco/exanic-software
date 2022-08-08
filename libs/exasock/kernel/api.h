@@ -25,6 +25,12 @@
                                          struct exasock_epoll_ctl_request)
 #define EXASOCK_IOCTL_ISN_ALLOC     _IOR(EXASOCK_IOCTL_TYPE, 0x60, uint32_t)
 
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+#define EXASOCK_IOCTL_LISTEN_SOCKET_PROFILE  _IOW(EXASOCK_IOCTL_TYPE, 0x61, \
+                                                  struct exasock_listen_endpoint)
+
+#endif /* TCP_LISTEN_SOCKET_PROFILING */
+
 /* Arguments for EXASOCK_IOCTL_BIND, EXASOCK_IOCTL_CONNECT
  * and EXASOCK_IOCTL_UPDATE
  */
@@ -73,6 +79,17 @@ struct exasock_kernel_info
     uint32_t dst_table_size;
 };
 
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+
+/* both local_addr and local_port are in network byte order */
+struct exasock_listen_endpoint
+{
+    uint32_t local_addr;
+    uint16_t local_port;
+};
+#endif /* TCP_LISTEN_SOCKET_PROFILING */
+
 #define EXASOCK_OFFSET_KERNEL_INFO      0x0000000
 #define EXASOCK_OFFSET_SOCKET_STATE     0x0010000
 #define EXASOCK_OFFSET_DST_TABLE        0x1000000
@@ -80,6 +97,7 @@ struct exasock_kernel_info
 #define EXASOCK_OFFSET_RX_BUFFER        0x2000000
 #define EXASOCK_OFFSET_TX_BUFFER        0x3000000
 #define EXASOCK_OFFSET_EPOLL_STATE      0x4000000
+#define EXASOCK_OFFSET_LISTEN_SOCK_PROFILE_INFO  0x5000000
 
 #define EXASOCK_KERNEL_INFO_SIZE        0x1000
 #define EXASOCK_SOCKET_STATE_SIZE       0x1000

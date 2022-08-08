@@ -15,7 +15,10 @@ extern bool module_removed;
 enum exasock_type
 {
     EXASOCK_TYPE_SOCKET,
-    EXASOCK_TYPE_EPOLL
+    EXASOCK_TYPE_EPOLL,
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    EXASOCK_TYPE_TCP_LISTEN_SOCKET_PROFILE
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 };
 
 struct exasock_hdr_socket
@@ -47,6 +50,14 @@ struct exasock_epoll_notify
     int fd;
     struct list_head node;
 };
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+struct exasock_tcp_listen_socket_profile
+{
+    enum exasock_type type;
+    struct exasock_tcp* tcp;
+};
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 
 /* Return 1 if lock successful, 0 if unsuccessful */
 static inline int exasock_trylock(volatile uint32_t *flag)
@@ -154,4 +165,9 @@ int exasock_epoll_state_mmap(struct exasock_epoll *epoll,
                              struct vm_area_struct *vma);
 void exasock_epoll_update(struct exasock_epoll_notify *notify);
 
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+struct exasock_tcp_listen_socket_profile* exasock_tcp_find_listen_socket(struct exasock_listen_endpoint* lep);
+int exasock_listen_socket_profile_info_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
+void exasock_tcp_listen_socket_profile_free(struct exasock_tcp_listen_socket_profile* profile);
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
 #endif /* _EXASOCK_H_ */

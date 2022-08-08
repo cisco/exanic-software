@@ -18,6 +18,7 @@
 #include <net/netevent.h>
 
 #include "../../libs/exasock/kernel/api.h"
+#include "../../libs/exasock/kernel/structs.h"
 
 #include "../exanic/exanic.h"
 #include "exasock.h"
@@ -157,6 +158,13 @@ static int exasock_dev_release(struct inode *inode, struct file *filp)
     case EXASOCK_TYPE_EPOLL:
         exasock_epoll_free((struct exasock_epoll *)priv);
         return 0;
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    case EXASOCK_TYPE_TCP_LISTEN_SOCKET_PROFILE:
+        exasock_tcp_listen_socket_profile_free((struct exasock_tcp_listen_socket_profile*)priv);
+        return 0;
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
+
     default:
         BUG();
     }
@@ -226,6 +234,15 @@ static int exasock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 {
     void *priv = filp->private_data;
 
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    if (vma->vm_pgoff >= (EXASOCK_OFFSET_LISTEN_SOCK_PROFILE_INFO / PAGE_SIZE))
+    {
+        struct exasock_tcp_listen_socket_profile* profile =
+                                    (struct exasock_tcp_listen_socket_profile*)priv;
+        struct exasock_tcp* tcp = profile->tcp;
+        return exasock_listen_socket_profile_info_mmap((struct exasock_tcp*)tcp, vma);
+    }
+#endif /* TCP_LISTEN_SOCKET_PROFILING */
     if (vma->vm_pgoff >= (EXASOCK_OFFSET_EPOLL_STATE / PAGE_SIZE))
         return exasock_epoll_state_mmap((struct exasock_epoll *)priv, vma);
     else if (vma->vm_pgoff >= (EXASOCK_OFFSET_TX_BUFFER / PAGE_SIZE))
@@ -627,6 +644,25 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
 
             return 0;
         }
+
+#ifdef TCP_LISTEN_SOCKET_PROFILING
+    case EXASOCK_IOCTL_LISTEN_SOCKET_PROFILE:
+        {
+            struct exasock_tcp_listen_socket_profile* profile;
+            struct exasock_listen_endpoint lep;
+            if (copy_from_user(&lep, (void*)arg, sizeof(lep)) != 0)
+                return -EFAULT;
+
+            if (!lep.local_addr && !lep.local_port)
+                return -EFAULT;
+
+            profile = exasock_tcp_find_listen_socket(&lep);
+            if (IS_ERR(profile))
+                return PTR_ERR(profile);
+            filp->private_data = profile;
+            return 0;
+        }
+#endif /* ifdef TCP_LISTEN_SOCKET_PROFILING */
     default:
         return -ENOTTY;
     }

@@ -56,6 +56,7 @@
 #include "udp_queue.h"
 #include "notify.h"
 #include "exasock-bonding-priv.h"
+#include "socket/common.h"
 
 #define MAX_HDR_LEN 128
 #define MAX_FRAME_LEN 1522
@@ -1299,7 +1300,7 @@ exanic_poll_recv_body(exanic_rx_t *rx, size_t skip_len,
 
 static int
 exanic_poll_single_rx(struct exanic_ip *ctx,
-                      struct exanic_rx *rx)
+                      struct exanic_rx *rx, int* expected_fd)
 {
     char *chunk_end, *eth_hdr, *ip_hdr, *t_hdr, *hdr_end, *data;
     char *buf1, *buf2;
@@ -1402,6 +1403,8 @@ exanic_poll_single_rx(struct exanic_ip *ctx,
         else if (ip_proto == IPPROTO_TCP)
         {
             /* Process TCP header */
+            bool aborted_on_listen = false;
+
             if (exa_tcp_parse_hdr(t_hdr, chunk_end, t_len,
                                   ipaddr_csum(&ep.addr), &ep.port,
                                   &tcpopt, &tcpopt_len, &hdr_end,
@@ -1417,8 +1420,10 @@ exanic_poll_single_rx(struct exanic_ip *ctx,
 
             /* Listening sockets are processed in the kernel module */
             if (exa_tcp_listening(&sock->ctx.tcp->tcp))
+            {
+                aborted_on_listen = true;
                 goto abort_tcp_rx;
-
+            }
             /* Packet pre-processing */
             if (exa_tcp_pre_update_state(&sock->ctx.tcp->tcp, tcp_flags,
                                          data_seq, ack_seq, data_len,
@@ -1493,7 +1498,24 @@ exanic_poll_single_rx(struct exanic_ip *ctx,
         abort_tcp_rx:
             exa_notify_tcp_update(sock);
             exa_unlock(&sock->state->rx_lock);
+
+            if (aborted_on_listen)
+            {
+                if (sock->rx_ready)
+                {
+                    if (more_chunks)
+                        exanic_receive_abort(rx);
+                    return fd;
+                }
+                else if (expected_fd != NULL)
+                {
+                    /* There is some activity going on the tcp listenning socket, it may
+                     * be ready sometime later, let application know about it */
+                    *expected_fd = fd;
+                }
+            }
             goto abort_frame;
+
         }
     }
 
@@ -1506,7 +1528,7 @@ abort_frame:
 
 /* Assumes that eip->dev_list_lock is held */
 static ssize_t
-exanic_poll_bond(struct exanic_ip *eip)
+exanic_poll_bond(struct exanic_ip *eip, int* expected_fd)
 {
     /* NOTE:
      *
@@ -1540,7 +1562,7 @@ exanic_poll_bond(struct exanic_ip *eip)
 
     /* It's possible for there to be no active devices in the bond. */
     if (exasock_exanic_ip_dev_is_initialized(&eip->dev))
-        ret = exanic_poll_single_rx(eip, eip->dev.exanic_rx);
+        ret = exanic_poll_single_rx(eip, eip->dev.exanic_rx, expected_fd);
 
     return ret;
 }
@@ -1548,7 +1570,7 @@ exanic_poll_bond(struct exanic_ip *eip)
 /* Check ExaNIC receive buffers for packets
  * exasock_poll_lock must be held */
 int
-exanic_poll(void)
+exanic_poll(int* expected_fd)
 {
     struct exanic_ip *ctx;
 
@@ -1560,14 +1582,14 @@ exanic_poll(void)
         int ret;
 
         if (exasock_exanic_ip_is_bond(ctx))
-            ret = exanic_poll_bond(ctx);
+            ret = exanic_poll_bond(ctx, expected_fd);
         else
         {
             /* If it's not a bond, just do a normal poll on its
              * RX DMA mapping.
              */
             ret = exanic_poll_single_rx(ctx,
-                                        ctx->dev.exanic_rx);
+                                        ctx->dev.exanic_rx, expected_fd);
         }
 
         if (ret > 0)
@@ -1876,7 +1898,7 @@ exanic_tcp_listen(struct exa_socket * restrict sock, int backlog)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
 
-    exa_tcp_listen(&ctx->tcp);
+    exa_tcp_listen(&ctx->tcp, backlog);
 }
 
 /* Send or re-send a packet for moving to the current state */

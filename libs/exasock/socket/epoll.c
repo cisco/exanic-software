@@ -435,7 +435,7 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
     have_poll_lock = exa_trylock(&exasock_poll_lock);
 
     if (have_poll_lock)
-        exanic_poll();
+        exanic_poll(NULL);
 
     /* Check if there are any listening sockets ready and if so, add them
      * to the maybe-ready queue
@@ -617,17 +617,51 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
         {
             if (have_poll_lock)
             {
+                struct fd_list* fdl_head = NULL;
+                int fdlist_size = 0;
+                int expected_fd = -1;
+
                 /* Poll ExaNIC for packets */
                 for (j = 0; j < iters; j++)
                 {
-                    int fd = exanic_poll();
-                    if (fd == -1)
+                    expected_fd = -1;
+                    int fd;
+
+                    fd = exanic_poll(&expected_fd);
+                    if (fd < 0 && expected_fd == -1 && fdlist_size == 0)
                         continue;
 
-                    epoll_pwait_spin_test_fd(no, fd, events, maxevents, &ret);
-                    if (ret > 0)
-                        goto epoll_exit;
+                    if (fd >= 0)
+                    {
+                        epoll_pwait_spin_test_fd(no, fd, events, maxevents, &ret);
+                        if (ret > 0)
+                            goto epoll_exit;
+                        continue;
+                    }
+                    if (expected_fd >= 0 && no->fd_table[expected_fd].present)
+                    {
+                        bool added = fdlist_insert(&fdl_head, expected_fd);
+                        if (added)
+                            fdlist_size++;
+                    }
+
+                    if (fdlist_size > 0)
+                    {
+                        struct fd_list* current;
+                        for (current = fdl_head; current; current = current->next)
+                        {
+                            epoll_pwait_spin_check_fd(current->fd);
+                            epoll_pwait_spin_test_fd(no, current->fd, events, maxevents, &ret);
+                            if (ret > 0)
+                            {
+                                fdlist_clear(fdl_head);
+                                goto epoll_exit;
+                            }
+                        }
+                    }
                 }
+                if (fdl_head)
+                    fdlist_clear(fdl_head);
             }
 
             if (poll_fd != -1)
