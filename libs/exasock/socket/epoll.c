@@ -1,3 +1,4 @@
+
 #include "../common.h"
 
 #include <netinet/ip.h>
@@ -30,6 +31,7 @@
 #include "override.h"
 #include "trace.h"
 #include "common.h"
+#include "../latency.h"
 
 /* How often to call system calls when polling */
 #define SYS_POLL_NS 160000
@@ -313,6 +315,7 @@ epoll_pwait_spin_test_fd(struct exa_notify * restrict no, int fd,
     struct exa_notify_fd * restrict nf = &no->fd_table[fd];
     uint32_t revents = 0;
 
+    LATENCY_START_POINT(11);
     if (!nf->event_pending)
         return false;
 
@@ -345,6 +348,7 @@ epoll_pwait_spin_test_fd(struct exa_notify * restrict no, int fd,
         events[*nevents].data.u64 = nf->data;
         (*nevents)++;
 
+        LATENCY_END_POINT(11);
         if (nf->events & EXA_NOTIFY_ET)
         {
             /* Clear edge-triggered events that are being delivered
@@ -622,6 +626,7 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
                 int expected_fd = -1;
 
                 /* Poll ExaNIC for packets */
+                LATENCY_START_POINT(10);
                 for (j = 0; j < iters; j++)
                 {
                     expected_fd = -1;
@@ -635,7 +640,10 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
                     {
                         epoll_pwait_spin_test_fd(no, fd, events, maxevents, &ret);
                         if (ret > 0)
+                        {
+                            LATENCY_END_POINT(10);
                             goto epoll_exit;
+                        }
                         continue;
                     }
                     if (expected_fd >= 0 && no->fd_table[expected_fd].present)
@@ -664,11 +672,15 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
                     fdlist_clear(fdl_head);
             }
 
+            /* we may not have a poll-lock there, but we still need to check the sockets from epoll_fd
+               for readiness.  */
             if (poll_fd != -1)
             {
                 /* Poll a socket for readiness */
+                LATENCY_START_POINT(12);
                 epoll_pwait_spin_check_fd(poll_fd);
                 epoll_pwait_spin_test_fd(no, poll_fd, events, maxevents, &ret);
+                LATENCY_END_POINT(12);
                 if (ret > 0)
                     goto epoll_exit;
 

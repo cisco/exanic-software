@@ -29,6 +29,7 @@
 #include "override.h"
 #include "trace.h"
 #include "common.h"
+#include "../latency.h"
 
 void __chk_fail(void);
 
@@ -83,6 +84,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     memset(native_writefds, 0, set_bytes);
     memset(native_exceptfds, 0, set_bytes);
 
+    LATENCY_START_POINT(0);
     /* Look for sockets with bypass enabled */
     if (readfds != NULL)
     {
@@ -169,12 +171,14 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     iters = DEFAULT_ITERS;
     signal_received = false;
 
+    LATENCY_END_POINT(0);
     have_poll_lock = exa_trylock(&exasock_poll_lock);
 
     /* Initial poll of ExaNICs, no spinning yet */
     if (have_poll_lock)
         exanic_poll(NULL);
 
+    LATENCY_START_POINT(1);
     /* Initial check for sockets that are ready */
     ready_count = 0;
     for (fd = 0; fd < nfds; fd++)
@@ -207,6 +211,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
         exa_read_unlock(&sock->lock);
     }
+    LATENCY_END_POINT(1);
 
     if (ready_count > 0)
     {
@@ -279,6 +284,8 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
             {
                 struct exa_socket * restrict sock;
                 expected_fd = -1;
+
+                LATENCY_START_POINT(3);
                 fd = exanic_poll(&expected_fd);
                 if (fd < 0 || fd >= nfds)
                 {
@@ -332,6 +339,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                     exa_read_unlock(&sock->lock);
                     FD_SET(fd, readfds);
                     ret = 1;
+                    LATENCY_END_POINT(3);
                     goto select_exit;
                 }
 
@@ -485,6 +493,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
     int ret = 0;
     bool have_poll_lock;
 
+    LATENCY_START_POINT(7);
     for (i = 0; i < nfds; i++)
     {
         struct pollfd * restrict pollfd = &fds[i];
@@ -513,6 +522,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
         /* Native sockets only, call libc poll() or ppoll() directly */
         return NATIVE_FD_ONLY;
     }
+    LATENCY_END_POINT(7);
 
     if (timeout)
     {
@@ -530,6 +540,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
     if (have_poll_lock)
         exanic_poll(NULL);
 
+    LATENCY_START_POINT(8);
     /* Initial check for sockets that are ready */
     for (i = 0; i < nfds; i++)
     {
@@ -570,6 +581,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
         pollfd->revents = revents;
         ready_count++;
     }
+    LATENCY_END_POINT(8);
 
     if (ready_count > 0)
     {
@@ -634,6 +646,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
             {
                 int j;
                 expected_fd = -1;
+                LATENCY_START_POINT(9);
                 fd = exanic_poll(&expected_fd);
                 if (fd < 0 && expected_fd == -1 && fdlist_size == 0)
                     continue;
@@ -668,6 +681,7 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
                                 continue;
                             fds[j].revents = revents;
                             ret = 1;
+                            LATENCY_END_POINT(9);
                             goto poll_exit;
                         }
                     }

@@ -38,6 +38,7 @@
 #include "override.h"
 #include "trace.h"
 #include "common.h"
+#include "../latency.h"
 
 void __chk_fail(void);
 
@@ -335,6 +336,7 @@ recv(int sockfd, void *buf, size_t len, int flags)
     TRACE_ARG(INT, sockfd);
     TRACE_FLUSH();
 
+    LATENCY_START_POINT(6);
     if (sock == NULL)
         ret = LIBC(recv, sockfd, buf, len, flags);
     else
@@ -353,6 +355,7 @@ recv(int sockfd, void *buf, size_t len, int flags)
             exa_read_unlock(&sock->lock);
         }
     }
+    LATENCY_END_POINT(6);
 
     TRACE_ARG(BUF, buf, ret);
     TRACE_ARG(LONG, len);

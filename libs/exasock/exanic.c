@@ -57,6 +57,7 @@
 #include "notify.h"
 #include "exasock-bonding-priv.h"
 #include "socket/common.h"
+#include "latency.h"
 
 #define MAX_HDR_LEN 128
 #define MAX_FRAME_LEN 1522
@@ -1325,6 +1326,9 @@ exanic_poll_single_rx(struct exanic_ip *ctx,
     /* exanic_receive_chunk_inplace returns 0 when there's no new data, or neg
      * when an error occurs.
      */
+
+    LATENCY_START_POINT(5);
+
     ret = exanic_receive_chunk_inplace(rx, &eth_hdr,
                                        &hdr_chunk_id, &more_chunks);
     if (ret <= 0)
@@ -1489,6 +1493,7 @@ exanic_poll_single_rx(struct exanic_ip *ctx,
                 exanic_receive_abort(rx);
 
             exasock_poll_reclaim_ack = exasock_poll_reclaim_req;
+            LATENCY_END_POINT(5);
             return fd;
 
         abort_tcp_rx_buffer_write:

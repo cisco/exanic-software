@@ -22,6 +22,11 @@ ifneq ($(TCP_LISTEN_SOCKET_PROFILING),)
   TCP_LISTEN_SOCKET_PROFILING_DEFINE=-DTCP_LISTEN_SOCKET_PROFILING
 endif
 
+ifneq ($(MEASURE_LATENCY),)
+  EXT_SRCS+= extensions/latency-measure.c
+  MEASURE_LATENCY_DEFINE=-DMEASURE_LATENCY
+endif
+
 PRELOAD_SRCS=$(CORE_SRCS) $(SOCK_SRCS) $(EXT_SRCS)
 
 EXT_STUB_SRCS=extensions/stub.c
@@ -49,7 +54,7 @@ EXT_STUB_LIB_LDFLAGS=-Wl,-soname,$(EXT_STUB_LIB_SONAME)
 HAVE_NET_TSTAMP_H:=${shell $(CC) $(CFLAGS) -include linux/net_tstamp.h -E -x c /dev/null >/dev/null 2>&1 && echo 1 || echo 0}
 RECVMMSG_HAS_CONST_TIMESPEC:=${shell echo 'int recvmmsg(int fd, struct mmsghdr *m, unsigned int l, int f, const struct timespec *t);' | $(CC) $(CFLAGS) -D_GNU_SOURCE -include sys/socket.h -c -o /dev/null -x c - >/dev/null 2>&1 && echo 1 || echo 0}
 GETNAMEINFO_HAS_SIGNED_FLAGS:=${shell echo 'int getnameinfo(const struct sockaddr *, socklen_t, char *, socklen_t, char *, socklen_t, int);' | $(CC) $(CFLAGS) -D_GNU_SOURCE -include netdb.h -c -o /dev/null -x c - >/dev/null 2>&1 && echo 1 || echo 0}
-CONFIG_CFLAGS=-DHAVE_NET_TSTAMP_H=$(HAVE_NET_TSTAMP_H) -DRECVMMSG_HAS_CONST_TIMESPEC=$(RECVMMSG_HAS_CONST_TIMESPEC) -DGETNAMEINFO_HAS_SIGNED_FLAGS=$(GETNAMEINFO_HAS_SIGNED_FLAGS) $(TCP_LISTEN_SOCKET_PROFILING_DEFINE)
+CONFIG_CFLAGS=-DHAVE_NET_TSTAMP_H=$(HAVE_NET_TSTAMP_H) -DRECVMMSG_HAS_CONST_TIMESPEC=$(RECVMMSG_HAS_CONST_TIMESPEC) -DGETNAMEINFO_HAS_SIGNED_FLAGS=$(GETNAMEINFO_HAS_SIGNED_FLAGS) $(MEASURE_LATENCY_DEFINE) $(TCP_LISTEN_SOCKET_PROFILING_DEFINE)
 
 .PHONY: debug release all clean
 

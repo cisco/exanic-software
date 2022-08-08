@@ -65,3 +65,15 @@ exasock_tcp_send_advance(int fd, const void *buf, size_t len)
     errno = EOPNOTSUPP;
     return -1;
 }
+
+__attribute__((visibility("default")))
+void print_exasock_latencies(void)
+{
+    errno = EOPNOTSUPP;
+}
+
+__attribute__((visibility("default")))
+void clear_latencies(void)
+{
+    errno = EOPNOTSUPP;
+}
