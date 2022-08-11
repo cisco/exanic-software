@@ -1,16 +1,16 @@
 ===============================================
-Release notes for ExaNIC software release 2.7.1
+Release notes for ExaNIC software release 2.7.2
 ===============================================
 
-This minor release primarily updates the firmware update utility
-exanic-fwupdate.  The update resolves an issue with exanic-fwupdate incorrectly
-flashing .bit firmware on Nexus SmartNIC K3P-Q (ExaNIC X100) cards, and adds
-support for the flash chip used in newer GM and HPT hardware.
+This minor release primarily addresses TCP server issues on ExaSock: slow 
+release of closed sockets, slow connection acceptance rate, FIN and ACK 
+retransmissions, plus other bug fixes. Moreover we have introduced a profiling
+method for TCP ExaSock listening sockets and ExaSock library latency measurement
+points. This release adds a more reliable way to detect HW overruns
 
-This release also addresses an arithmetic overflow error in the clock frequency
-adjustment in the driver.  This error may cause unstable time synchronization on
-some Nexus SmartNIC K3P-P/K3P-Q (ExaNIC X25/X100) cards.  Finally, it fixes a
-driver bug causing hangs at load or unload on Ubuntu systems.
+This release also addresses some minor build issues on recent RHEL and RHEL-derived
+distributions. It also fixes the getpeername logic which returned successful result
+on unconnected ExaSock TCP sockets.
 
 Supported distributions
 -----------------------
@@ -69,6 +69,20 @@ components together if possible.
 
 Change log
 ----------
+2.7.2 [2022-08-15]
+* driver: fixed minor build issues on Centos stream 9, Rocky Linux 9, RHEL8, Centos8, Rocky8
+* exasock: fixed keepalive issue
+* exasock: fixed slow release of TCP sockets in exasock module
+* exasock: fixed exasock epoll hang issue after issuing many connections
+* exasock: various improvements for exasock TCP server mode
+* exasock: adding latency measurements points and latency module in exasock
+* exasock: adding listening TCP sockets profiling capability and new application to provide 
+  profiling information to the user
+* exasock: improved TCP server connection acceptance latency, changed the way polling mechanism
+  works
+* driver: fixed minor locking issue in exanic_netdev_ate_send_ctrl function exanic-netdev.c
+* libexanic: adding logic to detect potential hw overruns
+
 2.7.1 [2021-09-15]
 * driver: fix arithmetic overflow error in clock frequency adjustment
 * driver: fix bug causing hangs at module load/unload on Ubuntu systems
