@@ -23,6 +23,18 @@ extern "C" {
 int exasock_loaded(void);
 
 /**
+ * \brief Prints ExaSock library latencies
+ *
+ */
+void print_exasock_latencies(void);
+
+/**
+ * \brief Clears ExaSock library latency data
+ *
+ */
+void clear_latencies(void);
+
+/**
  * \brief Determine the version of Exasock the current application is running with
  *
  * \return Version code
