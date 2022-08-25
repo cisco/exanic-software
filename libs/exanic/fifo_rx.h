@@ -41,6 +41,8 @@ typedef struct exanic_rx
     volatile    struct rx_chunk *buffer;
     uint32_t    next_chunk;
     uint8_t     generation;
+    uint32_t    sentinel_chunk;
+    uint32_t    sentinel_chunk_generation;
 } exanic_rx_t;
 
 /**
