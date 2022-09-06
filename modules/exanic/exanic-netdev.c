@@ -1091,104 +1091,141 @@ int exanic_set_features(struct net_device *netdev, netdev_features_t features)
 }
 #endif
 
-/**
- * Handle ioctl request on a ExaNIC interface.
- */
-int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
+int exanic_ioctl_set_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
+                                  int cmd)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct hwtstamp_config config;
+
+    if (copy_from_user(&config, ifr->ifr_data, sizeof(config)))
+        return -EFAULT;
+
+    /* reserved for future extensions */
+    if (config.flags)
+        return -EINVAL;
+
+    if (config.tx_type != HWTSTAMP_TX_OFF &&
+            config.tx_type != HWTSTAMP_TX_ON)
+        return -ERANGE;
+
+    if (config.tx_type == HWTSTAMP_TX_OFF)
+    {
+        if (priv->tx_hw_tstamp)
+        {
+            priv->tx_hw_tstamp = false;
+            netdev_info(ndev, "hardware tx timestamping disabled\n");
+        }
+    }
+    else
+    {
+        if (!priv->tx_hw_tstamp)
+        {
+            priv->tx_hw_tstamp = true;
+            netdev_info(ndev, "hardware tx timestamping enabled\n");
+        }
+    }
+
+    if (config.rx_filter == HWTSTAMP_FILTER_NONE)
+    {
+        if (priv->rx_hw_tstamp)
+        {
+            priv->rx_hw_tstamp = false;
+            netdev_info(ndev, "hardware rx timestamping disabled\n");
+        }
+    }
+    else
+    {
+        config.rx_filter = HWTSTAMP_FILTER_ALL;
+
+        if (!priv->rx_hw_tstamp)
+        {
+            priv->rx_hw_tstamp = true;
+            netdev_info(ndev, "hardware rx timestamping enabled\n");
+        }
+    }
+
+    if (copy_to_user(ifr->ifr_data, &config, sizeof(config)))
+        return -EFAULT;
+
+    return 0;
+}
+
+int exanic_ioctl_get_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
+                                  int cmd)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+    struct hwtstamp_config config;
+
+    memset(&config, 0, sizeof(config));
+
+    config.tx_type =
+        priv->tx_hw_tstamp ? HWTSTAMP_TX_ON : HWTSTAMP_TX_OFF;
+    config.rx_filter =
+        priv->rx_hw_tstamp ? HWTSTAMP_FILTER_ALL : HWTSTAMP_FILTER_NONE;
+
+    if (copy_to_user(ifr->ifr_data, &config, sizeof(config)))
+        return -EFAULT;
+
+    return 0;
+}
+
+int exanic_ioctl_get_ifinfo(struct net_device *ndev, struct ifreq *ifr,
+                            int cmd)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
     struct exanic *exanic = priv->exanic;
 
+    /* Provide device name and port number to user */
+    struct exaioc_ifinfo info;
+    memset(&info, 0, sizeof(info));
+    strncpy(info.dev_name, exanic->name, sizeof(info.dev_name) - 1);
+    info.port_num = priv->port;
+    if (copy_to_user(ifr->ifr_data, &info, sizeof(info)))
+        return -EFAULT;
+    return 0;
+}
+
+
+/**
+ * Handle ioctl request on a ExaNIC interface.
+ */
+int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
+                        int cmd)
+{
     switch (cmd)
     {
     case SIOCSHWTSTAMP:
         {
-            struct hwtstamp_config config;
-
-            if (copy_from_user(&config, ifr->ifr_data, sizeof(config)))
-                return -EFAULT;
-
-            /* reserved for future extensions */
-            if (config.flags)
-                return -EINVAL;
-
-            if (config.tx_type != HWTSTAMP_TX_OFF &&
-                    config.tx_type != HWTSTAMP_TX_ON)
-                return -ERANGE;
-
-            if (config.tx_type == HWTSTAMP_TX_OFF)
-            {
-                if (priv->tx_hw_tstamp)
-                {
-                    priv->tx_hw_tstamp = false;
-                    netdev_info(ndev, "hardware tx timestamping disabled\n");
-                }
-            }
-            else
-            {
-                if (!priv->tx_hw_tstamp)
-                {
-                    priv->tx_hw_tstamp = true;
-                    netdev_info(ndev, "hardware tx timestamping enabled\n");
-                }
-            }
-
-            if (config.rx_filter == HWTSTAMP_FILTER_NONE)
-            {
-                if (priv->rx_hw_tstamp)
-                {
-                    priv->rx_hw_tstamp = false;
-                    netdev_info(ndev, "hardware rx timestamping disabled\n");
-                }
-            }
-            else
-            {
-                config.rx_filter = HWTSTAMP_FILTER_ALL;
-
-                if (!priv->rx_hw_tstamp)
-                {
-                    priv->rx_hw_tstamp = true;
-                    netdev_info(ndev, "hardware rx timestamping enabled\n");
-                }
-            }
-
-            if (copy_to_user(ifr->ifr_data, &config, sizeof(config)))
-                return -EFAULT;
-
-            return 0;
+            return exanic_ioctl_set_hw_timestamp(ndev, ifr, cmd);
         }
     case SIOCGHWTSTAMP:
     case EXAIOCGHWTSTAMP:
         {
-            struct hwtstamp_config config;
-
-            memset(&config, 0, sizeof(config));
-
-            config.tx_type =
-                priv->tx_hw_tstamp ? HWTSTAMP_TX_ON : HWTSTAMP_TX_OFF;
-            config.rx_filter =
-                priv->rx_hw_tstamp ? HWTSTAMP_FILTER_ALL : HWTSTAMP_FILTER_NONE;
-
-            if (copy_to_user(ifr->ifr_data, &config, sizeof(config)))
-                return -EFAULT;
-
-            return 0;
+            return exanic_ioctl_get_hw_timestamp(ndev, ifr, cmd);
         }
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
     case EXAIOCGIFINFO:
         {
-            /* Provide device name and port number to user */
-            struct exaioc_ifinfo info;
-            memset(&info, 0, sizeof(info));
-            strncpy(info.dev_name, exanic->name, sizeof(info.dev_name) - 1);
-            info.port_num = priv->port;
-            if (copy_to_user(ifr->ifr_data, &info, sizeof(info)))
-                return -EFAULT;
-            return 0;
+            return exanic_ioctl_get_ifinfo(ndev, ifr, cmd);
         }
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
+
     default:
         return -EOPNOTSUPP;
     }
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
+                              void __user *data, int cmd)
+{
+    if (cmd == EXAIOCGIFINFO)
+        return exanic_ioctl_get_ifinfo(ndev, ifr, cmd);
+    else
+        return -EOPNOTSUPP;
+}
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
 
 static struct net_device_ops exanic_ndos = {
     .ndo_open                = exanic_netdev_open,
@@ -1196,7 +1233,15 @@ static struct net_device_ops exanic_ndos = {
     .ndo_start_xmit          = exanic_netdev_xmit,
     .ndo_set_rx_mode         = exanic_netdev_set_rx_mode,
     .ndo_set_mac_address     = exanic_netdev_set_mac_addr,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
     .ndo_do_ioctl            = exanic_netdev_ioctl,
+#else
+    /* since linux 5.15.0 version and onwards ndo_eth_ioctl
+     * is called for ethernet specific ioctls such as SIOCSHWTSTAMP
+     * and SIOCGHWTSTAMP and ndo_siocdevprivate deals with SIOCDEVPRIVATE */
+    .ndo_eth_ioctl           = exanic_netdev_ioctl,
+    .ndo_siocdevprivate      = exanic_netdev_siocdevprivate,
+#endif
 
 #if __USE_RH_NETDEV_CHANGE_MTU
     .ndo_change_mtu_rh74     = exanic_netdev_change_mtu,
