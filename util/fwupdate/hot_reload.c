@@ -5,15 +5,18 @@
  * Copyright (C) 2017 Exablaze Pty Ltd
  */
 
+#define _GNU_SOURCE
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
+#include <linux/capability.h>
 #include <exanic/exanic.h>
 #include <exanic/ioctl.h>
 #include <exanic/register.h>
@@ -39,6 +42,63 @@ typedef union {
     uint32_t l[PCIE_CFG_SPACE_MAX_LEN/4];
 } pcie_cfg_space;
 typedef uint16_t pcie_cfg_space_offset;
+
+/* Queries whether current thread has CAP_SYS_ADMIN.
+ * @return 1 if it does; 0 if it doesnt; -1 if we
+ * couldn't detect whether or not it does.
+ */
+static int currthread_has_cap_sys_admin(const bool silent)
+{
+    struct __user_cap_header_struct caphdr;
+    struct __user_cap_data_struct capdata[2];
+    int err;
+
+#ifdef SYS_gettid
+    /* The gettid() syscall should be supported by all kernels
+     * from 2.4.11 but glibc may not export a wrapping symbol
+     * for it. Directly invoke SYS_gettid if it's available;
+     * else fallback to getpid().
+     */
+    caphdr.pid = syscall(SYS_gettid);
+#else
+    caphdr.pid = getpid();
+#endif
+    caphdr.version = _LINUX_CAPABILITY_VERSION_3;
+    err = syscall(SYS_capget, &caphdr, &capdata);
+    if (err == 0)
+    {
+        if (capdata[0].effective & (1 << CAP_SYS_ADMIN))
+            return 1;
+        else
+            return 0;
+    }
+
+    if (errno != EINVAL || caphdr.version == _LINUX_CAPABILITY_VERSION_3)
+    {
+        if (!silent)
+            fprintf(stderr, "Failed to query for CAP_SYS_ADMIN!\n");
+
+        return -1;
+    }
+
+    /* The kernel has set `caphdr::version` to the version
+     * it would prefer for us to use. Call capget() again
+     * with the indicated version.
+     */
+    err = syscall(SYS_capget, &caphdr, &capdata);
+    if (err != 0)
+    {
+        if (!silent)
+            fprintf(stderr, "Failed to query for CAP_SYS_ADMIN!\n");
+
+        return -1;
+    }
+
+    if (capdata[0].effective & (1 << CAP_SYS_ADMIN))
+        return 1;
+    else
+        return 0;
+}
 
 /*
  * Check that the currently loaded firmware has support for hot reloading
@@ -95,6 +155,14 @@ bool check_can_hot_reload(exanic_t *exanic, bool silent)
     {
         if (!silent)
             fprintf(stderr, "ERROR: device still in use\n");
+        return false;
+    }
+
+    if (currthread_has_cap_sys_admin(silent) == 0)
+    {
+        fprintf(stderr, "ERROR: the hot reload feature (-r) "
+                "requires CAP_SYS_ADMIN permissions -- try "
+                "executing as root?\n");
         return false;
     }
 
@@ -196,6 +264,14 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
     if (parent_config_fd != -1)
     {
         parent_config_space_size = read(parent_config_fd, parent_config_space.b, PCIE_CFG_SPACE_MAX_LEN);
+        if (parent_config_space_size < 256)
+        {
+            fprintf(stderr, "PCI config space should be at least 256B. "
+                    "Instead got %zi.\n"
+                    "(Do you have root permissions?)\n",
+                    parent_config_space_size);
+            return NULL;
+        }
         if (parent_config_space_size > 0)
         {
             aer_mask_offset = find_aer_mask(&parent_config_space, parent_config_space_size);
