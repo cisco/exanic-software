@@ -1,5 +1,5 @@
 ===============================================
-Release notes for ExaNIC software release 2.7.2
+Release notes for ExaNIC software release 2.7.3
 ===============================================
 
 This minor release primarily addresses TCP server issues on ExaSock: slow 
@@ -69,6 +69,10 @@ components together if possible.
 
 Change log
 ----------
+2.7.3 [2022-10-13]
+* replacing ndo_do_ioctl with ndo_siocdevprivate on latest kernels(>5.15.0) when dealing with SIOCDEVPRIVATE ioctl
+* adding extra check for CAP_SYS_ADMIN before hot reload
+
 2.7.2 [2022-08-15]
 * driver: fixed minor build issues on Centos stream 9, Rocky Linux 9, RHEL8, Centos8, Rocky8
 * exasock: fixed keepalive issue
