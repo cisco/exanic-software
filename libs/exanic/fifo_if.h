@@ -142,7 +142,7 @@ struct tx_chunk
      * \note The actual data to transmit may not begin at the beginning of the
      * payload due to padding.  See \ref exanic_payload_padding_bytes.
      */
-    char        payload[0];
+    char        payload[];
 };
 
 /**
@@ -172,7 +172,7 @@ struct tx_payload_metadata
     /**
      * TCP payload starts here
      */
-    char    payload[0];
+    char    payload[];
 };
 
 /**
