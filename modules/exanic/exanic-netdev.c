@@ -1064,7 +1064,7 @@ static int exanic_netdev_set_mac_addr(struct net_device *ndev, void *p)
     if (!err)
         err = exanic_get_mac_addr_regs(priv->exanic, priv->port, mac_addr);
     if (!err)
-        memcpy(ndev->dev_addr, mac_addr, ETH_ALEN);
+        eth_hw_addr_set(ndev, mac_addr);
 
     mutex_unlock(mutex);
 
@@ -1943,7 +1943,7 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
 
     err = exanic_get_mac_addr_regs(exanic, port, mac_addr);
     if (!err)
-        memcpy(ndev->dev_addr, mac_addr, ETH_ALEN);
+        eth_hw_addr_set(ndev, mac_addr);
 
     memcpy(ndev->perm_addr, exanic->port[port].orig_mac_addr, ETH_ALEN);
 
