@@ -1064,7 +1064,7 @@ static int exanic_netdev_set_mac_addr(struct net_device *ndev, void *p)
     if (!err)
         err = exanic_get_mac_addr_regs(priv->exanic, priv->port, mac_addr);
     if (!err)
-        memcpy(ndev->dev_addr, mac_addr, ETH_ALEN);
+        eth_hw_addr_set(ndev, mac_addr);
 
     mutex_unlock(mutex);
 
@@ -1932,14 +1932,18 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     spin_lock_init(&priv->tx_lock);
 
     SET_NETDEV_DEV(ndev, exanic_dev(exanic));
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
     netif_napi_add(ndev, &priv->napi, exanic_netdev_poll, 64);
+#else
+    netif_napi_add(ndev, &priv->napi, exanic_netdev_poll);
+#endif
     ndev->ethtool_ops = &exanic_ethtool_ops;
     SET_ETHTOOL_OPS_EXT(ndev, &exanic_ethtool_ops_ext);
     ndev->netdev_ops = &exanic_ndos;
 
     err = exanic_get_mac_addr_regs(exanic, port, mac_addr);
     if (!err)
-        memcpy(ndev->dev_addr, mac_addr, ETH_ALEN);
+        eth_hw_addr_set(ndev, mac_addr);
 
     memcpy(ndev->perm_addr, exanic->port[port].orig_mac_addr, ETH_ALEN);
 
