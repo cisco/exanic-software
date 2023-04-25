@@ -1932,7 +1932,11 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     spin_lock_init(&priv->tx_lock);
 
     SET_NETDEV_DEV(ndev, exanic_dev(exanic));
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
     netif_napi_add(ndev, &priv->napi, exanic_netdev_poll, 64);
+#else
+    netif_napi_add(ndev, &priv->napi, exanic_netdev_poll);
+#endif
     ndev->ethtool_ops = &exanic_ethtool_ops;
     SET_ETHTOOL_OPS_EXT(ndev, &exanic_ethtool_ops_ext);
     ndev->netdev_ops = &exanic_ndos;
