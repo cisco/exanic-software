@@ -25,6 +25,10 @@
 #include "exanic-i2c.h"
 #include "exanic-structs.h"
 
+#if defined(SIOCDEVPRIVATE)
+#define KERNEL_HAS_SIOCDEVPRIVATE
+#endif
+
 /**
  * Module command line parameters
  */
@@ -1204,19 +1208,19 @@ int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
             return exanic_ioctl_get_hw_timestamp(ndev, ifr, cmd);
         }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
+#if !defined(KERNEL_HAS_SIOCDEVPRIVATE)
     case EXAIOCGIFINFO:
         {
             return exanic_ioctl_get_ifinfo(ndev, ifr, cmd);
         }
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
+#endif /* !defined(KERNEL_HAS_SIOCDEVPRIVATE) */
 
     default:
         return -EOPNOTSUPP;
     }
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#if defined(KERNEL_HAS_SIOCDEVPRIVATE)
 int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
                               void __user *data, int cmd)
 {
@@ -1225,7 +1229,7 @@ int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
     else
         return -EOPNOTSUPP;
 }
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
+#endif /* defined(KERNEL_HAS_SIOCDEVPRIVATE) */
 
 static struct net_device_ops exanic_ndos = {
     .ndo_open                = exanic_netdev_open,
@@ -1233,12 +1237,13 @@ static struct net_device_ops exanic_ndos = {
     .ndo_start_xmit          = exanic_netdev_xmit,
     .ndo_set_rx_mode         = exanic_netdev_set_rx_mode,
     .ndo_set_mac_address     = exanic_netdev_set_mac_addr,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
+#if !defined(KERNEL_HAS_SIOCDEVPRIVATE)
     .ndo_do_ioctl            = exanic_netdev_ioctl,
 #else
     /* since linux 5.15.0 version and onwards ndo_eth_ioctl
      * is called for ethernet specific ioctls such as SIOCSHWTSTAMP
-     * and SIOCGHWTSTAMP and ndo_siocdevprivate deals with SIOCDEVPRIVATE */
+     * and SIOCGHWTSTAMP and ndo_siocdevprivate deals with SIOCDEVPRIVATE
+     * However, EL9 has kernel 5.14.x and has SIOCDEVPRIVATE backported */
     .ndo_eth_ioctl           = exanic_netdev_ioctl,
     .ndo_siocdevprivate      = exanic_netdev_siocdevprivate,
 #endif
@@ -1932,7 +1937,7 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     spin_lock_init(&priv->tx_lock);
 
     SET_NETDEV_DEV(ndev, exanic_dev(exanic));
-    netif_napi_add(ndev, &priv->napi, exanic_netdev_poll, 64);
+    netif_napi_add(ndev, &priv->napi, exanic_netdev_poll);
     ndev->ethtool_ops = &exanic_ethtool_ops;
     SET_ETHTOOL_OPS_EXT(ndev, &exanic_ethtool_ops_ext);
     ndev->netdev_ops = &exanic_ndos;
