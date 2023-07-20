@@ -1932,7 +1932,19 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     spin_lock_init(&priv->tx_lock);
 
     SET_NETDEV_DEV(ndev, exanic_dev(exanic));
-    netif_napi_add(ndev, &priv->napi, exanic_netdev_poll, 64);
+    /*
+     * API for netif_napi_add has been changed as of the RHEL 8.8 / 4.18.0 backport series
+     * to drop the weight parameter, with such patchset pending merge into mainline.
+     *
+     * Therefore, use netif_napi_add_weight for anything later than 5.19.0 mainline as well
+     * as RHEL 8.8 backport kernels as that will *always* have a consistent API
+     */
+    #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0) || \
+      ( defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 8) )
+        netif_napi_add_weight(ndev, &priv->napi, exanic_netdev_poll, NAPI_POLL_WEIGHT);
+    #else
+        netif_napi_add(ndev, &priv->napi, exanic_netdev_poll, NAPI_POLL_WEIGHT);
+    #endif
     ndev->ethtool_ops = &exanic_ethtool_ops;
     SET_ETHTOOL_OPS_EXT(ndev, &exanic_ethtool_ops_ext);
     ndev->netdev_ops = &exanic_ndos;
