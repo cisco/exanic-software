@@ -1,6 +1,6 @@
 ExaNIC Software
 ===============
-This repository contains drivers, utilities and development libraries for Exablaze ultra-low-latency network cards (ExaNIC X25, ExaNIC X100, ExaNIC X10, ExaNIC X40, ExaNIC X2, ExaNIC X4, ExaNIC V5P, ExaNIC V9P, ExaNIC GM, and ExaNIC HPT). For full installation instructions and user guide please refer to the [ExaNIC User Guide](http://exablaze.com/docs/exanic/user-guide/).
+This repository contains drivers, utilities and development libraries for Exablaze ultra-low-latency network cards (ExaNIC X25, ExaNIC X100, ExaNIC X10, ExaNIC X40, ExaNIC X2, ExaNIC X4, ExaNIC V5P, ExaNIC V9P, ExaNIC GM, and ExaNIC HPT). For full installation instructions and user guide please refer to the [ExaNIC User Guide](https://www.cisco.com/c/en/us/td/docs/dcn/nexus3550/smartnic/sw/user-guide/cisco-nexus-smartnic-user-guide/index.html).
 
 What's an ExaNIC?
 -----------------
@@ -37,9 +37,7 @@ Installation
 ------------
 To install from source please run ``make`` and ``sudo make install`` from the top level.
 
-Pre-built packages for Ubuntu are available from our [apt](http://www.exablaze.com/downloads/apt/) repository, and pre-built packages for Redhat/CentOS are available from our [yum](http://www.exablaze.com/downloads/yum/) repository.  Packages for ArchLinux are available from [AUR](https://aur.archlinux.org/packages/exanic/).
-
 Support
 -------
-Complete documentation is available from our [website](http://exablaze.com/docs/exanic/user-guide/).  For other questions and comments, you can contact us at supportATexablaze.com.
+Complete documentation is available from our [website](https://www.cisco.com/c/en/us/td/docs/dcn/nexus3550/smartnic/sw/user-guide/cisco-nexus-smartnic-user-guide/index.html). For other questions and comments, you can contact Cisco TAC support team.
 

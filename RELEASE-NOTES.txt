@@ -1,28 +1,22 @@
 ===============================================
-Release notes for ExaNIC software release 2.7.3
+Release notes for ExaNIC software release 2.7.4
 ===============================================
 
-This minor release primarily addresses TCP server issues on ExaSock: slow 
-release of closed sockets, slow connection acceptance rate, FIN and ACK 
-retransmissions, plus other bug fixes. Moreover we have introduced a profiling
-method for TCP ExaSock listening sockets and ExaSock library latency measurement
-points. This release adds a more reliable way to detect HW overruns
-
-This release also addresses some minor build issues on recent RHEL and RHEL-derived
-distributions. It also fixes the getpeername logic which returned successful result
-on unconnected ExaSock TCP sockets.
+This release adds the support for newer  RHEL and RHEL-derived
+distributions as well as Ubuntu 23.04. It also fixed some minor
+compilation warnings and fixes as captured in change log.
 
 Supported distributions
 -----------------------
 The following Linux distributions are officially supported and have been tested
 with this release:
 
-* RHEL 8.4 (kernel 4.18.0-305)
-* RHEL 7.9 (kernel 3.10.0-1160)
-* CentOS 8.4 (kernel 4.18.0-305)
-* CentOS 7.9 (kernel 3.10.0-1160)
-* Ubuntu 21.04 (kernel 5.11.0-25)
-* Ubuntu 20.04.2 LTS (kernel 5.4.0-80)
+* RHEL 9.2 (kernel 5.14.0-284.11.1)
+* RHEL 8.8 (kernel 4.18.0-477.10)
+* Rocky Linux 9.2 (kernel 5.14.0-284.11.1)
+* Rocky Linux 8.8 (kernel 4.18.0-477.10.1)
+* Debian 12 (kernel 6.1)
+* Ubuntu 23.04 (kernel 6.2)
 
 While we strive for broad Linux compatibility in our software, Cisco TAC may not
 be able to provide support for other distributions or custom kernels.
@@ -34,15 +28,15 @@ versions of firmware.  However, if a problem is encountered, please update to
 the latest firmware version before contacting support.  The following firmware
 versions have been tested with this release:
 
-* ExaNIC X25:   20210121 / 20210805 (25G) / FDK 2.9.0
-* ExaNIC X100:  20201111 / 20210618 (40G) / FDK 2.9.0
-* ExaNIC X40:   20210323 / 20190219 (40G) / FDK 2.9.0
-* ExaNIC X10:   20210323 / 20180215 (bridging/mirroring) / FDK 2.9.0
+* ExaNIC X25:   20211215 / 20220629 (25G) / FDK 2.10.1
+* ExaNIC X100:  20220223 / 20210618 (40G) / FDK 2.10.1
+* ExaNIC X40:   20211125 / 20190219 (40G) / FDK 2.10.1
+* ExaNIC X10:   20210604 / 20180215 (bridging/mirroring) / FDK 2.10.1
 * ExaNIC GM:    20201126
 * ExaNIC HPT:   20210323
-* ExaNIC V5P:   20180117 / FDK 2.9.0
-* ExaNIC V9P:   20210204 / FDK 2.9.0
-* ExaNIC V9P-3: 20210407 / FDK 2.9.0
+* ExaNIC V5P:   20180117 / FDK 2.10.1
+* ExaNIC V9P:   20210204 / FDK 2.10.1
+* ExaNIC V9P-3: 20210407 / FDK 2.10.1
 
 Note on userspace/kernel compatibility
 --------------------------------------
@@ -69,6 +63,13 @@ components together if possible.
 
 Change log
 ----------
+2.7.4 [2023-12-21]
+* added the support for RHEL 8.8, 9.2, Rocky Linux 8.8, 9.2, Debian 12, Ubuntu 23.04
+* fixed some compilation warnings
+* added few security related compilation options
+* fixed issue with exasock-stats not showing the stats for multicast
+* added new example application to send preloaded tcp frames from any slot
+
 2.7.3 [2022-10-13]
 * replacing ndo_do_ioctl with ndo_siocdevprivate on latest kernels(>5.15.0) when dealing with SIOCDEVPRIVATE ioctl
 * adding extra check for CAP_SYS_ADMIN before hot reload
