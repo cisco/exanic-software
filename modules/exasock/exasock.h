@@ -123,7 +123,7 @@ int exasock_udp_state_mmap(struct exasock_udp *udp, struct vm_area_struct *vma);
 int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
                            char __user *optval, unsigned int optlen);
 int exasock_udp_getsockopt(struct exasock_udp *udp, int level, int optname,
-                           char __user *optval, unsigned int *optlen);
+                           char __user *optval, unsigned int __user *optlen);
 
 /* exasock-tcp.c */
 struct exasock_tcp;
@@ -145,7 +145,7 @@ int exasock_tcp_state_mmap(struct exasock_tcp *tcp, struct vm_area_struct *vma);
 int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
                            char __user *optval, unsigned int optlen);
 int exasock_tcp_getsockopt(struct exasock_tcp *tcp, int level, int optname,
-                           char __user *optval, unsigned int *optlen);
+                           char __user *optval, unsigned int __user *optlen);
 int exasock_tcp_epoll_add(struct exasock_tcp *tcp, struct exasock_epoll *epoll,
                           int fd);
 int exasock_tcp_epoll_del(struct exasock_tcp *tcp, struct exasock_epoll *epoll);

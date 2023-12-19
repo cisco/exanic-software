@@ -485,7 +485,7 @@ int exasock_udp_setsockopt(struct exasock_udp *udp, int level, int optname,
 }
 
 int exasock_udp_getsockopt(struct exasock_udp *udp, int level, int optname,
-                           char __user *optval, unsigned int *optlen)
+                           char __user *optval, unsigned int __user *optlen)
 {
     BUG_ON(udp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(udp->hdr.socket.domain != AF_INET);

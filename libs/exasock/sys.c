@@ -377,7 +377,7 @@ exa_sys_setsockopt(int fd, int level, int optname, const void *optval,
     req.level = level;
     req.optname = optname;
     req.optval = (void *)optval;
-    req.optlen = optlen;
+    req.set_optlen = optlen;
 
     exasock_override_off();
     ret = ioctl(fd, EXASOCK_IOCTL_SETSOCKOPT, &req);
@@ -396,13 +396,12 @@ exa_sys_getsockopt(int fd, int level, int optname, void *optval,
     req.level = level;
     req.optname = optname;
     req.optval = optval;
-    req.optlen = *optlen;
+    req.get_optlen = optlen;
 
     exasock_override_off();
     ret = ioctl(fd, EXASOCK_IOCTL_GETSOCKOPT, &req);
     exasock_override_on();
 
-    *optlen = req.optlen;
     return ret;
 }
 

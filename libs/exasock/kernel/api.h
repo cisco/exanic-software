@@ -57,7 +57,8 @@ struct exasock_opt_request
     int level;
     int optname;
     char *optval;
-    unsigned int optlen;
+    unsigned int set_optlen;
+    unsigned int *get_optlen;
 };
 
 enum exasock_epoll_ctl_op

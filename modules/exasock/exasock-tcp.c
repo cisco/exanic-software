@@ -3951,7 +3951,7 @@ int exasock_tcp_setsockopt(struct exasock_tcp *tcp, int level, int optname,
 }
 
 int exasock_tcp_getsockopt(struct exasock_tcp *tcp, int level, int optname,
-                           char __user *optval, unsigned int *optlen)
+                           char __user *optval, unsigned int __user *optlen)
 {
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);

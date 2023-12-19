@@ -501,13 +501,13 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             {
                 return exasock_udp_setsockopt((struct exasock_udp *)priv,
                                               req.level, req.optname,
-                                              req.optval, req.optlen);
+                                              req.optval, req.set_optlen);
             }
             else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
             {
                 return exasock_tcp_setsockopt((struct exasock_tcp *)priv,
                                               req.level, req.optname,
-                                              req.optval, req.optlen);
+                                              req.optval, req.set_optlen);
             }
             else
                 return -EINVAL;
@@ -533,11 +533,11 @@ static long exasock_dev_ioctl(struct file *filp, unsigned int cmd,
             if (socket->domain == AF_INET && socket->type == SOCK_DGRAM)
                 err = exasock_udp_getsockopt((struct exasock_udp *)priv,
                                              req.level, req.optname,
-                                             req.optval, &req.optlen);
+                                             req.optval, req.get_optlen);
             else if (socket->domain == AF_INET && socket->type == SOCK_STREAM)
                 err = exasock_tcp_getsockopt((struct exasock_tcp *)priv,
                                              req.level, req.optname,
-                                             req.optval, &req.optlen);
+                                             req.optval, req.get_optlen);
             else
                 return -EINVAL;
 
