@@ -3,7 +3,7 @@ CC=gcc
 CFLAGS=-O3 -Wall -I../../libs
 LDLIBS=-L../../libs/exanic -lexanic -lpthread
 
-BIN=exanic-rx-frame exanic-tx-frame exanic-rx-chunk-inplace exanic-tx-preload exanic-hpt-fiber-len exanic-measure exanic-benchmarker-stac-t0
+BIN=exanic-rx-frame exanic-tx-frame exanic-rx-chunk-inplace exanic-tx-preload exanic-hpt-fiber-len exanic-measure exanic-benchmarker-stac-t0 exanic-tx-buff
 
 all: $(BIN) $(TEST_BIN)
 
@@ -26,6 +26,9 @@ exanic-measure: exanic-measure.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 exanic-benchmarker-stac-t0: exanic-benchmarker-stac-t0.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+exanic-tx-buff: exanic-tx-buff.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 clean:
