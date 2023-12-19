@@ -1,14 +1,6 @@
 #ifndef EXASOCK_UDP_QUEUE_H
 #define EXASOCK_UDP_QUEUE_H
 
-/* Add header and footer size and align to next 64 byte boundary */
-static inline size_t
-exa_udp_queue_entry_size(size_t len)
-{
-    return (len + sizeof(struct exa_udp_queue_hdr) +
-            sizeof(struct exa_udp_queue_ftr) + 63) & ~63;
-}
-
 /* Allocate space in packet receive queue */
 static inline char *
 exa_udp_queue_write_alloc(struct exa_socket * restrict sock,

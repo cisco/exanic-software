@@ -348,6 +348,14 @@ struct exa_udp_queue_ftr
     uint32_t hw_ts_nsec;
 };
 
+/* Add header and footer size and align to next 64 byte boundary */
+static inline size_t
+exa_udp_queue_entry_size(size_t len)
+{
+    return (len + sizeof(struct exa_udp_queue_hdr) +
+            sizeof(struct exa_udp_queue_ftr) + 63) & ~63;
+}
+
 /* Entry is created after a new connection moves to the ESTABLISHED state.
  * Attention!!! Please make sure that after addition/removal of fields the
  * size of the struct is a power-of-2 size.  If the size of the struct needs
