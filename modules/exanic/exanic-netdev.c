@@ -1933,7 +1933,13 @@ int exanic_netdev_alloc(struct exanic *exanic, unsigned port,
     spin_lock_init(&priv->tx_lock);
 
     SET_NETDEV_DEV(ndev, exanic_dev(exanic));
+    /* The weight parameter has been removed from netif_napi_add API
+     * If need to use weight use netif_napi_add_weight */
+#if __HAS_NAPI_WEIGHT_PARAM
     netif_napi_add(ndev, &priv->napi, exanic_netdev_poll, 64);
+#else
+    netif_napi_add(ndev, &priv->napi, exanic_netdev_poll);
+#endif
     ndev->ethtool_ops = &exanic_ethtool_ops;
     SET_ETHTOOL_OPS_EXT(ndev, &exanic_ethtool_ops_ext);
     ndev->netdev_ops = &exanic_ndos;
