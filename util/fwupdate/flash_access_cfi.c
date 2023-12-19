@@ -1,7 +1,7 @@
 /*
  * flash_access_cfi.c: Functions to access CFI flash memory devices on ExaNIC cards
  *
- * Copyright (C) 2020 Exablaze Pty Ltd
+ * Copyright (c) 2020-2022 by Cisco Systems, Inc.
  */
 
 #include <stdint.h>
@@ -58,11 +58,14 @@
 static void cfi_flash_init_interface(struct flash_device *flash)
 {
     /* nWE high, nCE high, nOE high, nL high */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0xf);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nCE | EXANIC_FLASH_CTRL_nOE |
+        EXANIC_FLASH_CTRL_nADV);
     /* dummy read for timing */
     exanic_register_read(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL));
     /* nWE high, nCE low, nOE high, nL low */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x5);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nOE);
 }
 
 static void cfi_flash_set_address(struct flash_device *flash, flash_address_t address)
@@ -74,28 +77,34 @@ static flash_word_t cfi_flash_read_current(struct flash_device *flash)
 {
     flash_word_t data;
     /* nWE high, nCE low, nOE high, nL low, flash to FPGA */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x5);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nOE);
     /* drive OE low */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x1);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE);
     /* dummy read for timing */
     exanic_register_read(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_DIN_CFI));
     data = exanic_register_read(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_DIN_CFI));
     /* return OE high */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x5);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nOE);
     return data;
 }
 
 static void cfi_flash_write_current(struct flash_device *flash, flash_word_t data)
 {
     /* nWE high, nCE low, nOE high, nL low, FPGA to flash */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x15);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nOE | EXANIC_FLASH_CTRL_BUS_DIR);
     exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_DOUT_CFI), data);
     /* drive WE low */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x14);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nOE | EXANIC_FLASH_CTRL_BUS_DIR);
     /* dummy read for timing */
     exanic_register_read(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_DIN_CFI));
     /* return WE high */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0x15);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nOE | EXANIC_FLASH_CTRL_BUS_DIR);
 }
 
 static flash_word_t cfi_flash_read(struct flash_device *flash, flash_address_t address)
@@ -128,7 +137,9 @@ static bool cfi_flash_read_multiple(struct flash_device *flash, flash_address_t 
 static void cfi_flash_release_interface(struct flash_device *flash)
 {
     /* nWE high, nCE high, nOE high, nL high */
-    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL), 0xf);
+    exanic_register_write(flash->exanic, REG_HW_INDEX(REG_HW_FLASH_CTRL),
+        EXANIC_FLASH_CTRL_nWE | EXANIC_FLASH_CTRL_nCE | EXANIC_FLASH_CTRL_nOE |
+        EXANIC_FLASH_CTRL_nADV);
 }
 
 /**
