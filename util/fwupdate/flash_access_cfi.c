@@ -360,7 +360,7 @@ struct flash_device *flash_open_cfi(exanic_t *exanic, bool recovery_partition,
     flash_size_t block_size_1, block_size_2, block_size_3, device_size,
                  num_blocks_1, num_blocks_2, num_blocks_3, device_end;
 
-    flash = calloc(1, sizeof(struct flash_device));
+    flash = (struct flash_device *) calloc(1, sizeof(struct flash_device));
     if (!flash)
     {
         fprintf(stderr, "ERROR: memory allocation failed\n");

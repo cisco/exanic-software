@@ -57,7 +57,7 @@ static bool get_uint32_be(FILE *fp, uint32_t *val)
 
 static uint8_t *get_field(FILE *fp, size_t length)
 {
-    uint8_t *data = malloc(length);
+    uint8_t *data = (uint8_t *) malloc(length);
     if (!data)
     {
         fprintf(stderr, "ERROR: malloc failed\n");
@@ -127,7 +127,7 @@ static flash_word_t *read_bit_file(FILE *fp, flash_size_t partition_size, bool b
                 if (!build_info)
                     return NULL;
                 /* use first field of build information as firmware ID */
-                delimiter = memchr(build_info, ';', field_length);
+                delimiter = (char *) memchr(build_info, ';', field_length);
                 if (!delimiter)
                 {
                     fprintf(stderr, "ERROR: unexpected build info read from bitstream: %.*s\n",
@@ -237,7 +237,7 @@ static flash_word_t *read_fw_file(FILE *fp, flash_size_t partition_size,
         *delimiter = 0;
     *firmware_id = strdup(&line[1]);
 
-    flash_data = malloc(partition_size*sizeof(flash_word_t));
+    flash_data = (flash_word_t *) malloc(partition_size*sizeof(flash_word_t));
     if (!flash_data)
     {
         fprintf(stderr, "ERROR: malloc failed\n");
@@ -257,7 +257,7 @@ static flash_word_t *read_fw_file(FILE *fp, flash_size_t partition_size,
              || !parse_hex_byte(&line[5], &line_address_lo)
              || !parse_hex_byte(&line[7], &type)
              || (bytes > sizeof(data))
-             || (line_len < 11+2*bytes)
+             || (line_len < 11u+2u*bytes)
              || !parse_hex_byte(&line[9+2*bytes], &checksum))
         {
             fprintf(stderr, "ERROR: parse error on line %u\n", line_number);
@@ -332,7 +332,7 @@ static flash_word_t *read_gz_file(const char *filename, flash_size_t partition_s
     FILE *pipefp;
     uint16_t *ret;
 
-    pipecmd = malloc(cmdlen);
+    pipecmd = (char *) malloc(cmdlen);
     if (pipecmd == NULL)
     {
         fprintf(stderr, "ERROR: malloc failed\n");

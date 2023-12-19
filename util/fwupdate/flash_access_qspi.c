@@ -268,7 +268,7 @@ static struct flash_ops qspi_ops = {
 struct flash_device *flash_open_qspi(exanic_t *exanic, bool recovery_partition,
         flash_size_t *partition_size)
 {
-    struct flash_device *flash = calloc(1, sizeof *flash);
+    struct flash_device *flash = (struct flash_device *) calloc(1, sizeof *flash);
     if (!flash)
     {
         fprintf(stderr, "ERROR: memory allocation failed\n");
