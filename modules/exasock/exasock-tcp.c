@@ -2158,7 +2158,10 @@ static bool exasock_tcp_intercept(struct sk_buff *skb)
     /* Queue the packet to be processed after a short delay */
     /* no need for locking because lock is acquired internally by skb_queue_head function */
     skb_queue_head(&tcp_packets, skb);
-    queue_delayed_work(tcp_workqueue, &tcp_rx_work, 1);
+    /* Modify delay to schedule work immediately if any pending
+     * work in the queue */
+    if (!queue_delayed_work(tcp_workqueue, &tcp_rx_work, 1))
+        mod_delayed_work(tcp_workqueue, &tcp_rx_work, 0);
     return true;
 }
 

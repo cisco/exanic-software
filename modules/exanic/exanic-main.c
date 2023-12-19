@@ -256,7 +256,11 @@ void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
 
     /* Allocate DMA resources. */
     virt_region = dma_alloc_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
-                                     rx_region_dma, GFP_KERNEL | __GFP_COMP);
+                                     rx_region_dma, GFP_KERNEL
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+                                     | __GFP_COMP
+#endif
+                                     );
 
     /* Fill with 0xFF because generation number starts at 0. */
     if (virt_region)
@@ -1210,7 +1214,11 @@ static int exanic_probe(struct pci_dev *pdev,
     /* Set up TX feedback region */
     exanic->tx_feedback_virt = dma_alloc_coherent(&exanic->pci_dev->dev,
             EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
-            &exanic->tx_feedback_dma, GFP_KERNEL | __GFP_COMP);
+            &exanic->tx_feedback_dma, GFP_KERNEL
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+            | __GFP_COMP
+#endif
+            );
     if (!exanic->tx_feedback_virt)
     {
         dev_err(dev, DRV_NAME

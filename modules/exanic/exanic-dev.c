@@ -317,7 +317,9 @@ static int exanic_map_tx_feedback(struct exanic *exanic,
     int err;
     struct device *dev = &exanic->pci_dev->dev;
     size_t map_size = vma->vm_end - vma->vm_start;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
     size_t off;
+#endif
     phys_addr_t phys_addr;
 
     /* Size check */
@@ -331,6 +333,20 @@ static int exanic_map_tx_feedback(struct exanic *exanic,
     }
 
     /* Do the mapping */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+    vma->vm_pgoff = 0;
+    err = dma_mmap_coherent(dev, vma, exanic->tx_feedback_virt,
+            exanic->tx_feedback_dma, map_size);
+    if (err)
+    {
+        phys_addr = virt_to_phys(exanic->tx_feedback_virt);
+        dev_err(dev, DRV_NAME
+                "%u: dma_mmap_coherent failed for RX region "
+                "at phys: 0x%pap, virt: 0x%p\n", exanic->id,
+                &phys_addr, (void *)(vma->vm_start));
+        return err;
+    }
+#else
     for (off = 0; off < map_size; off += PAGE_SIZE)
     {
         err = vm_insert_page(vma, vma->vm_start + off,
@@ -345,6 +361,7 @@ static int exanic_map_tx_feedback(struct exanic *exanic,
             return err;
         }
     }
+#endif
 
     phys_addr = virt_to_phys(exanic->tx_feedback_virt);
     dev_dbg(dev, DRV_NAME
@@ -361,18 +378,29 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     int err;
     struct device *dev = &exanic->pci_dev->dev;
     void *rx_region_virt;
-    size_t map_size = vma->vm_end - vma->vm_start;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+    dma_addr_t rx_region_dma;
+#else
     size_t off;
+#endif
+    size_t map_size = vma->vm_end - vma->vm_start;
     phys_addr_t phys_addr;
 
     if (buffer_num > 0)
     {
         rx_region_virt =
           exanic->port[port_num].filter_buffers[buffer_num - 1].region_virt;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+        rx_region_dma =
+          exanic->port[port_num].filter_buffers[buffer_num - 1].region_dma;
+#endif
     }
     else
     {
         rx_region_virt = exanic->port[port_num].rx_region_virt;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+        rx_region_dma = exanic->port[port_num].rx_region_dma;
+#endif
     }
 
     /* RX region can only be mapped read-only */
@@ -443,6 +471,20 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     }
 
     /* Do the mapping */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+    vma->vm_pgoff = 0;
+    err = dma_mmap_coherent(dev, vma, rx_region_virt,
+            rx_region_dma, map_size);
+    if (err)
+    {
+        phys_addr = virt_to_phys(rx_region_virt);
+        dev_err(dev, DRV_NAME
+                "%u: dma_mmap_coherent failed for RX region "
+                "at phys: 0x%pap, virt: 0x%p\n", exanic->id,
+                &phys_addr, (void *)(vma->vm_start));
+        return err;
+    }
+#else
     for (off = 0; off < map_size; off += PAGE_SIZE)
     {
         err = vm_insert_page(vma, vma->vm_start + off,
@@ -457,6 +499,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
             return err;
         }
     }
+#endif
 
     phys_addr = virt_to_phys(rx_region_virt);
     dev_dbg(dev, DRV_NAME

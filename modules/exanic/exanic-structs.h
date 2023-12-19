@@ -15,6 +15,11 @@
 #include "../../libs/exanic/const.h"
 #include "../../libs/exanic/hw_info.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
+#define pci_set_dma_mask(pdev, mask) dma_set_mask(&pdev->dev, mask)
+#define pci_set_consistent_dma_mask(pdev, mask) dma_set_coherent_mask(&pdev->dev, mask)
+#endif
+
 /**
  * A context is allocated for each open file descriptor and for each
  * in-kernel user of the driver.

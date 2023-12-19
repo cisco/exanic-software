@@ -375,6 +375,47 @@ static bool exanic_ptp_adj_allowed(struct exanic *exanic)
     return true;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+static int exanic_phc_adjfine(struct ptp_clock_info *ptp, long scaled_ppm)
+{
+    struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
+    uint32_t adj_val;
+    s32 delta = scaled_ppm_to_ppb(scaled_ppm);
+
+    if (!exanic_ptp_adj_allowed(exanic))
+        return -EOPNOTSUPP;
+
+    /* delta is desired frequency offset from nominal in ppb */
+
+    if (exanic->caps & EXANIC_CAP_CLK_ADJ_EXT)
+    {
+        /* Use extended clock correction register
+         * Convert from parts per billion to parts per 2^40 */
+        adj_val = (int32_t)(((int64_t)delta << 31) / 1953125);
+
+        writel(adj_val, exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_CLK_ADJ_EXT));
+    }
+    else
+    {
+        adj_val = (delta == 0) ? 0 : (1000000000 / abs(delta));
+
+        /* If delta is too small to be represented by the maximum adjustment
+         * interval, treat as zero */
+        if (adj_val > EXANIC_CLK_ADJ_MAX)
+            adj_val = 0;
+        else if (delta > 0)
+            adj_val |= EXANIC_CLK_ADJ_INC;
+        else if (delta < 0)
+            adj_val |= EXANIC_CLK_ADJ_DEC;
+
+        writel(adj_val, exanic->regs_virt +
+                REG_EXANIC_OFFSET(REG_EXANIC_CLK_ADJ));
+    }
+
+    return 0;
+}
+#else
 static int exanic_phc_adjfreq(struct ptp_clock_info *ptp, s32 delta)
 {
     struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
@@ -413,6 +454,7 @@ static int exanic_phc_adjfreq(struct ptp_clock_info *ptp, s32 delta)
 
     return 0;
 }
+#endif
 
 /* Common code for exanic_phc_adjtime and exanic_phc_settime */
 static int exanic_phc_adjtime_common(struct ptp_clock_info *ptp,
@@ -607,7 +649,11 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
 static const struct ptp_clock_info exanic_ptp_clock_info = {
     .owner      = THIS_MODULE,
     .pps        = 1,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+    .adjfine    = exanic_phc_adjfine,
+#else
     .adjfreq    = exanic_phc_adjfreq,
+#endif
     .adjtime    = exanic_phc_adjtime,
 #ifdef PTP_1588_CLOCK_USES_TIMESPEC64
     .gettime64  = exanic_phc_gettime,
