@@ -1204,19 +1204,19 @@ int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
             return exanic_ioctl_get_hw_timestamp(ndev, ifr, cmd);
         }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
+#if __HAS_KERNEL_NDO_ETH_IOCTL == 0
     case EXAIOCGIFINFO:
         {
             return exanic_ioctl_get_ifinfo(ndev, ifr, cmd);
         }
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0) */
+#endif
 
     default:
         return -EOPNOTSUPP;
     }
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+#if __HAS_KERNEL_NDO_ETH_IOCTL
 int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
                               void __user *data, int cmd)
 {
@@ -1225,7 +1225,7 @@ int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
     else
         return -EOPNOTSUPP;
 }
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) */
+#endif /* __HAS_KERNEL_NDO_ETH_IOCTL*/
 
 static struct net_device_ops exanic_ndos = {
     .ndo_open                = exanic_netdev_open,
@@ -1233,14 +1233,15 @@ static struct net_device_ops exanic_ndos = {
     .ndo_start_xmit          = exanic_netdev_xmit,
     .ndo_set_rx_mode         = exanic_netdev_set_rx_mode,
     .ndo_set_mac_address     = exanic_netdev_set_mac_addr,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
-    .ndo_do_ioctl            = exanic_netdev_ioctl,
-#else
+#if __HAS_KERNEL_NDO_ETH_IOCTL
     /* since linux 5.15.0 version and onwards ndo_eth_ioctl
      * is called for ethernet specific ioctls such as SIOCSHWTSTAMP
-     * and SIOCGHWTSTAMP and ndo_siocdevprivate deals with SIOCDEVPRIVATE */
+     * and SIOCGHWTSTAMP and ndo_siocdevprivate deals with SIOCDEVPRIVATE
+     * some linux distros backported those changes to linux 5.14 */
     .ndo_eth_ioctl           = exanic_netdev_ioctl,
     .ndo_siocdevprivate      = exanic_netdev_siocdevprivate,
+#else
+    .ndo_do_ioctl            = exanic_netdev_ioctl,
 #endif
 
 #if __USE_RH_NETDEV_CHANGE_MTU

@@ -8,7 +8,8 @@ RH_ETHTOOL_OPS_EXT := ${shell egrep -c 'ethtool_ops_ext\b' $(srctree)/include/li
 HAS_NETDEVICE_DEV_PORT := ${shell grep -c 'dev_port' $(srctree)/include/linux/netdevice.h}
 USE_RH_NETDEV_CHANGE_MTU := ${shell grep -c 'RH_KABI_RENAME.*ndo_change_mtu' $(srctree)/include/linux/netdevice.h}
 HAS_KERNEL_ETHTOOL_COALESCE_STRUCT := ${shell egrep -c '^struct kernel_ethtool_coalesce' $(srctree)/include/linux/ethtool.h}
-ccflags-y := -D__HAS_NETDEVICE_DEV_PORT=$(HAS_NETDEVICE_DEV_PORT) -D__USE_RH_NETDEV_CHANGE_MTU=$(USE_RH_NETDEV_CHANGE_MTU) -D__RH_ETHTOOL_OPS_EXT=$(RH_ETHTOOL_OPS_EXT) -D__HAS_KERNEL_ETHTOOL_COALESCE=$(HAS_KERNEL_ETHTOOL_COALESCE_STRUCT)
+HAS_KERNEL_NDO_ETH_IOCTL := ${shell egrep -c "^\s*int\s*\(\*ndo_eth_ioctl\)" $(srctree)/include/linux/netdevice.h}
+ccflags-y := -D__HAS_NETDEVICE_DEV_PORT=$(HAS_NETDEVICE_DEV_PORT) -D__USE_RH_NETDEV_CHANGE_MTU=$(USE_RH_NETDEV_CHANGE_MTU) -D__RH_ETHTOOL_OPS_EXT=$(RH_ETHTOOL_OPS_EXT) -D__HAS_KERNEL_ETHTOOL_COALESCE=$(HAS_KERNEL_ETHTOOL_COALESCE_STRUCT) -D__HAS_KERNEL_NDO_ETH_IOCTL=$(HAS_KERNEL_NDO_ETH_IOCTL)
 
 else # normal part makefile
 
