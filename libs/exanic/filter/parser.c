@@ -31,7 +31,6 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
     int vlan = 0, ip = 0, tcp = 0, udp = 0, arp = 0, icmp = 0, igmp = 0;
     uint16_t vlan_tci = 0, vlan_tci_mask = 0;
     size_t eth_end = 0, ip_end = 0;
-    struct ethhdr *ethhdr_pat = NULL, *ethhdr_mask = NULL;
     struct vlan_ethhdr *vlan_ethhdr_pat = NULL, *vlan_ethhdr_mask = NULL;
     uint16_t *eth_proto_pat = NULL, *eth_proto_mask = NULL;
     struct iphdr *iphdr_pat = NULL, *iphdr_mask = NULL;
@@ -129,10 +128,8 @@ int exanic_parse_filter_string(const char *filter, char *pattern, char *mask,
     }
     else
     {
-        ethhdr_pat = (struct ethhdr *)pattern;
-        ethhdr_mask = (struct ethhdr *)mask;
-        eth_proto_pat = &ethhdr_pat->h_proto;
-        eth_proto_mask = &ethhdr_mask->h_proto;
+        eth_proto_pat = (uint16_t *)(pattern + (2 * ETH_ALEN));
+        eth_proto_mask = (uint16_t *)(mask + (2 * ETH_ALEN));
         eth_end = sizeof(struct ethhdr);
     }
 

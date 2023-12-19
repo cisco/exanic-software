@@ -16,10 +16,7 @@ static inline void
 exa_udp_tx_init(struct exa_udp_tx * restrict ctx)
 {
     /* Prepare cached header and partial checksum */
-    ctx->hdr.uh_sport = 0;
-    ctx->hdr.uh_dport = 0;
-    ctx->hdr.uh_ulen = 0;
-    ctx->hdr.uh_sum = 0;
+    memset(&ctx->hdr, 0, sizeof(ctx->hdr));
     ctx->partial_csum = csum(&ctx->hdr, sizeof(struct udphdr),
                              IPPROTO_UDP << 8);
 }
