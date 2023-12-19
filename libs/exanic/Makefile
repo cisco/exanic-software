@@ -4,7 +4,7 @@ LIBDIR=$(DESTDIR)$(PREFIX)/lib
 DEVLIBDIR=$(LIBDIR)
 
 CC=gcc
-CFLAGS=-O3 -Wall -std=gnu99 -fPIC -D_FILE_OFFSET_BITS=64
+CFLAGS=-O3 -Wall -std=gnu99 -fPIC -D_FILE_OFFSET_BITS=64 -fstack-protector-strong -D_FORTIFY_SOURCE=2
 
 LIB=libexanic.a
 INCLUDES=config.h fifo_rx.h fifo_tx.h port.h time.h util.h filter.h firewall.h exanic.h register.h pcie_if.h fifo_if.h ioctl.h const.h hw_info.h

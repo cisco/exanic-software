@@ -6,11 +6,11 @@ DEVLIBDIR=$(LIBDIR)
 ABSDIR=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 INCLUDES=$(ABSDIR)/.. $(ABSDIR)/include
-CFLAGS=-fPIC -Wall -std=c99 -fvisibility=hidden $(addprefix -I, $(INCLUDES))
+CFLAGS=-fPIC -Wall -std=c99 -fvisibility=hidden -fstack-protector-strong -O3 -D_FORTIFY_SOURCE=2 $(addprefix -I, $(INCLUDES))
 DEBUG_CFLAGS=-g
 RELEASE_CFLAGS=-O3 -DNDEBUG
 CC=gcc
-LDFLAGS=-shared
+LDFLAGS=-shared -Wl,-z,relro -Wl,-z,now
 LDPATH=$(ABSDIR)/../exanic
 LDLIBS=-ldl -lrt -lexanic $(addprefix -L, $(LDPATH))
 
