@@ -7,6 +7,15 @@ struct fd_list
     struct fd_list* next;
 };
 
+static inline struct timespec
+convert_timeval_to_timespec(const struct timeval* ts)
+{
+    struct timespec ret;
+    ret.tv_sec  = ts->tv_sec;
+    ret.tv_nsec = ts->tv_usec * 1000;
+    return ret;
+}
+
 static inline bool
 ts_vld(const struct timespec *ts)
 {
@@ -188,7 +197,7 @@ fdlist_insert(struct fd_list** head, int fd)
 #define do_socket_poll_timeout(sock, to_val, ready_func, ret, ...)      \
     do                                                                  \
     {                                                                   \
-        const struct timespec *to = (const struct timespec *)&to_val;   \
+        const struct timespec to = convert_timeval_to_timespec(&to_val);\
         struct timespec t_limit, t_now;                                 \
         int gen_id = sock->gen_id;                                      \
         assert(exa_read_locked(&sock->lock));                           \
@@ -198,7 +207,7 @@ fdlist_insert(struct fd_list** head, int fd)
             ret = -1;                                                   \
             goto __do_socket_poll_timeout_end;                          \
         }                                                               \
-        ts_add(&t_limit, to);                                           \
+        ts_add(&t_limit, &to);                                          \
         while (exa_trylock(&exasock_poll_lock) == 0)                    \
         {                                                               \
             if (ready_func(sock, &ret, __VA_ARGS__))                    \
@@ -369,7 +378,7 @@ fdlist_insert(struct fd_list** head, int fd)
 #define do_socket_wait_timeout(sock, fd, to_val, ready_func, ret, ...)  \
     do                                                                  \
     {                                                                   \
-        const struct timespec *to = (const struct timespec *)&to_val;   \
+        const struct timespec to = convert_timeval_to_timespec(&to_val);\
         struct timespec t_limit, t_now;                                 \
         int gen_id = sock->gen_id;                                      \
         assert(exa_read_locked(&sock->lock));                           \
@@ -379,7 +388,7 @@ fdlist_insert(struct fd_list** head, int fd)
             ret = -1;                                                   \
             goto __do_socket_wait_timeout_end;                          \
         }                                                               \
-        ts_add(&t_limit, to);                                           \
+        ts_add(&t_limit, &to);                                          \
         while (exa_trylock(&exasock_poll_lock) == 0)                    \
         {                                                               \
             if (ready_func(sock, &ret, __VA_ARGS__))                    \
