@@ -18,7 +18,12 @@
     && LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) \
     && !__HAS_NETDEV_CLASS_CREATE_FILE_NS
 static const void *
-exabond_get_sysfs_namespace(struct class *cls,
+exabond_get_sysfs_namespace(
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+                            const struct class *cls,
+#else
+                            struct class *cls,
+#endif
                             const struct class_attribute *attr)
 {
     /* This will need to be augmented if we wish to support net namespacing
@@ -29,8 +34,15 @@ exabond_get_sysfs_namespace(struct class *cls,
 #endif
 
 static ssize_t
-exabond_masters_show(struct class *c,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
+exabond_masters_show(
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+                     const struct class *c,
+#else
+                     struct class *c,
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+                     const struct class_attribute *cattr,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
                      struct class_attribute *cattr,
 #endif
                      char *buf)
@@ -71,8 +83,15 @@ exabond_masters_show(struct class *c,
 }
 
 static ssize_t
-exabond_masters_store(struct class *c,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
+exabond_masters_store(
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+                      const struct class *c,
+#else
+                      struct class *c,
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+                      const struct class_attribute *cattr,
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
                       struct class_attribute *cattr,
 #endif
                       const char *buf, size_t count)

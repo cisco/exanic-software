@@ -1058,7 +1058,7 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_req_regions;
     }
 
-#if defined(CONFIG_PCIEAER)
+#if defined(CONFIG_PCIEAER) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)
     pci_enable_pcie_error_reporting(pdev);
 #endif
     pci_set_master(pdev);
@@ -1883,7 +1883,7 @@ err_interface_ver:
 err_regs_ioremap:
 err_regs_size:
 err_regs_bar_type:
-#if defined(CONFIG_PCIEAER)
+#if defined(CONFIG_PCIEAER) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)
     pci_disable_pcie_error_reporting(pdev);
 #endif
     pci_release_regions(pdev);
@@ -2002,7 +2002,7 @@ static void exanic_remove(struct pci_dev *pdev)
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);
 
-#if defined(CONFIG_PCIEAER)
+#if defined(CONFIG_PCIEAER) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)
     pci_disable_pcie_error_reporting(pdev);
 #endif
     pci_release_regions(pdev);
