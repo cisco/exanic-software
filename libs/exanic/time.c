@@ -71,9 +71,7 @@ void exanic_cycles_to_timespec(exanic_t *exanic, exanic_cycles_t cycles,
 
 int64_t exanic_cycles_to_ns(exanic_t *exanic, exanic_cycles_t cycles)
 {
-    struct timespec ts;
-    exanic_cycles_to_timespec(exanic, cycles, &ts);
-    return ts.tv_sec * NANOS_PER_SEC + ts.tv_nsec;
+    return cycles * NANOS_PER_SEC / exanic->tick_hz;
 }
 
 int64_t exanic_cycles_to_ps(exanic_t *exanic, exanic_cycles_t cycles,
