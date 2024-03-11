@@ -1648,6 +1648,9 @@ static struct ethtool_ops exanic_ethtool_ops = {
     .get_priv_flags         = exanic_netdev_get_priv_flags,
     .set_priv_flags         = exanic_netdev_set_priv_flags,
     .get_sset_count         = exanic_netdev_get_sset_count,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
+    .supported_coalesce_params = ETHTOOL_COALESCE_USECS,
+#endif
     .get_coalesce           = exanic_netdev_get_coalesce,
     .set_coalesce           = exanic_netdev_set_coalesce,
 #ifdef ETHTOOL_COALESCE_RX_USECS
