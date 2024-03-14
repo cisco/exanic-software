@@ -6,11 +6,11 @@ libexanic interface.
 
 exanic-rx-frame.c
 -----------------
-Basic example of how to send a frame using the libexanic API.
+Basic example of how to receive a frame using the libexanic API.
 
 exanic-tx-frame.c
 -----------------
-Basic example of how to receive a frame using the libexanic API.
+Basic example of how to send a frame using the libexanic API.
 
 exanic-rx-chunk-inplace.c
 -------------------------
