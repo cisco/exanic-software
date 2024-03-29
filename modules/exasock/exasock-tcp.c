@@ -1426,8 +1426,10 @@ static void exasock_tcp_dead(struct kref *ref)
 /* need biglock for this one function to avoid race condition */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
 static DECLARE_MUTEX(update_biglock);
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0)
 static DEFINE_SEMAPHORE(update_biglock);
+#else
+static DEFINE_SEMAPHORE(update_biglock, 1);
 #endif
 int exasock_tcp_update(struct exasock_tcp *tcp,
                        uint32_t local_addr, uint16_t local_port,
