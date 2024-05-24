@@ -29,9 +29,9 @@ exabond_get_sysfs_namespace(struct class *cls,
 #endif
 
 static ssize_t
-exabond_masters_show(struct class *c,
+exabond_masters_show(const struct class *c,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
-                     struct class_attribute *cattr,
+                     const struct class_attribute *cattr,
 #endif
                      char *buf)
 {
@@ -71,9 +71,9 @@ exabond_masters_show(struct class *c,
 }
 
 static ssize_t
-exabond_masters_store(struct class *c,
+exabond_masters_store(const struct class *c,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
-                      struct class_attribute *cattr,
+                      const struct class_attribute *cattr,
 #endif
                       const char *buf, size_t count)
 {
