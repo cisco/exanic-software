@@ -18,9 +18,6 @@
 #include <linux/pci-aspm.h>
 #endif
 #include <linux/interrupt.h>
-#if defined(CONFIG_PCIEAER)
-#include <linux/aer.h>
-#endif
 #include <linux/fs.h>
 #include <linux/delay.h>
 #include <linux/if_arp.h>
@@ -1058,9 +1055,6 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_req_regions;
     }
 
-#if defined(CONFIG_PCIEAER)
-    pci_enable_pcie_error_reporting(pdev);
-#endif
     pci_set_master(pdev);
     pci_set_drvdata(pdev, exanic);
     exanic->pci_dev = pdev;
@@ -1883,9 +1877,6 @@ err_interface_ver:
 err_regs_ioremap:
 err_regs_size:
 err_regs_bar_type:
-#if defined(CONFIG_PCIEAER)
-    pci_disable_pcie_error_reporting(pdev);
-#endif
     pci_release_regions(pdev);
 err_req_regions:
     pci_disable_device(pdev);
@@ -2002,9 +1993,6 @@ static void exanic_remove(struct pci_dev *pdev)
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);
 
-#if defined(CONFIG_PCIEAER)
-    pci_disable_pcie_error_reporting(pdev);
-#endif
     pci_release_regions(pdev);
     pci_disable_device(pdev);
 }
