@@ -1,6 +1,6 @@
 Name:           exanic
 Version:        2.7.4
-Release:        2%{?dist}
+Release:        3%{?dist}
 
 Summary:        ExaNIC drivers and software
 Group:          System Environment/Kernel
