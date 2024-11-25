@@ -1426,6 +1426,8 @@ static void exasock_tcp_dead(struct kref *ref)
 /* need biglock for this one function to avoid race condition */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
 static DECLARE_MUTEX(update_biglock);
+#elif defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309
+static DEFINE_SEMAPHORE(update_biglock, 1);
 #else
 static DEFINE_SEMAPHORE(update_biglock);
 #endif
