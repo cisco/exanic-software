@@ -254,7 +254,8 @@ void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
     /* Allocate DMA resources. */
     virt_region = dma_alloc_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
                                      rx_region_dma, GFP_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+#if defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309 // No __GFP_COMP for el9.5 (kernel 5.14.0-503.14.1 and beyond)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
                                      | __GFP_COMP
 #endif
                                      );
@@ -1209,7 +1210,8 @@ static int exanic_probe(struct pci_dev *pdev,
     exanic->tx_feedback_virt = dma_alloc_coherent(&exanic->pci_dev->dev,
             EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
             &exanic->tx_feedback_dma, GFP_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+#if defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309 // No __GFP_COMP for el9.5 (kernel 5.14.0-503.14.1 and beyond)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
             | __GFP_COMP
 #endif
             );
