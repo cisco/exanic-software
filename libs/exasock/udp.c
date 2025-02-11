@@ -16,11 +16,13 @@
 #include "ip.h"
 #include "udp.h"
 
-struct exa_hashtable __exa_udp_sockfds;
+struct exa_hashtable __exa_udp_sockfds_ucast;
+struct exa_hashtable __exa_udp_sockfds_mcast;
 
 __attribute__((constructor))
 void
 __exa_udp_init(void)
 {
-    exa_hashtable_init(&__exa_udp_sockfds);
+    exa_hashtable_init(&__exa_udp_sockfds_ucast);
+    exa_hashtable_init(&__exa_udp_sockfds_mcast);
 }
