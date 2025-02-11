@@ -620,7 +620,7 @@ sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
 
     TRACE_CALL("sendmmsg");
     TRACE_ARG(INT, sockfd);
-    TRACE_ARG(MMSG_PTR, msgvec, SSIZE_MAX);
+    TRACE_ARG(MMSG_PTR, msgvec, vlen);
     TRACE_ARG(INT, vlen);
     TRACE_LAST_ARG(BITS, flags, msg_flags);
     TRACE_FLUSH();

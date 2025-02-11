@@ -1,7 +1,8 @@
 #ifndef EXASOCK_UDP_H
 #define EXASOCK_UDP_H
 
-extern struct exa_hashtable __exa_udp_sockfds;
+extern struct exa_hashtable __exa_udp_sockfds_ucast;
+extern struct exa_hashtable __exa_udp_sockfds_mcast;
 
 struct exa_udp_tx
 {
@@ -103,19 +104,19 @@ exa_udp_validate_csum(char *hdr, char *hdr_end, uint64_t * restrict csum)
 static inline void
 exa_udp_insert(int fd)
 {
-    exa_hashtable_ucast_insert(&__exa_udp_sockfds, fd);
+    exa_hashtable_ucast_insert(&__exa_udp_sockfds_ucast, fd);
 }
 
 static inline void
 exa_udp_remove(int fd)
 {
-    exa_hashtable_ucast_remove(&__exa_udp_sockfds, fd);
+    exa_hashtable_ucast_remove(&__exa_udp_sockfds_ucast, fd);
 }
 
 static inline void
 exa_udp_mcast_insert(int fd, struct exa_mcast_endpoint * restrict mc_ep)
 {
-    exa_hashtable_mcast_insert(&__exa_udp_sockfds, fd, mc_ep);
+    exa_hashtable_mcast_insert(&__exa_udp_sockfds_mcast, fd, mc_ep);
 }
 
 static inline void
@@ -136,7 +137,7 @@ exa_udp_mcast_insert_all(int fd)
 static inline void
 exa_udp_mcast_remove(int fd, struct exa_mcast_endpoint * restrict mc_ep)
 {
-    exa_hashtable_mcast_remove(&__exa_udp_sockfds, fd, mc_ep);
+    exa_hashtable_mcast_remove(&__exa_udp_sockfds_mcast, fd, mc_ep);
 }
 
 static inline void
@@ -158,9 +159,9 @@ static inline int
 exa_udp_lookup(struct exa_endpoint * restrict ep, in_addr_t if_addr)
 {
     if (IN_MULTICAST(ntohl(ep->addr.local)))
-        return exa_hashtable_mcast_lookup(&__exa_udp_sockfds, ep, if_addr);
+        return exa_hashtable_mcast_lookup(&__exa_udp_sockfds_mcast, ep, if_addr);
 
-    return exa_hashtable_ucast_lookup(&__exa_udp_sockfds, ep);
+    return exa_hashtable_ucast_lookup(&__exa_udp_sockfds_ucast, ep);
 }
 
 static inline void
