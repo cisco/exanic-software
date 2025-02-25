@@ -1,6 +1,6 @@
 Name:           exanic
-Version:        2.7.2-git
-Release:        1%{?dist}
+Version:        2.7.4
+Release:        3%{?dist}
 
 Summary:        ExaNIC drivers and software
 Group:          System Environment/Kernel

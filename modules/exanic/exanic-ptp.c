@@ -375,7 +375,8 @@ static bool exanic_ptp_adj_allowed(struct exanic *exanic)
     return true;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+// Use adjfine for el9.5 (kernel 5.14.0-503.14.1 and beyond), and kernels 6.2.0 and beyond
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
 static int exanic_phc_adjfine(struct ptp_clock_info *ptp, long scaled_ppm)
 {
     struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
@@ -649,7 +650,8 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
 static const struct ptp_clock_info exanic_ptp_clock_info = {
     .owner      = THIS_MODULE,
     .pps        = 1,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+// Use adjfine for el9.5 (kernel 5.14.0-503.14.1 and beyond), and kernels 6.2.0 and beyond
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
     .adjfine    = exanic_phc_adjfine,
 #else
     .adjfreq    = exanic_phc_adjfreq,

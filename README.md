@@ -37,6 +37,15 @@ Installation
 ------------
 To install from source please run ``make`` and ``sudo make install`` from the top level.
 
+RPM Build
+---------
+Run:
+```
+$ export exanic_version=2.7.4
+$ (cd .. && tar -czf $HOME/rpmbuild/SOURCES/exanic-${exanic_version}.tar.gz exanic-software --transform=s#exanic-software/#exanic-${exanic_version}/#g)
+$ rpmbuild -ba -D 'debug_package %{nil}' exanic.spec
+```
+
 Support
 -------
 Complete documentation is available from our [website](https://www.cisco.com/c/en/us/td/docs/dcn/nexus3550/smartnic/sw/user-guide/cisco-nexus-smartnic-user-guide/index.html). For other questions and comments, you can contact Cisco TAC support team.

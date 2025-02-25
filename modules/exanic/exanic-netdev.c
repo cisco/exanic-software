@@ -1888,7 +1888,7 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         if (exanic_rx_ready(rx))
         {
             /* Poll again as soon as possible */
-            napi_reschedule(napi);
+            napi_schedule(napi);
         }
         else if (priv->rx_coalesce_timeout_ns > 0)
         {

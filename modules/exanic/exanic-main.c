@@ -18,9 +18,6 @@
 #include <linux/pci-aspm.h>
 #endif
 #include <linux/interrupt.h>
-#if defined(CONFIG_PCIEAER)
-#include <linux/aer.h>
-#endif
 #include <linux/fs.h>
 #include <linux/delay.h>
 #include <linux/if_arp.h>
@@ -257,7 +254,8 @@ void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
     /* Allocate DMA resources. */
     virt_region = dma_alloc_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
                                      rx_region_dma, GFP_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+#if defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309 // No __GFP_COMP for el9.5 (kernel 5.14.0-503.14.1 and beyond)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
                                      | __GFP_COMP
 #endif
                                      );
@@ -1058,9 +1056,6 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_req_regions;
     }
 
-#if defined(CONFIG_PCIEAER)
-    pci_enable_pcie_error_reporting(pdev);
-#endif
     pci_set_master(pdev);
     pci_set_drvdata(pdev, exanic);
     exanic->pci_dev = pdev;
@@ -1215,7 +1210,8 @@ static int exanic_probe(struct pci_dev *pdev,
     exanic->tx_feedback_virt = dma_alloc_coherent(&exanic->pci_dev->dev,
             EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
             &exanic->tx_feedback_dma, GFP_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+#if defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309 // No __GFP_COMP for el9.5 (kernel 5.14.0-503.14.1 and beyond)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
             | __GFP_COMP
 #endif
             );
@@ -1883,9 +1879,6 @@ err_interface_ver:
 err_regs_ioremap:
 err_regs_size:
 err_regs_bar_type:
-#if defined(CONFIG_PCIEAER)
-    pci_disable_pcie_error_reporting(pdev);
-#endif
     pci_release_regions(pdev);
 err_req_regions:
     pci_disable_device(pdev);
@@ -2002,9 +1995,6 @@ static void exanic_remove(struct pci_dev *pdev)
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);
 
-#if defined(CONFIG_PCIEAER)
-    pci_disable_pcie_error_reporting(pdev);
-#endif
     pci_release_regions(pdev);
     pci_disable_device(pdev);
 }

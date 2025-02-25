@@ -333,7 +333,7 @@ static int exanic_map_tx_feedback(struct exanic *exanic,
     }
 
     /* Do the mapping */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
     vma->vm_pgoff = 0;
     err = dma_mmap_coherent(dev, vma, exanic->tx_feedback_virt,
             exanic->tx_feedback_dma, map_size);
@@ -378,7 +378,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     int err;
     struct device *dev = &exanic->pci_dev->dev;
     void *rx_region_virt;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
     dma_addr_t rx_region_dma;
 #else
     size_t off;
@@ -390,7 +390,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     {
         rx_region_virt =
           exanic->port[port_num].filter_buffers[buffer_num - 1].region_virt;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
         rx_region_dma =
           exanic->port[port_num].filter_buffers[buffer_num - 1].region_dma;
 #endif
@@ -398,7 +398,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     else
     {
         rx_region_virt = exanic->port[port_num].rx_region_virt;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
         rx_region_dma = exanic->port[port_num].rx_region_dma;
 #endif
     }
@@ -471,7 +471,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     }
 
     /* Do the mapping */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 2) || (defined(RHEL_RELEASE_CODE) && RHEL_RELEASE_CODE >= 2309)
     vma->vm_pgoff = 0;
     err = dma_mmap_coherent(dev, vma, rx_region_virt,
             rx_region_dma, map_size);
