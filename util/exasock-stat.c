@@ -591,6 +591,7 @@ static int get_sockets(enum exasock_genl_sock_type sock_type, bool extended,
         return -ECANCELED;
     }
 
+    nl_socket_set_buffer_size(exasock_genl.sock, 262144, 262144);
     ret = nl_recvmsgs_default(exasock_genl.sock);
     if (ret != 0)
     {
