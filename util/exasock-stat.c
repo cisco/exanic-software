@@ -323,7 +323,14 @@ static int get_single_socket_cb(struct nl_msg *msg, void *arg)
         return NL_SKIP;
     }
 
-    sock_type = nla_get_u8(attr[EXASOCK_GENL_A_SOCK_TYPE]);
+    sock_type = (enum exasock_genl_sock_type)
+                nla_get_u8(attr[EXASOCK_GENL_A_SOCK_TYPE]);
+    if (sock_type > EXASOCK_GENL_SOCKTYPE_MAX)
+    {
+        fprintf(stderr, "netlink message error (%s: socket type not found)\n",
+            __func__);
+        return NL_SKIP;
+    }
 
     err = nla_parse_nested(attr_sock, EXASOCK_GENL_A_SKINFO_MAX,
                            attr[EXASOCK_GENL_A_SINGLE_SOCK], NULL);

@@ -623,6 +623,8 @@ __exanic_ip_update_timestamping(struct exanic_ip * restrict ctx)
     ifr.ifr_data = (void *)&hwtc;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0)
+        return;
 
     if (ioctl(fd, EXAIOCGHWTSTAMP, &ifr) == 0)
         ctx->rx_hw_timestamp = (hwtc.rx_filter != HWTSTAMP_FILTER_NONE);
@@ -758,7 +760,16 @@ exanic_ip_get_real_device(const char *ifname_in, char *ifname_out,
 
     assert(exasock_override_is_off());
 
+    strncpy(ifname_out, ifname_in, ifname_out_len-1);
+    ifname_out[ifname_out_len-1] = 0;
+    *vlan_id = 0;
+
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1)
+    {
+        perror("socket failed");
+        return;
+    }
 
     memset(&args, 0, sizeof(args));
     strncpy(args.device1, ifname_in, sizeof(args.device1) - 1);
@@ -766,9 +777,6 @@ exanic_ip_get_real_device(const char *ifname_in, char *ifname_out,
     args.cmd = GET_VLAN_REALDEV_NAME_CMD;
     if (ioctl(fd, SIOCGIFVLAN, &args) == -1)
     {
-        strncpy(ifname_out, ifname_in, ifname_out_len-1);
-        ifname_out[ifname_out_len-1] = 0;
-        *vlan_id = 0;
         close(fd);
         return;
     }
@@ -1419,6 +1427,9 @@ exanic_poll_single_rx(struct exanic_ip *ctx,
             if ((fd = exa_tcp_lookup(&ep)) == -1)
                 goto abort_frame;
             sock = exa_socket_get(fd);
+            if (sock == NULL)
+                goto abort_frame;
+
             exa_lock(&sock->state->rx_lock);
 
             /* Listening sockets are processed in the kernel module */

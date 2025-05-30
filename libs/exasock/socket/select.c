@@ -71,7 +71,7 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     int bypass_read_count = 0;
     int bypass_write_count = 0;
     int bypass_except_count = 0;
-    bool have_native;
+    bool have_native = false;
     struct timespec end_time;
     unsigned long iters, poll_iters;
     int ready_count;
@@ -331,6 +331,10 @@ pselect_spin(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                     continue;
                 }
                 sock = exa_socket_get(fd);
+                if (sock == NULL) {
+                    ret = 0;
+                    goto select_exit;
+                }
 
                 exa_read_lock(&sock->lock);
 
@@ -655,6 +659,9 @@ ppoll_spin(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
                 {
                     struct exa_socket * restrict sock = exa_socket_get(fd);
                     short revents = 0;
+
+                    if (sock == NULL)
+                        continue;
 
                     exa_read_lock(&sock->lock);
 

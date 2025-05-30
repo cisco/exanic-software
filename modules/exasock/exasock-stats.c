@@ -688,9 +688,12 @@ static int exasock_genl_cmd_get_socklist(struct sk_buff *skb,
     extended = info->attrs[EXASOCK_GENL_A_SOCK_EXTENDED] ? true : false;
     internal = info->attrs[EXASOCK_GENL_A_SOCK_INTERNAL] ? true : false;
 
-    genl_sock_type = nla_get_u8(info->attrs[EXASOCK_GENL_A_SOCK_TYPE]);
-    if ((uint8_t)genl_sock_type > EXASOCK_GENL_SOCKTYPE_MAX)
+    genl_sock_type = (enum exasock_genl_sock_type) nla_get_u8(info->attrs[EXASOCK_GENL_A_SOCK_TYPE]);
+
+    if (genl_sock_type > EXASOCK_GENL_SOCKTYPE_MAX)
+    {
         return -EINVAL;
+    }
 
     sk_list = get_stats_sock_list(genl_sock_type_to_socktype(genl_sock_type));
     if (sk_list == NULL)
@@ -786,6 +789,9 @@ void exasock_stats_socket_add(enum exasock_socktype type,
 {
     struct exasock_stats_sock_list *sk_list = get_stats_sock_list(type);
 
+    if (sk_list == NULL)
+        return;
+
     mutex_lock(&sk_list->lock);
     list_add_tail(&sk_stats->node, &sk_list->list);
     mutex_unlock(&sk_list->lock);
@@ -812,7 +818,9 @@ void exasock_stats_socket_update(struct exasock_stats_sock *sk_stats,
     sk_stats->addr = *addr;
 
     if (type != prev_type)
+    {
         mutex_unlock(&prev_sk_list->lock);
+    }
 
     mutex_unlock(&sk_list->lock);
 }
@@ -821,6 +829,9 @@ void exasock_stats_socket_del(struct exasock_stats_sock *sk_stats,
                               enum exasock_socktype type)
 {
     struct exasock_stats_sock_list *sk_list = get_stats_sock_list(type);
+
+    if (sk_list == NULL)
+        return;
 
     mutex_lock(&sk_list->lock);
     list_del(&sk_stats->node);

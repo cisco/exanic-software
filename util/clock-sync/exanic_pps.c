@@ -87,6 +87,11 @@ struct exanic_pps_sync_state *init_exanic_pps_sync(const char *name, int clkfd,
     clock_gettime(CLOCK_MONOTONIC, &ts_mono);
 
     state = malloc(sizeof(struct exanic_pps_sync_state));
+    if (state == NULL) {
+        log_printf(LOG_ERR, "%s: Error allocating memory: %s",
+                name, strerror(errno));
+        return NULL;
+    }
 
     exanic_retain_handle(exanic);
 

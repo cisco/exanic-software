@@ -316,7 +316,7 @@ epoll_pwait_spin_test_fd(struct exa_notify * restrict no, int fd,
     uint32_t revents = 0;
 
     LATENCY_START_POINT(11);
-    if (!nf->event_pending)
+    if (!sock || !nf->event_pending)
         return false;
 
     exa_read_lock(&sock->lock);
@@ -456,7 +456,7 @@ epoll_pwait_spin(int epfd, struct epoll_event *events, int maxevents,
             {
                 sock = exa_socket_get(s->fd_ready[next_rd]);
 
-                if (!exa_read_trylock(&sock->lock))
+                if (!sock || !exa_read_trylock(&sock->lock))
                     break;
 
                 if (sock->state == NULL)

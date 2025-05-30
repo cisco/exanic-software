@@ -422,13 +422,16 @@ exa_hashtable_ucast_insert(struct exa_hashtable * restrict ht, int fd)
     struct exa_hashtable_key key;
     uint32_t idx;
 
-    key.addr[0] = sock->bind.ip.addr.local;
-    key.addr[1] = sock->bind.ip.addr.peer;
-    key.port[0] = sock->bind.ip.port.local;
-    key.port[1] = sock->bind.ip.port.peer;
-    idx = EXA_HASHTABLE_IDX(&key, EXA_UCAST_IDX);
+    if (sock != NULL)
+    {
+       key.addr[0] = sock->bind.ip.addr.local;
+       key.addr[1] = sock->bind.ip.addr.peer;
+       key.port[0] = sock->bind.ip.port.local;
+       key.port[1] = sock->bind.ip.port.peer;
+       idx = EXA_HASHTABLE_IDX(&key, EXA_UCAST_IDX);
 
-    exa_hashtable_insert(ht, idx, &sock->hashtable_next);
+       exa_hashtable_insert(ht, idx, &sock->hashtable_next);
+    }
 }
 
 static inline bool
@@ -438,6 +441,10 @@ exa_hashtable_ucast_remove(struct exa_hashtable * restrict ht, int fd)
     struct exa_hashtable_key key;
     uint32_t idx;
 
+    if (sock == NULL)
+    {
+        return false;
+    }
     key.addr[0] = sock->bind.ip.addr.local;
     key.addr[1] = sock->bind.ip.addr.peer;
     key.port[0] = sock->bind.ip.port.local;
@@ -457,6 +464,9 @@ exa_hashtable_mcast_insert(struct exa_hashtable * restrict ht, int fd,
     struct exa_hashtable_key key;
     struct exa_mcast_membership *memb_to_insert;
     uint32_t idx;
+
+    if (sock == NULL)
+        return;
 
     memb_to_insert = exa_socket_ip_memberships_find(sock,
                                                     mc_ep->multiaddr,
@@ -486,6 +496,9 @@ exa_hashtable_mcast_remove(struct exa_hashtable * restrict ht, int fd,
     struct exa_hashtable_key key;
     struct exa_mcast_membership *memb_to_insert;
     uint32_t idx;
+
+    if (sock == NULL)
+        return false;
 
     memb_to_insert = exa_socket_ip_memberships_find(sock,
                                                     mc_ep->multiaddr,

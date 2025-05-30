@@ -21,18 +21,31 @@ int exanic_set_filter_string(const char *ruleset, int slot, const char *filter)
     ssize_t len;
     char path[256];
     mode_t old_umask;
+    int err;
 
     filter_len = strlen(filter);
     filter_off = 0;
-    old_umask = umask(EXANIC_CONFIG_UMASK);
 
     /* Make sure the directory exists */
-    mkdir(EXANIC_CONFIG_PATH, 0770);
+    err = mkdir(EXANIC_CONFIG_PATH, 0770);
+    if ((err < 0) && (errno != EEXIST)) {
+        exanic_err_printf("%s: mkdir failed: %s", path, strerror(errno));
+        return -1;
+    }
     snprintf(path, sizeof(path), EXANIC_CONFIG_PATH "/%s", ruleset);
-    mkdir(path, 0770);
+    err = mkdir(path, 0770);
+    if ((err < 0) && (errno != EEXIST)) {
+        exanic_err_printf("%s: mkdir failed: %s", path, strerror(errno));
+        return -1;
+    }
     snprintf(path, sizeof(path), EXANIC_CONFIG_PATH "/%s/filters", ruleset);
-    mkdir(path, 0770);
+    err = mkdir(path, 0770);
+    if ((err < 0) && (errno != EEXIST)) {
+        exanic_err_printf("%s: mkdir failed: %s", path, strerror(errno));
+        return -1;
+    }
 
+    old_umask = umask(EXANIC_CONFIG_UMASK);
     /* Overwrite the file with the filter string */
     snprintf(path, sizeof(path), EXANIC_CONFIG_PATH "/%s/filters/%d",
             ruleset, slot);
@@ -149,9 +162,11 @@ int exanic_clear_all_filter_strings(const char *ruleset)
         if (unlink(path) == -1 && errno != ENOENT)
         {
             exanic_err_printf("%s: unlink failed: %s", path, strerror(errno));
+            closedir(d);
             return -1;
         }
     }
+    closedir(d);
 
     /* Remove the directory */
     snprintf(path, sizeof(path), EXANIC_CONFIG_PATH "/%s/filters", ruleset);

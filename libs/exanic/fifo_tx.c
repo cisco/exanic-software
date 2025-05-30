@@ -142,6 +142,13 @@ exanic_tx_t * exanic_acquire_tx_buffer(exanic_t *exanic, int port_number,
         return NULL;
     }
 
+    exanic_tx_t *tx = malloc(sizeof(exanic_tx_t));
+    if (tx == NULL)
+    {
+        exanic_err_printf("Memory allocation failed for exanic_tx_t.\n");
+        return NULL;
+    }
+
     /* Request TX buffer and feedback slot allocations */
     size_t offset = exanic_alloc_tx_buffer(exanic, port_number, region_size);
     if (offset == (size_t)-1)
@@ -153,12 +160,13 @@ exanic_tx_t * exanic_acquire_tx_buffer(exanic_t *exanic, int port_number,
 
     exanic_retain_handle(exanic);
 
-    exanic_tx_t *tx = malloc(sizeof(exanic_tx_t));
 
     /* queue_len must be a power of 2 */
     int queue_len =
         round_down_pow2(region_size / EXANIC_TX_CMD_FIFO_SIZE_DIVISOR);
     uint32_t *feedback_offsets = calloc(queue_len, sizeof(uint32_t));
+    if (feedback_offsets == NULL)
+        goto err_alloc_feedback_offsets;
 
     tx->exanic = exanic;
     tx->port_number = port_number;
@@ -183,9 +191,12 @@ exanic_tx_t * exanic_acquire_tx_buffer(exanic_t *exanic, int port_number,
 
     return tx;
 
+err_alloc_feedback_offsets:
+    exanic_free_tx_feedback_slot(exanic, port_number, feedback_slot);
 err_feedback_slot:
     exanic_free_tx_buffer(exanic, port_number, region_size, offset);
 err_alloc_buffer:
+    free(tx);
     return NULL;
 }
 

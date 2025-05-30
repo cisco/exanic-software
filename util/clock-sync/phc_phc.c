@@ -93,6 +93,10 @@ struct phc_phc_sync_state *init_phc_phc_sync(const char *name,
     }
 
     state = malloc(sizeof(struct phc_phc_sync_state));
+    if (state == NULL)
+    {
+        return NULL;
+    }
 
     snprintf(state->name, sizeof(state->name), "%s", name);
     snprintf(state->name_src, sizeof(state->name_src), "%s", name_src);

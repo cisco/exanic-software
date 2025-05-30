@@ -345,7 +345,7 @@ exanic_i2c_wait_write_cycle(struct i2c_adapter *adap, uint8_t slave_addr,
 
     while (!time_after(jiffies, deadline))
     {
-        char byte;
+        uint8_t byte;
         udelay(1000);
         if (exanic_i2c_read(adap, slave_addr, 0, &byte, 1) == 0) 
             return 0;
@@ -722,7 +722,7 @@ int exanic_get_serial(struct exanic *exanic, char *serial, size_t len)
 int exanic_save_feature_cfg(struct exanic *exanic)
 {
     volatile uint32_t *registers = exanic_registers(exanic);
-    char old, new;
+    uint8_t old, new;
     int ret;
 
     if ((ret = exanic_i2c_eeprom_read(exanic, EXANIC_EEPROM_BRIDGING_CFG, &old, 1)))
@@ -740,7 +740,7 @@ int exanic_save_speed(struct exanic *exanic, unsigned port_number,
                       unsigned speed)
 {
     uint8_t regaddr = EXANIC_EEPROM_PORT_SPEED + port_number;
-    char old, new;
+    uint8_t old, new;
     int ret;
 
     /* Save port speed setting to EXANIC_EEPROM */
@@ -762,7 +762,7 @@ int exanic_save_autoneg(struct exanic *exanic, unsigned port_number,
                         bool autoneg)
 {
     uint8_t regaddr = EXANIC_EEPROM_PORT_CFG + port_number;
-    char old, new;
+    uint8_t old, new;
     int ret;
 
     /* Save autoneg setting to EXANIC_EEPROM */
@@ -809,7 +809,7 @@ int exanic_i2c_xcvr_sff8024_id(struct exanic *exanic, int port, uint8_t *id)
 
 int exanic_i2c_sfp_has_diag_page(struct exanic *exanic, int port_number, bool *has_diag)
 {
-    char diag_mon_type;
+    uint8_t diag_mon_type;
     int ret = exanic_i2c_xcvr_read(exanic, port_number, XCVR_EEPROM_ADDR,
                                    SFP_DIAG_MON_BYTE, &diag_mon_type, 1);
     if (ret)
@@ -883,7 +883,7 @@ int exanic_i2c_cmis_rev(struct exanic *exanic, int port, uint8_t *rev)
 
 int exanic_i2c_cmis_flat_mem(struct exanic *exanic, int port, bool *flat)
 {
-    char status_byte;
+    uint8_t status_byte;
     int ret = exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
                                    CMIS_FLAT_MEM_BYTE, &status_byte, 1);
     if (ret)

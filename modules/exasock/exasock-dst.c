@@ -412,6 +412,9 @@ static void dst_expiry_timer_handler(unsigned long data)
         }
 
         new_neigh = exasock_dst_neigh_lookup(&rtable_dst(de->rt), &fl4.daddr);
+        if (new_neigh == NULL)
+            goto remove_entry;
+
         de->neigh = new_neigh;
         hash = hash_ptr(new_neigh, NEIGH_HASH_BITS);
         list_del(&de->neigh_hash);
@@ -731,6 +734,11 @@ int exasock_dst_insert(uint32_t dst_addr, uint32_t *src_addr,
         de->default_rt = false;
 #endif
         de->neigh = exasock_dst_neigh_lookup(&rtable_dst(rt), &fl4.daddr);
+        if (de->neigh == NULL)
+        {
+            err = -ENOMEM;
+            goto err_find_dst_entry;
+        }
 #ifndef __HAS_OLD_NETCORE
         de->fl4 = fl4;
 #endif

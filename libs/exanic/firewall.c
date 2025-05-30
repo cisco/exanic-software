@@ -71,7 +71,7 @@ int exanic_get_num_firewall_filters(exanic_t *exanic)
 exanic_firewall_state_t exanic_get_firewall_state(exanic_t *exanic)
 {
     if (check_firewall(exanic) == -1)
-        return 0;
+        return EXANIC_FIREWALL_DISABLE;
     return exanic->registers[REG_FIREWALL_INDEX(REG_FIREWALL_STATE)];
 }
 

@@ -17,8 +17,10 @@ int exanic_check_supported(exanic_t *exanic)
     exanic_function_id_t func_id;
 
     pcie_if_ver = exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_PCIE_IF_VER)];
-    hw_id = exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_HW_ID)];
-    func_id = exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_FUNCTION_ID)];
+    hw_id = (exanic_hardware_id_t)
+             exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_HW_ID)];
+    func_id = (exanic_function_id_t)
+             exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_FUNCTION_ID)];
 
     if (pcie_if_ver != 1)
     {
@@ -43,12 +45,12 @@ int exanic_check_supported(exanic_t *exanic)
 
 exanic_hardware_id_t exanic_get_hw_type(exanic_t *exanic)
 {
-    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_HW_ID)];
+    return (exanic_hardware_id_t) exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_HW_ID)];
 }
 
 exanic_function_id_t exanic_get_function_id(exanic_t *exanic)
 {
-    return exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_FUNCTION_ID)];
+    return (exanic_function_id_t) exanic->registers[REG_EXANIC_INDEX(REG_EXANIC_FUNCTION_ID)];
 }
 
 uint32_t exanic_get_caps(exanic_t *exanic)

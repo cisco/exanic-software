@@ -180,6 +180,11 @@ struct sys_phc_sync_state *init_sys_phc_sync(const char *name, int fd,
     }
 
     state = malloc(sizeof(struct sys_phc_sync_state));
+    if (state == NULL) {
+            log_printf(LOG_ERR, "%s: Failed to allocate memory: %s",
+                    name, strerror(errno));
+            return NULL;
+    }
 
     if (exanic != NULL)
         exanic_retain_handle(exanic);

@@ -218,6 +218,10 @@ int exanic_find_port_by_interface_name(const char *name, char *device,
     }
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        exanic_err_printf("Failed to create socket fd : %s", strerror(errno));
+        return -1;
+    }
 
     /* Check that the interface is an exanic interface */
     memset(&ifr, 0, sizeof(ifr));

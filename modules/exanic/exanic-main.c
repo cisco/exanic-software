@@ -1117,14 +1117,14 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_interface_ver;
     }
 
-    hw_id_str = exanic_hardware_id_str(exanic->hw_id);
+    hw_id_str = exanic_hardware_id_str((exanic_hardware_id_t) exanic->hw_id);
     if (hw_id_str == NULL)
     {
         dev_err(dev, "Unsupported hardware type: %u\n", exanic->hw_id);
         goto err_hw_id;
     }
 
-    function_str = exanic_function_id_str(exanic->function_id);
+    function_str = exanic_function_id_str((exanic_function_id_t) exanic->function_id);
     if (function_str == NULL)
     {
         dev_err(dev, "Unsupported function type: %u\n", exanic->function_id);

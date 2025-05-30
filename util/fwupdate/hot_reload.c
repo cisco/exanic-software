@@ -183,6 +183,7 @@ static bool write_1_to_file(char *filename)
     if (fputc('1', fp) == EOF)
     {
         fprintf(stderr, "ERROR: failed to write to %s\n", filename);
+        fclose(fp);  // Ensure that the file is closed in case of an error
         return false;
     }
     fclose(fp);
@@ -270,6 +271,7 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
                     "Instead got %zi.\n"
                     "(Do you have root permissions?)\n",
                     parent_config_space_size);
+            close(parent_config_fd);
             return NULL;
         }
         if (parent_config_space_size > 0)
@@ -298,8 +300,10 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
 
     snprintf(attr_path, sizeof(attr_path), "%s/remove", sysfs_path);
     exanic_release_handle(exanic);
-    if (!write_1_to_file(attr_path))
+    if (!write_1_to_file(attr_path)) {
+        close(parent_config_fd);
         return NULL;
+    }
 
     snprintf(attr_path, sizeof(attr_path), "%s/net", sysfs_path);
     /* Wait 2s for driver detach, firmware reload trigger and new firmware load */
@@ -310,8 +314,10 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
 
     for (attempts = 0; attempts < 3; attempts++)
     {
-        if (!write_1_to_file("/sys/bus/pci/rescan"))
+        if (!write_1_to_file("/sys/bus/pci/rescan")) {
+            close(parent_config_fd);
             return NULL;
+        }
 
         /* Wait for the rescan */
         sleep(1);
@@ -349,6 +355,7 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
         if (dirent == NULL)
         {
             fprintf(stderr, "ERROR: unable to find any network interfaces in directory: %s\n", attr_path);
+            closedir(dir);
             return NULL;
         }
 

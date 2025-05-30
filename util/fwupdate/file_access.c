@@ -70,6 +70,7 @@ static uint8_t *get_field(FILE *fp, size_t length)
             perror("ERROR: fread");
         else
             fprintf(stderr, "ERROR: bitfile truncated\n");
+        free(data);
         return NULL;
     }
 
@@ -173,6 +174,12 @@ static flash_word_t *read_bit_file(FILE *fp, flash_size_t partition_size, bool b
     }
 
     bytes = get_field(fp, data_length);
+    if ( bytes == NULL )
+    {
+        fprintf(stderr, "ERROR: Failed to allocate buffer for %u bytes\n", data_length);
+        return NULL;
+    }
+
     return bytes_to_flash_words(bytes, data_length, bit_reverse, data_size);
 }
 
@@ -213,7 +220,7 @@ static flash_word_t *read_fw_file(FILE *fp, flash_size_t partition_size,
     size_t line_len;
     char *delimiter;
     uint8_t bytes, line_address_hi, line_address_lo, type, checksum;
-    uint8_t data[32];
+    uint8_t data[32] = {0};
     int line_number = 1;
     flash_word_t *flash_data;
     flash_address_t flash_address, flash_top, data_end = 0;

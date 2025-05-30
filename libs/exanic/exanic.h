@@ -25,6 +25,8 @@
 extern "C" {
 #endif
 
+#define MAX_DEVICE_NAME_LEN 64
+
 /**
  * \brief A ExaNIC handle.
  */

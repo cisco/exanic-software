@@ -1569,9 +1569,15 @@ parse_mreq(const void *optval, socklen_t optlen,
 
         if (mreqn->imr_ifindex)
         {
+            char *ifname = if_indextoname(mreqn->imr_ifindex, devname);
+
+            if (ifname == NULL) {
+                /* No interface found for ifindex */
+                errno = EINVAL;
+                return -1;
+            }
             mcast_ep->interface = htonl(INADDR_ANY);
-            *is_exanic = exanic_ip_find_by_interface(
-                                   if_indextoname(mreqn->imr_ifindex, devname),
+            *is_exanic = exanic_ip_find_by_interface(devname,
                                    &mcast_ep->interface);
             if (mcast_ep->interface == htonl(INADDR_ANY))
             {

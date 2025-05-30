@@ -123,6 +123,11 @@ static int get_clockfd(const char *name)
     }
 
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd == -1)
+    {
+        fprintf(stderr, "Socket creation failed \n");
+        return -1;
+    }
     ret = ioctl(sockfd, SIOCETHTOOL, &ifr);
     close(sockfd);
     if (ret == 0)
@@ -335,7 +340,7 @@ static int parse_config(char *filename)
     {
         fprintf(stderr, "%s: %s: %s\n", prog, filename, strerror(errno));
         ret = 1;
-        goto cleanup;
+	return ret;
     }
 
     strcpy(section, "");
@@ -666,6 +671,7 @@ int main(int argc, char *argv[])
             if (pid == -1)
             {
                 fprintf(stderr, "%s: fork: %s\n", prog, strerror(errno));
+                close(pidfd);
                 return 1;
             }
             return 0;

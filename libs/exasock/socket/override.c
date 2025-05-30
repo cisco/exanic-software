@@ -86,48 +86,96 @@ __exasock_override_init()
 {
     if (!__override_initialized)
     {
-        __libc_socket = dlsym(RTLD_NEXT, "socket");
-        __libc_close = dlsym(RTLD_NEXT, "close");
-        __libc_bind = dlsym(RTLD_NEXT, "bind");
-        __libc_listen = dlsym(RTLD_NEXT, "listen");
-        __libc_accept = dlsym(RTLD_NEXT, "accept");
-        __libc_accept4 = dlsym(RTLD_NEXT, "accept4");
-        __libc_connect = dlsym(RTLD_NEXT, "connect");
-        __libc_shutdown = dlsym(RTLD_NEXT, "shutdown");
-        __libc_fcntl = dlsym(RTLD_NEXT, "fcntl");
-        __libc_ioctl = dlsym(RTLD_NEXT, "ioctl");
-        __libc_getsockname = dlsym(RTLD_NEXT, "getsockname");
-        __libc_getpeername = dlsym(RTLD_NEXT, "getpeername");
-        __libc_getsockopt = dlsym(RTLD_NEXT, "getsockopt");
-        __libc_setsockopt = dlsym(RTLD_NEXT, "setsockopt");
-        __libc_recv = dlsym(RTLD_NEXT, "recv");
-        __libc_recv_chk = dlsym(RTLD_NEXT, "__recv_chk");
-        __libc_recvfrom = dlsym(RTLD_NEXT, "recvfrom");
-        __libc_recvfrom_chk = dlsym(RTLD_NEXT, "__recvfrom_chk");
-        __libc_recvmsg = dlsym(RTLD_NEXT, "recvmsg");
-        __libc_send = dlsym(RTLD_NEXT, "send");
-        __libc_sendto = dlsym(RTLD_NEXT, "sendto");
-        __libc_sendmsg = dlsym(RTLD_NEXT, "sendmsg");
-        __libc_sendmmsg = dlsym(RTLD_NEXT, "sendmmsg");
-        __libc_read = dlsym(RTLD_NEXT, "read");
-        __libc_readv = dlsym(RTLD_NEXT, "readv");
-        __libc_read_chk = dlsym(RTLD_NEXT, "__read_chk");
-        __libc_write = dlsym(RTLD_NEXT, "write");
-        __libc_writev = dlsym(RTLD_NEXT, "writev");
-        __libc_select = dlsym(RTLD_NEXT, "select");
-        __libc_pselect = dlsym(RTLD_NEXT, "pselect");
-        __libc_poll = dlsym(RTLD_NEXT, "poll");
-        __libc_ppoll = dlsym(RTLD_NEXT, "ppoll");
-        __libc_signal = dlsym(RTLD_NEXT, "signal");
-        __libc_sigaction = dlsym(RTLD_NEXT, "sigaction");
-        __libc_siginterrupt = dlsym(RTLD_NEXT, "siginterrupt");
-        __libc_epoll_create = dlsym(RTLD_NEXT, "epoll_create");
-        __libc_epoll_create1 = dlsym(RTLD_NEXT, "epoll_create1");
-        __libc_epoll_ctl = dlsym(RTLD_NEXT, "epoll_ctl");
-        __libc_epoll_wait = dlsym(RTLD_NEXT, "epoll_wait");
-        __libc_epoll_pwait = dlsym(RTLD_NEXT, "epoll_pwait");
+        __libc_socket = (int (*)(int, int, int)) dlsym(RTLD_NEXT, "socket");
+        __libc_close = (int (*)(int)) dlsym(RTLD_NEXT, "close");
+        __libc_bind = (int (*)(int, const struct sockaddr *, socklen_t))
+                          dlsym(RTLD_NEXT, "bind");
+        __libc_listen = (int (*)(int, int))
+                          dlsym(RTLD_NEXT, "listen");
+        __libc_accept = (int (*)(int, struct sockaddr *, socklen_t *))
+                          dlsym(RTLD_NEXT, "accept");
+        __libc_accept4 = (int (*)(int, struct sockaddr *, socklen_t *, int))
+                          dlsym(RTLD_NEXT, "accept4");
+        __libc_connect = (int (*)(int, const struct sockaddr *, socklen_t))
+                          dlsym(RTLD_NEXT, "connect");
+        __libc_shutdown = (int (*)(int, int))
+                          dlsym(RTLD_NEXT, "shutdown");
+        __libc_fcntl = (int (*)(int, int, ...))
+                          dlsym(RTLD_NEXT, "fcntl");
+        __libc_ioctl = (int (*)(int d, int request, void *argp))
+                          dlsym(RTLD_NEXT, "ioctl");
+        __libc_getsockname = (int (*)(int, struct sockaddr *, socklen_t *))
+                          dlsym(RTLD_NEXT, "getsockname");
+        __libc_getpeername = (int (*)(int, struct sockaddr *, socklen_t *))
+                          dlsym(RTLD_NEXT, "getpeername");
+        __libc_getsockopt = (int (*)(int, int, int, void *, socklen_t *))
+                          dlsym(RTLD_NEXT, "getsockopt");
+        __libc_setsockopt = (int (*)(int, int, int, const void *, socklen_t))
+                          dlsym(RTLD_NEXT, "setsockopt");
+        __libc_recv = (ssize_t (*)(int, void *, size_t, int))
+                          dlsym(RTLD_NEXT, "recv");
+        __libc_recv_chk = (ssize_t (*)(int, void *, size_t, size_t, int))
+                          dlsym(RTLD_NEXT, "__recv_chk");
+        __libc_recvfrom = (ssize_t (*)(int, void *, size_t, int,
+                          struct sockaddr *, socklen_t *))
+                          dlsym(RTLD_NEXT, "recvfrom");
+        __libc_recvfrom_chk = (ssize_t (*)(int, void *, size_t, size_t, int,
+                          struct sockaddr *, socklen_t *))
+                          dlsym(RTLD_NEXT, "__recvfrom_chk");
+        __libc_recvmsg = (ssize_t (*)(int, struct msghdr *, int))
+                          dlsym(RTLD_NEXT, "recvmsg");
+        __libc_send = (ssize_t (*)(int, const void *, size_t, int))
+                          dlsym(RTLD_NEXT, "send");
+        __libc_sendto = (ssize_t (*)(int, const void *, size_t, int,
+                          const struct sockaddr *, socklen_t))
+                          dlsym(RTLD_NEXT, "sendto");
+        __libc_sendmsg = (ssize_t (*)(int, const struct msghdr *, int))
+                          dlsym(RTLD_NEXT, "sendmsg");
+        __libc_sendmmsg = (int (*)(int sockfd, struct mmsghdr *,
+                          unsigned int , int )) dlsym(RTLD_NEXT, "sendmmsg");
+        __libc_read = (ssize_t (*) (int, void *, size_t))
+                          dlsym(RTLD_NEXT, "read");
+        __libc_readv = (ssize_t (*) (int, const struct iovec *iov, int iovcnt))
+                          dlsym(RTLD_NEXT, "readv");
+        __libc_read_chk = (ssize_t (*) (int, void *, size_t, size_t))
+                          dlsym(RTLD_NEXT, "__read_chk");
+        __libc_write = (ssize_t (*) (int, const void *, size_t))
+                          dlsym(RTLD_NEXT, "write");
+        __libc_writev = (ssize_t (*) (int, const struct iovec *, int))
+                          dlsym(RTLD_NEXT, "writev");
+        __libc_select = (int (*) (int, fd_set *, fd_set *, fd_set *,
+                          struct timeval *)) dlsym(RTLD_NEXT, "select");
+        __libc_pselect = (int (*) (int, fd_set *, fd_set *, fd_set *,
+                          const struct timespec *, const sigset_t *))
+                          dlsym(RTLD_NEXT, "pselect");
+        __libc_poll = (int (*) (struct pollfd *, nfds_t, int))
+                          dlsym(RTLD_NEXT, "poll");
+        __libc_ppoll = (int (*) (struct pollfd *, nfds_t,
+                          const struct timespec *,
+                          const sigset_t *)) dlsym(RTLD_NEXT, "ppoll");
+        __libc_signal = (sighandler_t(*) (int, sighandler_t))
+                          dlsym(RTLD_NEXT, "signal");
+        __libc_sigaction = (int (*)(int, const struct sigaction *,
+                          struct sigaction *)) dlsym(RTLD_NEXT, "sigaction");
+        __libc_siginterrupt = (int (*)(int, int)) dlsym(RTLD_NEXT, "siginterrupt");
+        __libc_epoll_create = (int (*)(int)) dlsym(RTLD_NEXT, "epoll_create");
+        __libc_epoll_create1 = (int (*)(int)) dlsym(RTLD_NEXT, "epoll_create1");
+        __libc_epoll_ctl = (int (*)(int, int, int, struct epoll_event *))
+                          dlsym(RTLD_NEXT, "epoll_ctl");
+        __libc_epoll_wait = (int (*)(int, struct epoll_event *, int, int))
+                          dlsym(RTLD_NEXT, "epoll_wait");
+        __libc_epoll_pwait = (int (*)(int, struct epoll_event *, int, int,
+                          const sigset_t *)) dlsym(RTLD_NEXT, "epoll_pwait");
 #ifdef HAVE_RECVMMSG
-        __libc_recvmmsg = dlsym(RTLD_NEXT, "recvmmsg");
+#if RECVMMSG_HAS_CONST_TIMESPEC
+        __libc_recvmmsg = (int (*)(int, struct mmsghdr *, unsigned int, int,
+                          const struct timespec *))
+                          dlsym(RTLD_NEXT, "recvmmsg");
+#else
+        __libc_recvmmsg = (int (*)(int, struct mmsghdr *, unsigned int, int,
+                          struct timespec *))
+                          dlsym(RTLD_NEXT, "recvmmsg");
+#endif
 #endif
 
         __override_initialized = true;

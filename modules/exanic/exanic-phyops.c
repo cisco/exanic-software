@@ -256,9 +256,9 @@ static int
 exanic_phyops_x2_x4_optimise(struct exanic *exanic, unsigned int port_number)
 {
     /* conservative default parameters */
-    char rx_param[] = { 0x50, 0x14, 0x00 };
-    char tx_param[] = { 0x04, 0x0C, 0x05 };
-    char cable_type, cable_length;
+    uint8_t rx_param[] = { 0x50, 0x14, 0x00 };
+    uint8_t tx_param[] = { 0x04, 0x0C, 0x05 };
+    uint8_t cable_type, cable_length;
 
     /* optimise parameters based on cable type and length */
     int ret = exanic_i2c_xcvr_read(exanic, port_number, XCVR_EEPROM_ADDR, 8,
@@ -860,7 +860,7 @@ static int __exanic_phyops_poweron_x2_x4(struct exanic *exanic, int port)
     volatile uint32_t *regs = exanic_registers(exanic);
     int ret = 0;
 
-    char reg_val = 0;
+    uint8_t reg_val = 0;
     char init_regs[12] = {
         0xFF, 0xFB, 0xFF, 0xFB, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x15, 0xE5, 0x3F

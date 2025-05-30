@@ -134,7 +134,7 @@ int parse_one_filter(char ***argv, int *argc, exanic_ip_filter_t *filter, int *b
         }
         else if (strcmp((*argv)[0], "sport") == 0)
         {
-            if (dport_specified)
+            if (sport_specified)
                 return 0;
             if (host_specified || port_specified)
                 return 0;
@@ -433,6 +433,12 @@ static int set_promiscuous_mode(exanic_t *exanic, int port_number, int enable)
     }
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1)
+    {
+        fprintf(stderr, "Socket creation failed \n");
+        return -1;
+    }
+
     ret = ioctl(fd, SIOCGIFFLAGS, &ifr);
     if (ret != -1)
     {

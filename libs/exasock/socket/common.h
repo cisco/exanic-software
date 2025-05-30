@@ -100,6 +100,8 @@ fdlist_insert(struct fd_list** head, int fd)
     if (*head == NULL)
     {
         *head = (struct fd_list*) malloc(sizeof(struct fd_list));
+        if (*head == NULL)
+            return 0;
         (*head)->next = NULL;
         (*head)->fd = fd;
         return 1;
@@ -109,6 +111,8 @@ fdlist_insert(struct fd_list** head, int fd)
         /* append to the list only when fd is not present there already */
         struct fd_list* new;
         new = (struct fd_list*) malloc(sizeof(struct fd_list));
+        if (new == NULL)
+            return 0;
         new->next = *head;
         new->fd = fd;
         *head = new;

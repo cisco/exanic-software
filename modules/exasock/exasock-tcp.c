@@ -2135,7 +2135,7 @@ static bool exasock_tcp_intercept(struct sk_buff *skb)
     struct exasock_tcp *tcp;
     struct iphdr *iph;
     struct tcphdr *th;
-    char *payload = skb->data;
+    unsigned char *payload = skb->data;
 
     if (skb->protocol != htons(ETH_P_IP))
     {
@@ -3028,10 +3028,10 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
                                      th->dest, th->source);
         if (req != NULL)
         {
-            struct sk_buff* skb;
+            struct sk_buff* skb_local;
             /* Delete all queued sk_buffs on this req */
-            while((skb = skb_dequeue_tail(&req->skb_queue)) != NULL)
-                dev_kfree_skb_any(skb);
+            while((skb_local = skb_dequeue_tail(&req->skb_queue)) != NULL)
+                dev_kfree_skb_any(skb_local);
             hlist_del(&req->hash_node);
             list_del(&req->list);
         }

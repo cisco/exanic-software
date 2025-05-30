@@ -722,6 +722,9 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
     /* queue_len is always a power of 2 */
     queue_len = tx_buf_size / EXANIC_TX_CMD_FIFO_SIZE_DIVISOR;
     feedback_offsets = kcalloc(queue_len, sizeof(uint32_t), GFP_KERNEL);
+    if (!feedback_offsets) {
+        goto err_alloc_tx_feedback;
+    }
 
     BUG_ON(priv->rx.buffer != NULL);
     priv->rx.buffer = exanic_rx_region(priv->exanic, priv->port);
@@ -1817,7 +1820,8 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
             priv->hdr_chunk_id = chunk_id;
 
         /* Copy chunk data */
-        memcpy(skb_put(priv->skb, len), ptr, len);
+        if (len > 0)
+            memcpy(skb_put(priv->skb, len), ptr, len);
 
         if (!more_chunks)
         {

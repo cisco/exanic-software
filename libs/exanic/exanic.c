@@ -18,7 +18,7 @@ static exanic_t *exanic_list = NULL;
 
 exanic_t * exanic_acquire_handle(const char *device_name)
 {
-    char device_file[64];
+    char device_file[MAX_DEVICE_NAME_LEN];
     int i;
 
     /* Check if we already have a handle for the requested device */
@@ -79,7 +79,7 @@ exanic_t * exanic_acquire_handle(const char *device_name)
     /* Find hardware information from device table */
     struct exanic_hw_info hwinfo;
     memset(&hwinfo, 0, sizeof hwinfo);
-    exanic_get_hw_info(hwid, &hwinfo);
+    exanic_get_hw_info((exanic_hardware_id_t) hwid, &hwinfo);
 
     /* Map info page */
     struct exanic_info_page *info_page = mmap(NULL,
@@ -202,6 +202,11 @@ exanic_t * exanic_acquire_handle(const char *device_name)
 
     /* Create the exanic struct */
     exanic_t *exanic = malloc(sizeof(exanic_t));
+    if (exanic == NULL)
+    {
+        exanic_err_printf("exanic alloc failed: %s", strerror(errno));
+        goto err_mmap_devkit_mem_ex;
+    }
 
     exanic->registers = registers;
     exanic->info_page = info_page;

@@ -113,6 +113,12 @@ struct phc_sys_sync_state *init_phc_sys_sync(const char *name, int fd,
     }
 
     state = malloc(sizeof(struct phc_sys_sync_state));
+    if ( state == NULL)
+    {
+        log_printf(LOG_ERR, "%s: Error allocating memory for state struct: %s",
+                name, strerror(errno));
+        return NULL;
+    }
 
     snprintf(state->name, sizeof(state->name), "%s", name);
     state->clkfd = fd;

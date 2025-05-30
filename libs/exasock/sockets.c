@@ -1062,7 +1062,10 @@ exa_socket_tcp_connect(struct exa_socket * restrict sock, in_addr_t addr,
 
 err_sys_ate_enable:
     /* Revert the connection endpoint update in kernel */
-    exa_sys_update(fd, &sock->bind.ip);
+    if (exa_sys_update(fd, &sock->bind.ip) == -1)
+    {
+         saved_errno = errno;
+    }
 err_sys_update:
     /* Revert to previously bound interface */
     exa_socket_update_interfaces(sock, sock->bind.ip.addr.local);

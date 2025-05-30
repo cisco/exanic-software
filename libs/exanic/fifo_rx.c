@@ -74,13 +74,15 @@ exanic_rx_t * exanic_acquire_rx_buffer(exanic_t *exanic, int port_number,
     exanic_retain_handle(exanic);
 
     exanic_rx_t *rx = malloc(sizeof(exanic_rx_t));
+    if (rx != NULL)
+    {
+       rx->exanic = exanic;
+       rx->port_number = port_number;
+       rx->buffer = rx_buffer;
+       rx->buffer_number = buffer_number;
 
-    rx->exanic = exanic;
-    rx->port_number = port_number;
-    rx->buffer = rx_buffer;
-    rx->buffer_number = buffer_number;
-
-    __exanic_rx_catchup(rx);
+       __exanic_rx_catchup(rx);
+    }
     return rx;
 }
 
@@ -133,13 +135,15 @@ exanic_rx_t * exanic_acquire_unused_filter_buffer(exanic_t *exanic,
     exanic_retain_handle(exanic);
 
     exanic_rx_t *rx = malloc(sizeof(exanic_rx_t));
+    if( rx != NULL) {
+        rx->exanic = exanic;
+        rx->port_number = port_number;
+        rx->buffer = rx_buffer;
+        rx->buffer_number = arg.buffer_number + 1;
 
-    rx->exanic = exanic;
-    rx->port_number = port_number;
-    rx->buffer = rx_buffer;
-    rx->buffer_number = arg.buffer_number + 1;
+        __exanic_rx_catchup(rx);
+    }
 
-    __exanic_rx_catchup(rx);
     return rx;
 }
 

@@ -286,6 +286,7 @@ int
 exa_sys_update(int fd, struct exa_endpoint * restrict endpoint)
 {
     struct exasock_endpoint req;
+    int ret = 0;
 
     exasock_override_off();
 
@@ -295,15 +296,10 @@ exa_sys_update(int fd, struct exa_endpoint * restrict endpoint)
     req.local_port = endpoint->port.local;
     req.peer_port = endpoint->port.peer;
 
-    if (ioctl(fd, EXASOCK_IOCTL_UPDATE, &req) != 0)
-        goto err_ioctl;
+    ret = ioctl(fd, EXASOCK_IOCTL_UPDATE, &req);
 
     exasock_override_on();
-    return 0;
-
-err_ioctl:
-    exasock_override_on();
-    return -1;
+    return ret;
 }
 
 /* Map the kernel allocated buffers */

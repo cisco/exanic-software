@@ -269,7 +269,7 @@ exabond_sysfs_devattr_slaves_store(struct device *d,
         return -ENODEV;
     }
 
-    strcpy(ifr.ifr_slave, iface_name);
+    strncpy(ifr.ifr_slave, iface_name, sizeof(ifr.ifr_slave));
 
     if (command == '+')
     {
@@ -326,9 +326,8 @@ exabond_sysfs_devattr_mode_store(struct device *d,
     int ret;
 
     ret = exabond_sysfs_attr_store_sanitychk_and_get_master(d,
-                                                            &master_dev,
-                                                            &exa_master,
-                                                            exabond.orig_sysfs_attr_active_slave_store);
+            &master_dev, &exa_master,
+            exabond.orig_sysfs_attr_mode_store);
     if (ret != 0)
     {
         BUG_ON(exabond.orig_sysfs_attr_mode_store == NULL);
@@ -356,10 +355,9 @@ exabond_sysfs_devattr_active_slave_store(struct device *d,
     struct exabond_master *exa_master;
     int ret;
 
-    ret = exabond_sysfs_attr_store_sanitychk_and_get_master(d,
-                                                            &master_dev,
-                                                            &exa_master,
-                                                            exabond.orig_sysfs_attr_active_slave_store);
+    exabond_sysfs_attr_store_sanitychk_and_get_master(d,
+            &master_dev, &exa_master,
+            exabond.orig_sysfs_attr_active_slave_store);
 
     /* Unconditionally call into the `bonding` driver to have it change
      * the active child. Then detect and propagate the new active child

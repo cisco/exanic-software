@@ -257,6 +257,7 @@ static int restart_autoneg(const char* device, int port_number)
     memset(&cmd, 0, sizeof(cmd));
     char ifname[IFNAMSIZ];
     cmd.cmd = ETHTOOL_NWAY_RST;
+    int ret;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1)
@@ -266,7 +267,10 @@ static int restart_autoneg(const char* device, int port_number)
     }
 
     get_interface_name(device, port_number, ifname, IFNAMSIZ);
-    return ethtool_ioctl(fd, ifname, &cmd);
+    ret = ethtool_ioctl(fd, ifname, &cmd);
+
+    close(fd);
+    return ret;
 }
 
 static int set_fec_via_register_access(const char* device, int port_number, uint32_t fec)
@@ -360,6 +364,9 @@ int ethtool_get_flag_names(int fd, char *ifname, char flag_names[32][ETH_GSTRING
 
     /* Get flag names */
     strings = calloc(1, sizeof(struct ethtool_gstrings) + len * ETH_GSTRING_LEN);
+    if (strings == NULL)
+        return -1;
+
     strings->cmd = ETHTOOL_GSTRINGS;
     strings->string_set = ETH_SS_PRIV_FLAGS;
     strings->len = len;
@@ -761,6 +768,10 @@ void show_device_info(const char *device, int port_number, int verbose)
     int fd;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1) {
+        printf("socket creation failed");
+        return ;
+    }
 
     exanic = acquire_handle(device);
     hwinfo = &exanic->hw_info;
@@ -855,12 +866,19 @@ void show_device_info(const char *device, int port_number, int verbose)
         char *p;
 
         tm = gmtime(&rev_date);
-        asctime_r(tm, buf);
-        if ((p = strchr(buf, '\n')) != NULL)
-            *p = '\0';
+        if (tm != NULL)
+        {
+            asctime_r(tm, buf);
+            if ((p = strchr(buf, '\n')) != NULL)
+               *p = '\0';
 
-        printf("  Firmware date: %04d%02d%02d (%s)\n", tm->tm_year + 1900,
+            printf("  Firmware date: %04d%02d%02d (%s)\n", tm->tm_year + 1900,
                 tm->tm_mon + 1, tm->tm_mday, buf);
+        }
+        else
+        {
+            printf("  Firmware date: unknown \n");
+        }
     }
 
     if (function == EXANIC_FUNCTION_DEVKIT)
@@ -1168,6 +1186,7 @@ void show_device_info(const char *device, int port_number, int verbose)
     }
 
     release_handle(exanic);
+    close(fd);
 }
 
 void show_all_devices(int verbose, int* ndevices)
@@ -1310,6 +1329,7 @@ void set_port_enable_state(const char *device, int port_number, int mode)
         ioctl(fd, SIOCGIFFLAGS, &ifr) == -1)
     {
         fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
+        close(fd);
         exit(1);
     }
 
@@ -1321,11 +1341,13 @@ void set_port_enable_state(const char *device, int port_number, int mode)
     if (ioctl(fd, SIOCSIFFLAGS, &ifr) == -1)
     {
         fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
+        close(fd);
         exit(1);
     }
 
     printf("%s:%d: port %s\n", device, port_number,
             mode ? "enabled" : "disabled");
+    close(fd);
 }
 
 void set_promiscuous_mode(const char *device, int port_number, int mode)
@@ -1335,11 +1357,17 @@ void set_promiscuous_mode(const char *device, int port_number, int mode)
 
     get_interface_name(device, port_number, ifr.ifr_name, IFNAMSIZ);
 
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
+        exit(1);
+    }
+
     /* Enable promisc mode via socket ioctls */
-    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1 ||
-        ioctl(fd, SIOCGIFFLAGS, &ifr) == -1)
+    if (ioctl(fd, SIOCGIFFLAGS, &ifr) == -1)
     {
         fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
+        close(fd);
         exit(1);
     }
 
@@ -1351,11 +1379,13 @@ void set_promiscuous_mode(const char *device, int port_number, int mode)
     if (ioctl(fd, SIOCSIFFLAGS, &ifr) == -1)
     {
         fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
+        close(fd);
         exit(1);
     }
 
     printf("%s:%d: promiscuous mode %s\n", device, port_number,
             mode ? "enabled" : "disabled");
+    close(fd);
 }
 
 void set_ethtool_priv_flags(const char *device, int port_number,
@@ -1513,6 +1543,7 @@ void set_per_out(const char *device, int pps_10m, int enable)
     if (ethtool_get_phc_index(fd, ifname, &phc_index) == -1)
     {
         fprintf(stderr, "%s: %s\n", device, strerror(errno));
+        close(fd);
         exit(1);
     }
 
@@ -1520,11 +1551,14 @@ void set_per_out(const char *device, int pps_10m, int enable)
     if ((clkfd = open(phc_device, O_RDWR)) == -1)
     {
         fprintf(stderr, "%s: %s\n", device, strerror(errno));
+        close(fd);
         exit(1);
     }
     if (clock_gettime(FD_TO_CLOCKID(clkfd), &ts) == -1)
     {
         fprintf(stderr, "%s: %s\n", device, strerror(errno));
+        close(fd);
+        close(clkfd);
         exit(1);
     }
 
@@ -1556,11 +1590,15 @@ void set_per_out(const char *device, int pps_10m, int enable)
                     device, pps_10m ? "PPS" : "10M");
         else
             fprintf(stderr, "%s: %s\n", device, strerror(errno));
+        close(fd);
+        close(clkfd);
         exit(1);
     }
 
     printf("%s: %s output %s\n", device, pps_10m ? "PPS" : "10M",
             enable ? "enabled" : "disabled");
+    close(fd);
+    close(clkfd);
 }
 
 void set_per_out_edge_sel(const char *device, int rising)
@@ -2114,11 +2152,21 @@ void show_ptp_status(const char *device)
             (conf0 & EXANIC_PTP_CONF0_GPS_CLOCK_SYNC) ? "enabled" : "disabled");
     if ((conf0 & EXANIC_PTP_CONF0_GPS_CLOCK_SYNC) != 0)
     {
+        struct tm *tm;
+
         utc_time.tv_sec = hw_time.tv_sec - tai_offset;
         utc_time.tv_nsec = hw_time.tv_nsec;
-        strftime(buffer, sizeof(buffer), "%F %T", gmtime(&hw_time.tv_sec));
+        tm = gmtime(&hw_time.tv_sec);
+        if (tm)
+            strftime(buffer, sizeof(buffer), "%F %T", tm);
+        else
+            snprintf(buffer, sizeof(buffer), "Invalid");
         printf("  Hardware time: %s.%09ld TAI\n", buffer, hw_time.tv_nsec);
-        strftime(buffer, sizeof(buffer), "%F %T", gmtime(&utc_time.tv_sec));
+        tm = gmtime(&utc_time.tv_sec);
+        if (tm)
+            strftime(buffer, sizeof(buffer), "%F %T", tm);
+        else
+            snprintf(buffer, sizeof(buffer), "Invalid");
         printf("                 %s.%09ld UTC\n", buffer, utc_time.tv_nsec);
         printf("  TAI-UTC offset: %ds\n", tai_offset);
     }
@@ -3027,6 +3075,11 @@ int handle_options_on_nic(char* device, int port_number, int argc, char** argv)
 int parse_device_glob(char* glob, char devices[][16], int max_devices, int* nmatches)
 {
     exanic_port_info_t* info = malloc(sizeof(exanic_port_info_t) * max_devices);
+    if ( info == NULL )
+    {
+        return false;
+    }
+
     ssize_t parsed = exanic_get_all_ports(info, max_devices * sizeof(exanic_port_info_t));
     ssize_t i;
 
