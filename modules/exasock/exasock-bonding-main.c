@@ -193,7 +193,7 @@ exabond_bond_contains_netdev(struct bonding *bond_master,
 }
 
 /* Unlocked version */
-struct exabond_master *
+static struct exabond_master *
 __exabond_ifaces_find_by_name(const char *iface_name)
 {
     struct exabond_master *cur;
@@ -277,16 +277,6 @@ __exabond_ifaces_list_remove(struct exabond_master *m)
     list_del(&m->sibling_ifaces);
 }
 
-void
-exabond_ifaces_list_remove(struct exabond_master *m)
-{
-    unsigned long irqf;
-
-    spin_lock_irqsave(&exabond.lock, irqf);
-    __exabond_ifaces_list_remove(m);
-    spin_unlock_irqrestore(&exabond.lock, irqf);
-}
-
 static int
 __exabond_ndo_ioctl_get_slave_arg(struct net_device *bond_dev,
                                   struct ifreq *ifr,
@@ -310,7 +300,7 @@ __exabond_ndo_ioctl_get_slave_arg(struct net_device *bond_dev,
     return 0;
 }
 
-int
+static int
 exabond_ndo_sioc_bond_enslave(struct net_device *dev,
                               struct ifreq *ifr,
                               int cmd)
@@ -392,7 +382,7 @@ exabond_ndo_sioc_bond_enslave(struct net_device *dev,
     return 0;
 }
 
-int
+static int
 exabond_ndo_sioc_bond_release(struct net_device *dev,
                               struct ifreq *ifr,
                               int cmd)

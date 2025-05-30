@@ -375,7 +375,7 @@ static bool exanic_ptp_adj_allowed(struct exanic *exanic)
     return true;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+#if !__HAS_PTP_CLOCK_ADJFREQ
 static int exanic_phc_adjfine(struct ptp_clock_info *ptp, long scaled_ppm)
 {
     struct exanic *exanic = container_of(ptp, struct exanic, ptp_clock_info);
@@ -649,7 +649,7 @@ static int exanic_phc_enable(struct ptp_clock_info *ptp,
 static const struct ptp_clock_info exanic_ptp_clock_info = {
     .owner      = THIS_MODULE,
     .pps        = 1,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 2, 0)
+#if !__HAS_PTP_CLOCK_ADJFREQ
     .adjfine    = exanic_phc_adjfine,
 #else
     .adjfreq    = exanic_phc_adjfreq,

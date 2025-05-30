@@ -29,11 +29,17 @@ exabond_get_sysfs_namespace(struct class *cls,
 #endif
 
 static ssize_t
+#if __USE_CONST_ATTR_PARAM
+exabond_masters_show(const struct class *c,
+                     const struct class_attribute *cattr,
+                     char *buf)
+#else
 exabond_masters_show(struct class *c,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
                      struct class_attribute *cattr,
 #endif
                      char *buf)
+#endif
 {
     ssize_t outstrlen=0;
     unsigned long irqf;
@@ -71,11 +77,17 @@ exabond_masters_show(struct class *c,
 }
 
 static ssize_t
+#if __USE_CONST_ATTR_PARAM
+exabond_masters_store(const struct class *c,
+                      const struct class_attribute *cattr,
+                      const char *buf, size_t count)
+#else
 exabond_masters_store(struct class *c,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34)
                       struct class_attribute *cattr,
 #endif
                       const char *buf, size_t count)
+#endif
 {
     char command;
     struct exabond_master *master;

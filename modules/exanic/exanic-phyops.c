@@ -571,7 +571,8 @@ __exanic_phyops_set_configs(struct exanic *exanic, int port,
                                           ~0, NULL);
 }
 
-void add_ethtool_modes(const exa_caps_ethtool_modes_mapping_t* entry_ptr, exanic_phyops_configs_t *configs)
+static void add_ethtool_modes(const exa_caps_ethtool_modes_mapping_t* entry_ptr,
+			exanic_phyops_configs_t *configs)
 {
     const uint8_t* lm_ptr = entry_ptr->link_modes;
     /* Only add modes which exanic device supports */

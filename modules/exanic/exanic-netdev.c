@@ -1088,14 +1088,14 @@ static int exanic_netdev_change_mtu(struct net_device *ndev, int new_mtu)
 }
 
 #ifdef NETIF_F_RXALL
-int exanic_set_features(struct net_device *netdev, netdev_features_t features)
+static int exanic_set_features(struct net_device *netdev, netdev_features_t features)
 {
     netdev->features = features;
     return 0;
 }
 #endif
 
-int exanic_ioctl_set_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
+static int exanic_ioctl_set_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
                                   int cmd)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1154,7 +1154,7 @@ int exanic_ioctl_set_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
     return 0;
 }
 
-int exanic_ioctl_get_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
+static int exanic_ioctl_get_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
                                   int cmd)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1173,7 +1173,7 @@ int exanic_ioctl_get_hw_timestamp(struct net_device *ndev, struct ifreq *ifr,
     return 0;
 }
 
-int exanic_ioctl_get_ifinfo(struct net_device *ndev, struct ifreq *ifr,
+static int exanic_ioctl_get_ifinfo(struct net_device *ndev, struct ifreq *ifr,
                             int cmd)
 {
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
@@ -1193,7 +1193,7 @@ int exanic_ioctl_get_ifinfo(struct net_device *ndev, struct ifreq *ifr,
 /**
  * Handle ioctl request on a ExaNIC interface.
  */
-int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
+static int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
                         int cmd)
 {
     switch (cmd)
@@ -1221,7 +1221,7 @@ int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
 }
 
 #if __HAS_KERNEL_NDO_ETH_IOCTL
-int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
+static int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *ifr,
                               void __user *data, int cmd)
 {
     if (cmd == EXAIOCGIFINFO)
@@ -1335,6 +1335,9 @@ static int exanic_netdev_restart_autoneg(struct net_device* ndev)
 static void exanic_netdev_get_drvinfo(struct net_device *ndev,
                                       struct ethtool_drvinfo *info)
 {
+#if !__HAS_STRLCPY
+#define strlcpy     strscpy
+#endif
     strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
     strlcpy(info->version, DRV_VERSION, sizeof(info->version));
     strlcpy(info->bus_info, dev_name(ndev->dev.parent), sizeof(info->bus_info));
@@ -1888,7 +1891,12 @@ static int exanic_netdev_poll(struct napi_struct *napi, int budget)
         if (exanic_rx_ready(rx))
         {
             /* Poll again as soon as possible */
+#if __HAS_NAPI_RESCHEDULE
             napi_reschedule(napi);
+#else
+            napi_schedule(napi);
+#endif
+
         }
         else if (priv->rx_coalesce_timeout_ns > 0)
         {
@@ -2020,7 +2028,9 @@ void exanic_netdev_free(struct net_device *ndev)
 {
     if (!ndev)
         return;
+#if !__HAS_FLUSH_WQ_WARN
     flush_scheduled_work();
+#endif
     unregister_netdev(ndev);
     free_netdev(ndev);
 }

@@ -230,7 +230,7 @@ static void exanic_link_timer_callback(unsigned long data)
  * Implement common functionality used by exanic_alloc_rx_dma and
  * exanic_alloc_filter_dma.
  */
-void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
+static void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
                         dma_addr_t * rx_region_dma)
 {
     struct device *dev = &exanic->pci_dev->dev;
@@ -257,8 +257,8 @@ void * exanic_alloc_dma(struct exanic *exanic, int *numa_node,
     /* Allocate DMA resources. */
     virt_region = dma_alloc_coherent(dev, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE,
                                      rx_region_dma, GFP_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
-                                     | __GFP_COMP
+#if !(__HAS_GFP_TYPES_H)
+                                  | __GFP_COMP
 #endif
                                      );
 
@@ -943,7 +943,7 @@ static void inc_mac_addr(u8 addr[ETH_ALEN], int n)
     addr[5] = nic & 0xFF;
 }
 
-int exanic_get_num_ports(struct exanic *exanic)
+static int exanic_get_num_ports(struct exanic *exanic)
 {
     int port_idx;
     int port_status;
@@ -1058,8 +1058,10 @@ static int exanic_probe(struct pci_dev *pdev,
         goto err_req_regions;
     }
 
+#if __HAS_PCI_ERR_REPORTING
 #if defined(CONFIG_PCIEAER)
     pci_enable_pcie_error_reporting(pdev);
+#endif
 #endif
     pci_set_master(pdev);
     pci_set_drvdata(pdev, exanic);
@@ -1215,7 +1217,7 @@ static int exanic_probe(struct pci_dev *pdev,
     exanic->tx_feedback_virt = dma_alloc_coherent(&exanic->pci_dev->dev,
             EXANIC_TX_FEEDBACK_NUM_PAGES * PAGE_SIZE,
             &exanic->tx_feedback_dma, GFP_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 2)
+#if !(__HAS_GFP_TYPES_H)
             | __GFP_COMP
 #endif
             );
@@ -1883,8 +1885,10 @@ err_interface_ver:
 err_regs_ioremap:
 err_regs_size:
 err_regs_bar_type:
+#if __HAS_PCI_ERR_REPORTING
 #if defined(CONFIG_PCIEAER)
     pci_disable_pcie_error_reporting(pdev);
+#endif
 #endif
     pci_release_regions(pdev);
 err_req_regions:
@@ -2002,8 +2006,10 @@ static void exanic_remove(struct pci_dev *pdev)
     if (exanic->regs_virt != NULL)
         iounmap(exanic->regs_virt);
 
+#if __HAS_PCI_ERR_REPORTING
 #if defined(CONFIG_PCIEAER)
     pci_disable_pcie_error_reporting(pdev);
+#endif
 #endif
     pci_release_regions(pdev);
     pci_disable_device(pdev);

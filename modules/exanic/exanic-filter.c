@@ -29,7 +29,7 @@
  * dst_port} concatenation maps to a wildcard field (i.e. the field is set to
  * zero).
  */
-unsigned exanic_ip_filter_is_wildcard_field(struct exanic_ip_filter_slot *filter,
+static unsigned exanic_ip_filter_is_wildcard_field(struct exanic_ip_filter_slot *filter,
                                             int byte)
 {
     switch (byte)
@@ -62,7 +62,7 @@ unsigned exanic_ip_filter_is_wildcard_field(struct exanic_ip_filter_slot *filter
  * concatenation maps to a wildcard field (i.e. the field is set to
  * zero).
  */
-unsigned exanic_mac_filter_is_wildcard_field(struct exanic_mac_filter_slot *filter,
+static unsigned exanic_mac_filter_is_wildcard_field(struct exanic_mac_filter_slot *filter,
                                             int byte)
 {
     int i;
@@ -97,7 +97,7 @@ unsigned exanic_mac_filter_is_wildcard_field(struct exanic_mac_filter_slot *filt
  * Map a byte offset in the {protocol, src_addr, dst_addr, src_port, dst_port}
  * 13 byte concatenation to the value of that byte.
  */
-int exanic_ip_filter_byte_val_check(struct exanic_ip_filter_slot *filter,
+static int exanic_ip_filter_byte_val_check(struct exanic_ip_filter_slot *filter,
                                   int byte_number, int byte_value)
 {
     uint8_t prog_value;
@@ -153,7 +153,7 @@ int exanic_ip_filter_byte_val_check(struct exanic_ip_filter_slot *filter,
  * Map a byte offset in the {is_vlan, vlan, ethertype, dst_mac}
  * 10 byte concatenation to the value of that byte.
  */
-int exanic_mac_filter_byte_val_check(struct exanic_mac_filter_slot *filter,
+static int exanic_mac_filter_byte_val_check(struct exanic_mac_filter_slot *filter,
                                   int byte_number, uint8_t byte_value)
 {
     uint8_t prog_value;
@@ -211,7 +211,7 @@ int exanic_mac_filter_byte_val_check(struct exanic_mac_filter_slot *filter,
  *
  * Called with the exanic mutex held.
  */
-void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_num,
+static void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_num,
                                             unsigned bank)
 {
     int byte_number, byte_value, filter_number;
@@ -254,7 +254,7 @@ void exanic_update_hardware_ip_filter_bank(struct exanic *exanic, unsigned port_
  *
  * Called with the exanic mutex held.
  */
-void exanic_update_hardware_mac_filter_bank(struct exanic *exanic,
+static void exanic_update_hardware_mac_filter_bank(struct exanic *exanic,
                                             unsigned port_num, unsigned bank)
 {
     int byte_number, byte_value, filter_number;
@@ -296,7 +296,7 @@ void exanic_update_hardware_mac_filter_bank(struct exanic *exanic,
  *
  * Called with the exanic mutex held.
  */
-int exanic_set_filter_buffer(struct exanic *exanic, unsigned port_num,
+static int exanic_set_filter_buffer(struct exanic *exanic, unsigned port_num,
                               int buffer_num, int region,
                               int filter_id)
 {
