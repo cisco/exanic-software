@@ -3125,8 +3125,9 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
          *    accepted queue was full when the first ack was received */
         if ((req->state != EXA_TCP_SYN_RCVD &&
              req->state != EXA_TCP_ESTABLISHED)  ||
-            req->local_seq != ntohl(th->ack_seq) ||
-            req->peer_seq != ntohl(th->seq))
+            ((req->local_seq != ntohl(th->ack_seq) ||
+            req->peer_seq != ntohl(th->seq)) &&
+            skb_queue_empty(&req->skb_queue)))
         {
             /* Sequence numbers don't match */
             spin_unlock(&tcp_req_lock);
@@ -3202,6 +3203,14 @@ static int exasock_tcp_req_process(struct sk_buff *skb, struct exasock_tcp *tcp,
             /* New connection established - increment counter */
             tcp->counters.s.listen.reqs_estab++;
             PROFILE_INFO_ADD_HANDSHAKE_COMPLETED_TIME(req);
+            if (th->psh) {
+                /* save packets under the request. these packets will be processed once the connection
+                 * corresponding to this request is accepted and the socket to manage it is constructed */
+                skb_queue_head(&req->skb_queue, skb);
+                spin_unlock(&tcp_req_lock);
+                /* Return 0 because we dont want the caller of this function to requeue skb to the tcp_packets queue*/
+                return 0;
+            }
             spin_unlock(&tcp_req_lock);
         }
     }
