@@ -327,7 +327,7 @@ static struct work_struct       ate_skb_proc_work;
 /* Attention!!!: both the size of RX_BUFFER and TX_BUFFER must be a power of 2 */
 #define RX_BUFFER_SIZE          (1048576)
 #define RX_BUFFER_MASK          (RX_BUFFER_SIZE - 1)
-#define TX_BUFFER_SIZE          (1048576)
+#define TX_BUFFER_SIZE          (1048576 * 4)
 #define TX_BUFFER_MASK          (TX_BUFFER_SIZE - 1)
 
 #if (RX_BUFFER_SIZE & RX_BUFFER_MASK)

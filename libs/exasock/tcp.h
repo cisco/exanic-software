@@ -145,6 +145,10 @@ exa_tcp_max_seg_len(struct exa_tcp_conn * restrict ctx, bool is_ate,
         wnd_end = ntohl(state->ate_wnd_end);
     }
 
+    if (wnd_end - state->send_ack > ctx->state->tx_buffer_size) {
+        wnd_end = state->send_ack + ctx->state->tx_buffer_size;
+    }
+
     wnd_space = wnd_end - *seq;
 
     if (wnd_space < 0)
