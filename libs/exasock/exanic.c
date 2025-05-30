@@ -60,7 +60,6 @@
 #include "latency.h"
 
 #define MAX_HDR_LEN 128
-#define MAX_FRAME_LEN 1522
 
 struct exanic_ip
 {
@@ -427,7 +426,7 @@ exanic_dev_send(struct exanic_ip_dev * restrict ctx, char *hdr, size_t hdr_len,
 
     assert(hdr_len <= MAX_HDR_LEN);
 
-    if (frame_len > MAX_FRAME_LEN)
+    if (frame_len > exanic_get_tx_mtu(ctx->exanic_tx))
         return;
 
     exa_lock(&exanic_tx_lock);
@@ -2083,6 +2082,28 @@ exanic_tcp_write_closed(struct exa_socket *sock)
     return exa_tcp_write_closed(&ctx->tcp);
 }
 
+static size_t
+exanic_adjust_tcp_seg_len(exanic_tx_t *tx, size_t data_len,
+        size_t max_window_size, struct exa_eth_tx * restrict eth,
+        bool is_ate)
+{
+    size_t mtu = exanic_get_tx_mtu(tx);
+    size_t len = data_len < max_window_size ? data_len : max_window_size;
+    size_t hdr_len = 0;
+
+    if (is_ate) {
+        hdr_len = sizeof(struct tx_payload_metadata);
+    } else {
+        hdr_len = sizeof(struct tcphdr) + sizeof(struct ip);
+        hdr_len += (eth->hdr.eth.h_proto == htons(ETH_P_8021Q) ?
+                sizeof(eth->hdr) : sizeof(eth->hdr.eth));
+    }
+
+    len = len + hdr_len > mtu ? mtu - hdr_len : len;
+
+    return len;
+}
+
 ssize_t
 exanic_tcp_send_iov(struct exa_socket * restrict sock,
                     const struct iovec *iov, size_t iovcnt,
@@ -2109,7 +2130,8 @@ exanic_tcp_send_iov(struct exa_socket * restrict sock,
     if (max_len == 0 && data_len != 0)
         return 0;
 
-    send_len = data_len < max_len ? data_len : max_len;
+    send_len = exanic_adjust_tcp_seg_len(ctx->exanic_ctx->dev.exanic_tx,
+            data_len, max_len, &ctx->eth, is_ate);
 
     /* Clear ack_pending flag because an ACK is about to be sent */
     if (EXPECT_TRUE(!warm))
