@@ -1600,12 +1600,12 @@ void exasock_tcp_close(struct exasock_tcp *tcp)
     {
         /* turn HW injection off */
         exasock_ate_disable(tcp);
-        tcp->reset_on_free = (exasock_ate_wait_echo(tcp) != 0);
+        exasock_ate_wait_echo(tcp);
+        exasock_ate_release(tcp);
     }
-    else if (unlikely(!tcp->user_page->p.tcp.tx_consistent))
-        tcp->reset_on_free = true;
 
-    queue_delayed_work(tcp_workqueue, &tcp->fin_work, 0);
+    tcp->reset_on_free = true;
+    exasock_tcp_free(tcp);
 }
 
 /* note: this function can be run either on the main tcp_workqueue
