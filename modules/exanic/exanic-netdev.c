@@ -1516,35 +1516,53 @@ static int exanic_netdev_set_coalesce(struct net_device *ndev,
 }
 
 #if defined(ETHTOOL_GET_TS_INFO)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
 static int exanic_netdev_get_ts_info(struct net_device *ndev,
-                                     struct ethtool_ts_info *eti)
+                                      struct kernel_ethtool_ts_info *info)
 {
-#if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
 
-    if (priv->exanic->ptp_clock != NULL)
-    {
-        eti->so_timestamping = SOF_TIMESTAMPING_RX_HARDWARE |
-            SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_TX_HARDWARE |
-            SOF_TIMESTAMPING_TX_SOFTWARE | SOF_TIMESTAMPING_SOFTWARE |
-            SOF_TIMESTAMPING_RAW_HARDWARE;
-        eti->phc_index = ptp_clock_index(priv->exanic->ptp_clock);
-        eti->tx_types = (1 << HWTSTAMP_TX_OFF) | (1 << HWTSTAMP_TX_ON);
-        eti->rx_filters = (1 << HWTSTAMP_FILTER_NONE) |
-            (1 << HWTSTAMP_FILTER_ALL);
-    }
-    else
-#endif
-    {
-        eti->so_timestamping = SOF_TIMESTAMPING_RX_SOFTWARE |
-            SOF_TIMESTAMPING_TX_SOFTWARE | SOF_TIMESTAMPING_SOFTWARE;
-        eti->phc_index = -1;
-        eti->tx_types = 0;
-        eti->rx_filters = 0;
-    }
+    info->so_timestamping =
+        SOF_TIMESTAMPING_TX_HARDWARE |
+        SOF_TIMESTAMPING_RX_HARDWARE |
+        SOF_TIMESTAMPING_RAW_HARDWARE;
+
+    info->phc_index = ptp_clock_index(priv->exanic->ptp_clock);
+
+    info->tx_types =
+        (1 << HWTSTAMP_TX_OFF) |
+        (1 << HWTSTAMP_TX_ON);
+
+    info->rx_filters =
+        (1 << HWTSTAMP_FILTER_NONE) |
+        (1 << HWTSTAMP_FILTER_ALL);
 
     return 0;
 }
+#else
+static int exanic_netdev_get_ts_info(struct net_device *ndev,
+                                      struct ethtool_ts_info *info)
+{
+    struct exanic_netdev_priv *priv = netdev_priv(ndev);
+
+    info->so_timestamping =
+        SOF_TIMESTAMPING_TX_HARDWARE |
+        SOF_TIMESTAMPING_RX_HARDWARE |
+        SOF_TIMESTAMPING_RAW_HARDWARE;
+
+    info->phc_index = ptp_clock_index(priv->exanic->ptp_clock);
+
+    info->tx_types =
+        (1 << HWTSTAMP_TX_OFF) |
+        (1 << HWTSTAMP_TX_ON);
+
+    info->rx_filters =
+        (1 << HWTSTAMP_FILTER_NONE) |
+        (1 << HWTSTAMP_FILTER_ALL);
+
+    return 0;
+}
+#endif
 #endif
 
 #ifdef ETHTOOL_GMODULEINFO
