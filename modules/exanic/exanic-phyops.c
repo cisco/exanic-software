@@ -356,6 +356,7 @@ exanic_phyops_get_module_eeprom_paged(struct exanic *exanic, int port,
         size_t curr_page_len = page_index ? (page_size / 2): page_size;
         size_t page_offset;
         size_t bytes_read;
+        size_t repeat_len = 0;
         uint8_t page_reg = cmis ?
                             cmis_pages[page_index % sizeof cmis_pages] :
                             qsfp_pages[page_index % sizeof qsfp_pages];
@@ -376,6 +377,11 @@ exanic_phyops_get_module_eeprom_paged(struct exanic *exanic, int port,
         /* apply upper page offset */
         if (page_index)
             page_offset += page_size / 2;
+repeat:
+        if (bytes_read > EEPROM_PAGE_SIZE_READ_LIMIT) {
+            repeat_len = bytes_read - EEPROM_PAGE_SIZE_READ_LIMIT;
+            bytes_read = EEPROM_PAGE_SIZE_READ_LIMIT;
+        }
 
         err = exanic_i2c_xcvr_read(exanic, port, XCVR_EEPROM_ADDR,
                                    page_offset, ptr, bytes_read);
@@ -385,6 +391,13 @@ exanic_phyops_get_module_eeprom_paged(struct exanic *exanic, int port,
         bytes_rem -= bytes_read;
         ptr += bytes_read;
         offset += bytes_read;
+
+        if (repeat_len) {
+            bytes_read = repeat_len;
+            repeat_len = 0;
+            page_offset = offset;
+            goto repeat;
+        }
 
 turn_page:
         page_boundary += curr_page_len;

@@ -50,6 +50,11 @@
 #define SFP_DIAG_ADDR                       0xA2
 #define XCVR_EEPROM_ADDR                    0xA0
 
+#define EEPROM_PAGE_SIZE_READ_LIMIT         128
+
+#define QSFP_OFFSET_DIAG_MON_TYPE           0x56
+#define QSFP_OFFSET_PAGE_SELECT             0x7F
+
 /* Fields in pluggable transceiver memory map */
 
 #define SFF_8024_ID_BYTE                    0

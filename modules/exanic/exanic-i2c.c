@@ -455,6 +455,15 @@ exanic_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 do_xfer:
     /* perform i2c transfer */
     ret = exanic_data->xfer_wrapped(adap, msgs, num);
+    if (ret < 0) {
+        /* return success as this error may be due to write locked EEPROM */
+        if ((exanic_data->type == EXANIC_I2C_ADAP_QSFP ||
+                    exanic_data->type == EXANIC_I2C_ADAP_QSFPDD) &&
+                !(msgs[1].flags & I2C_M_RD) &&
+                ((msgs[0].buf[0] == QSFP_OFFSET_DIAG_MON_TYPE) ||
+                 (msgs[0].buf[0] == QSFP_OFFSET_PAGE_SELECT)))
+            ret = num;
+    }
 
 unlock:
     mutex_unlock(&exanic_data->exanic->i2c_lock);
