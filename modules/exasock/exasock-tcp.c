@@ -1441,6 +1441,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
     struct exasock_tcp*     old;
     struct exasock_tcp_req* req;
     struct exasock_tcp *    tcpl;
+    unsigned long timestamp;
     int err;
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
@@ -1504,6 +1505,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
     if (req)
     {
         PROFILE_INFO_SOCK_UPDATE(tcp, req);
+        timestamp = req->timestamp;
         if (!skb_queue_empty(&req->skb_queue))
         {
             /* irq must be disabled because this function may be preempted by the
@@ -1520,16 +1522,19 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
         kfree(req);
     }
 
-    /* Find listenning socket and add increase its backlog.
-     * By increasing a backlog you allow listen socket to accept more connections */
-    rcu_read_lock();
-    tcpl = exasock_tcp_lookup(tcp->local_addr, INADDR_ANY, tcp->local_port, 0);
-    if (tcpl)
+    if (!time_after(jiffies, timestamp+TCP_REQUEST_JIFFIES))
     {
-        tcpl->user_page->p.tcp.backlog++;
-        PROFILE_INFO_REGISTER_SOCK(tcp, tcpl);
+        /* Find listenning socket and add increase its backlog.
+         * By increasing a backlog you allow listen socket to accept more connections */
+        rcu_read_lock();
+        tcpl = exasock_tcp_lookup(tcp->local_addr, INADDR_ANY, tcp->local_port, 0);
+        if (tcpl)
+        {
+            tcpl->user_page->p.tcp.backlog++;
+            PROFILE_INFO_REGISTER_SOCK(tcp, tcpl);
+        }
+        rcu_read_unlock();
     }
-    rcu_read_unlock();
     spin_unlock(&tcp_req_lock);
     return 0;
 }
@@ -2938,18 +2943,19 @@ static int exasock_tcp_conn_process(struct sk_buff *skb,
 static void exasock_tcp_req_worker(struct work_struct *work)
 {
     struct exasock_tcp_req *req, *tmp;
+    struct exasock_tcp *tcpl;
 
     /* Expire old TCP connection requests */
     spin_lock(&tcp_req_lock);
     list_for_each_entry_safe(req, tmp, &tcp_req_list, list)
     {
-        if (req->state == EXA_TCP_ESTABLISHED)
+        tcpl = exasock_tcp_lookup(req->local_addr, req->peer_addr, req->local_port, req->peer_port);
+        if ((tcpl && (tcpl->user_page->p.tcp.state == EXA_TCP_ESTABLISHED)) || req->state == EXA_TCP_ESTABLISHED)
             continue;
 
         if (time_after(jiffies, req->timestamp + TCP_REQUEST_JIFFIES))
         {
             struct sk_buff*     skb;
-            struct exasock_tcp *tcpl;
             /* delete all queued sk_buff on this req */
             while((skb = skb_dequeue_tail(&req->skb_queue)) != NULL)
                 dev_kfree_skb_any(skb);
@@ -2957,7 +2963,6 @@ static void exasock_tcp_req_worker(struct work_struct *work)
             hlist_del(&req->hash_node);
             list_del(&req->list);
             kfree(req);
-            tcpl = exasock_tcp_lookup(req->local_addr, req->peer_addr, req->local_port, req->peer_port);
             if(tcpl)
                 tcpl->user_page->p.tcp.backlog++;
             continue;
