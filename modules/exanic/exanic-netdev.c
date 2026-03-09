@@ -1516,8 +1516,13 @@ static int exanic_netdev_set_coalesce(struct net_device *ndev,
 }
 
 #if defined(ETHTOOL_GET_TS_INFO)
+#if __RH_KERNEL_TS_INFO
+static int exanic_netdev_get_ts_info(struct net_device *ndev,
+                                     struct kernel_ethtool_ts_info *eti)
+#else
 static int exanic_netdev_get_ts_info(struct net_device *ndev,
                                      struct ethtool_ts_info *eti)
+#endif
 {
 #if defined(CONFIG_PTP_1588_CLOCK) || defined(CONFIG_PTP_1588_CLOCK_MODULE)
     struct exanic_netdev_priv *priv = netdev_priv(ndev);
