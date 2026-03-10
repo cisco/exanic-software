@@ -29,7 +29,7 @@ int exanic_set_filter_string(const char *ruleset, int slot, const char *filter)
     /* Make sure the directory exists */
     err = mkdir(EXANIC_CONFIG_PATH, 0770);
     if ((err < 0) && (errno != EEXIST)) {
-        exanic_err_printf("%s: mkdir failed: %s", path, strerror(errno));
+        exanic_err_printf("%s: mkdir failed: %s", EXANIC_CONFIG_PATH, strerror(errno));
         return -1;
     }
     snprintf(path, sizeof(path), EXANIC_CONFIG_PATH "/%s", ruleset);

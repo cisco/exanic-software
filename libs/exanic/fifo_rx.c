@@ -11,10 +11,27 @@
 #include "ioctl.h"
 #include "util.h"
 
+static void exanic_free_filter_buffer(exanic_t *exanic, int port_number,
+                                      unsigned int buffer_number)
+{
+    struct exanicctl_rx_filter_buffer_free arg;
+
+    arg.port_number = port_number;
+    arg.buffer_number = buffer_number - 1;
+
+    if (ioctl(exanic->fd, EXANICCTL_RX_FILTER_BUFFER_FREE, &arg) != 0)
+    {
+        exanic_err_printf("EXANICCTL_RX_FILTER_BUFFER_FREE failed during cleanup: %s",
+                          strerror(errno));
+    }
+}
+
 exanic_rx_t * exanic_acquire_rx_buffer(exanic_t *exanic, int port_number,
                                        int buffer_number)
 {
     unsigned int page_offset;
+    int filter_buffer_allocated = 0;
+
     if (port_number < 0 || port_number >= exanic->num_ports)
     {
         exanic_err_printf("invalid port number");
@@ -46,6 +63,7 @@ exanic_rx_t * exanic_acquire_rx_buffer(exanic_t *exanic, int port_number,
                     strerror(errno));
             return NULL;
         }
+        filter_buffer_allocated = 1;
 
         page_offset = EXANIC_PGOFF_FILTER_REGION * PAGE_SIZE
                       + (port_number * exanic->max_filter_buffers
@@ -68,21 +86,32 @@ exanic_rx_t * exanic_acquire_rx_buffer(exanic_t *exanic, int port_number,
     if (rx_buffer == MAP_FAILED)
     {
         exanic_err_printf("rx mmap failed: %s", strerror(errno));
+
+        if (filter_buffer_allocated)
+            exanic_free_filter_buffer(exanic, port_number, buffer_number);
+
+        return NULL;
+    }
+
+
+    exanic_rx_t *rx = malloc(sizeof(exanic_rx_t));
+    if (rx == NULL)
+    {
+        munmap((void *)rx_buffer, EXANIC_RX_DMA_NUM_PAGES * PAGE_SIZE);
+        if (filter_buffer_allocated)
+            exanic_free_filter_buffer(exanic, port_number, buffer_number);
         return NULL;
     }
 
     exanic_retain_handle(exanic);
 
-    exanic_rx_t *rx = malloc(sizeof(exanic_rx_t));
-    if (rx != NULL)
-    {
-       rx->exanic = exanic;
-       rx->port_number = port_number;
-       rx->buffer = rx_buffer;
-       rx->buffer_number = buffer_number;
+    rx->exanic = exanic;
+    rx->port_number = port_number;
+    rx->buffer = rx_buffer;
+    rx->buffer_number = buffer_number;
 
-       __exanic_rx_catchup(rx);
-    }
+    __exanic_rx_catchup(rx);
+
     return rx;
 }
 

@@ -250,7 +250,8 @@ exabond_sysfs_devattr_slaves_store(struct device *d,
     if (command != '+' && command != '-')
         return -ENOMSG;
 
-    sscanf(&buf[1], "%16s", iface_name);
+    if (sscanf(&buf[1], "%15s", iface_name) != 1)
+        return -ENOMSG;
 
     if (!dev_valid_name(iface_name))
         return -ENODEV;

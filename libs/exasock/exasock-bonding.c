@@ -40,7 +40,7 @@ exasock_bond_iface_get_mac_addr(const struct exasock_bond *b,
     char ifname[IFNAMSIZ * 2];
     struct ifreq ifr;
 
-    err = sscanf(b->devname, "/dev/exabond-%s", ifname);
+    err = sscanf(b->devname, "/dev/exabond-%31s", ifname);
     if (err != 1)
     {
         perror("Unable to extract iface name for bond dev");

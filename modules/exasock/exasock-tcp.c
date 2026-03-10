@@ -1442,6 +1442,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
     struct exasock_tcp_req* req;
     struct exasock_tcp *    tcpl;
     unsigned long timestamp;
+    bool had_req = false;
     int err;
     BUG_ON(tcp->hdr.type != EXASOCK_TYPE_SOCKET);
     BUG_ON(tcp->hdr.socket.domain != AF_INET);
@@ -1504,6 +1505,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
      * and schedule a tcp_rx_work */
     if (req)
     {
+        had_req = true;
         PROFILE_INFO_SOCK_UPDATE(tcp, req);
         timestamp = req->timestamp;
         if (!skb_queue_empty(&req->skb_queue))
@@ -1522,7 +1524,7 @@ int exasock_tcp_update(struct exasock_tcp *tcp,
         kfree(req);
     }
 
-    if (!time_after(jiffies, timestamp+TCP_REQUEST_JIFFIES))
+    if (had_req && !time_after(jiffies, timestamp+TCP_REQUEST_JIFFIES))
     {
         /* Find listenning socket and add increase its backlog.
          * By increasing a backlog you allow listen socket to accept more connections */

@@ -37,6 +37,12 @@ static int exanic_set_firewall_filter_raw(exanic_t *exanic, int slot,
 {
     int ctl_index, ctl_shift, i;
 
+    if (exanic->filters == NULL)
+    {
+        exanic_err_printf("firewall filter region not available");
+        return -1;
+    }
+
     ctl_index = slot / 4;
     ctl_shift = (slot % 4) * 8;
 

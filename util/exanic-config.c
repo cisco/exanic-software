@@ -668,7 +668,13 @@ static void show_port_autoneg_status(const char* device, int port_number, int ve
     else
         printf("Off\n");
 
-    printf("Resolved link mode: %s\n", hcd_string_value[AUTONEG_HCD_VALUE(autoneg_status)]);
+    uint32_t hcd = AUTONEG_HCD_VALUE(autoneg_status);
+    size_t hcd_count = sizeof(hcd_string_value) / sizeof(hcd_string_value[0]);
+    const char *hcd_str = (hcd < hcd_count && hcd_string_value[hcd] != NULL)
+                    ? hcd_string_value[hcd]
+                    : "unknown";
+
+    printf("Resolved link mode: %s\n", hcd_str);
 
     if (autoneg_status & EXANIC_PORT_AUTONEG_FLAGS_RESOLVED_BASER_FEC)
         printf("Resolved FEC: BaseR\n");
