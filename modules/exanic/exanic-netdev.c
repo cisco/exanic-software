@@ -753,8 +753,12 @@ static int exanic_netdev_kernel_start(struct net_device *ndev)
     spin_unlock_irqrestore(&priv->tx_lock, flags);
 
     /* We use a HR timer to reduce IRQ rate under certain loads. */
+#if __HAS_HRTIMER_SETUP
+    hrtimer_setup(&priv->rx_hrtimer, &exanic_hrtimer_callback, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+#else
     hrtimer_init(&priv->rx_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     priv->rx_hrtimer.function = &exanic_hrtimer_callback;
+#endif
     priv->rx_coalesce_timeout_ns = DEFAULT_RX_COALESCE_US * 1000;
 
     napi_enable(&priv->napi);
@@ -805,7 +809,11 @@ static void exanic_netdev_kernel_stop(struct net_device *ndev)
     if (priv->exanic->caps & EXANIC_CAP_RX_IRQ)
         synchronize_irq(priv->exanic->pci_dev->irq);
     else
+#if __HAS_TIMER_DELETE_SYNC
+        timer_delete_sync(&priv->rx_timer);
+#else
         del_timer_sync(&priv->rx_timer);
+#endif
 
     hrtimer_cancel(&priv->rx_hrtimer);
 

@@ -24,11 +24,13 @@ else \
     echo 0; \
 fi}
 HAS_DEF_SEM_COUNT := ${shell grep -c "DEFINE_SEMAPHORE(_name, _n)" $(srctree)/include/linux/semaphore.h}
+HAS_TIMER_DELETE_SYNC := ${shell grep -c 'timer_delete_sync' $(srctree)/include/linux/timer.h}
 
 ccflags-y := -D__HAS_RT_GENID_GETTER=$(HAS_RT_GENID_GETTER) -D__HAS_RT_GENID_GETTER_IPV4=$(HAS_RT_GENID_GETTER_IPV4) -D__HAS_SIPHASH=$(HAS_SIPHASH) \
 	-D__HAS_BONDING_KO_HEADER=$(HAS_BONDING_KO_HEADER) -D__HAS_NETDEV_CLASS_CREATE_FILE_NS=$(HAS_NETDEV_CLASS_CREATE_FILE_NS) \
 	-D__HAS_GENL_POLICY_IN_OPS=$(HAS_GENL_POLICY_IN_OPS) -D__USE_SOCKPTR_T=$(USE_SOCKPTR_T) $(TCP_LISTEN_SOCKET_PROFILING_DEFINE) \
 	-D__USE_CONST_ATTR_PARAM=$(USE_CONST_ATTR_PARAM) -D__HAS_DEF_SEM_COUNT=$(HAS_DEF_SEM_COUNT)	\
+	-D__HAS_TIMER_DELETE_SYNC=$(HAS_TIMER_DELETE_SYNC) \
 	-fstack-protector-strong -Wformat -Wformat-security
 
 NO_PUBLIC_STRUCT_MSG:=NOTE: Exasock-bonding is not supported before Linux 3.19. \

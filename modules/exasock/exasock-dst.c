@@ -905,7 +905,11 @@ void exasock_dst_exit(void)
     struct exasock_dst_entry *de, *tmp;
 
     dst_expiry_timer_running = false;
+#if __HAS_TIMER_DELETE_SYNC
+    timer_delete_sync(&dst_expiry_timer);
+#else
     del_timer_sync(&dst_expiry_timer);
+#endif
 
     spin_lock_bh(&dst_lock);
 

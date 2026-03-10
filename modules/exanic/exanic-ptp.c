@@ -670,6 +670,7 @@ void exanic_ptp_init(struct exanic *exanic)
     struct device *dev = &exanic->pci_dev->dev;
     uint32_t reg;
     uint64_t time_ticks;
+    enum hrtimer_restart (*exanic_ptp_cb)(struct hrtimer *);
 
     exanic->tick_hz =
         readl(exanic->regs_virt + REG_EXANIC_OFFSET(REG_EXANIC_CLK_HZ));
@@ -695,14 +696,23 @@ void exanic_ptp_init(struct exanic *exanic)
     else
         exanic->ptp_clock_info.n_per_out = 0;
 
-    hrtimer_init(&exanic->ptp_clock_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-    if (exanic->caps & EXANIC_CAP_HW_TIME_HI)
-        exanic->ptp_clock_hrtimer.function = &exanic_ptp_hw_hrtimer_callback;
-    else
-        exanic->ptp_clock_hrtimer.function = &exanic_ptp_soft_hrtimer_callback;
+    exanic_ptp_cb = (exanic->caps & EXANIC_CAP_HW_TIME_HI) ?
+             exanic_ptp_hw_hrtimer_callback :
+             exanic_ptp_soft_hrtimer_callback;
 
+#if __HAS_HRTIMER_SETUP
+    hrtimer_setup(&exanic->ptp_clock_hrtimer, exanic_ptp_cb, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+#else
+    hrtimer_init(&exanic->ptp_clock_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+    exanic->ptp_clock_hrtimer.function = exanic_ptp_cb;
+#endif
+
+#if __HAS_HRTIMER_SETUP
+    hrtimer_setup(&exanic->phc_pps_hrtimer, &exanic_ptp_pps_hrtimer_callback, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+#else
     hrtimer_init(&exanic->phc_pps_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
     exanic->phc_pps_hrtimer.function = &exanic_ptp_pps_hrtimer_callback;
+#endif
 
     spin_lock_init(&exanic->ptp_clock_lock);
 
