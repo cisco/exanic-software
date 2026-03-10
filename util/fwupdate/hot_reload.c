@@ -301,7 +301,8 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
     snprintf(attr_path, sizeof(attr_path), "%s/remove", sysfs_path);
     exanic_release_handle(exanic);
     if (!write_1_to_file(attr_path)) {
-        close(parent_config_fd);
+        if (parent_config_fd != -1)
+            close(parent_config_fd);
         return NULL;
     }
 
@@ -315,7 +316,8 @@ exanic_t *reload_firmware(exanic_t *exanic, void (*report_progress)())
     for (attempts = 0; attempts < 3; attempts++)
     {
         if (!write_1_to_file("/sys/bus/pci/rescan")) {
-            close(parent_config_fd);
+            if (parent_config_fd != -1)
+                close(parent_config_fd);
             return NULL;
         }
 

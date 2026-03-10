@@ -103,7 +103,7 @@ exabond_masters_store(struct class *c,
     }
 
     command = buf[0];
-    sscanf(&buf[1], "%16s", iface_name);
+    sscanf(&buf[1], "%15s", iface_name);
 
     switch (command)
     {

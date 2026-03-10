@@ -1853,12 +1853,15 @@ exanic_tcp_get_device(struct exa_socket * restrict sock, char *dev,
                       size_t len, int *port_number)
 {
     struct exanic_tcp * restrict ctx = sock->ctx.tcp;
-    struct exanic_ip * restrict ip_ctx = ctx->exanic_ctx;
+    struct exanic_ip * restrict ip_ctx;
     const struct exanic_ip_dev *first_active_dev;
     int exa_id, exa_port, ret;
 
     assert(exa_read_locked(&sock->lock));
     assert(ctx != NULL);
+
+    ip_ctx = ctx->exanic_ctx;
+
     assert(ip_ctx != NULL);
 
     first_active_dev = exasock_exanic_ip_get_active_dev(ip_ctx);
