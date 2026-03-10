@@ -619,7 +619,13 @@ static void show_port_autoneg_status(const char* device, int port_number, int ve
     if (verbose)
     {
         uint32_t reg = exanic_register_read(exanic, REG_EXTENDED_PORT_INDEX(port_number, REG_EXTENDED_PORT_AN_ARB_STATE));
-        printf("Arbiter state: %s\n" , arbiter_state_string[AUTONEG_ARBITER_STATE(reg)]);
+        uint32_t state_index = AUTONEG_ARBITER_STATE(reg);
+        size_t max_states = sizeof(arbiter_state_string) / sizeof(arbiter_state_string[0]);
+
+        if ((state_index < max_states) && (arbiter_state_string[state_index] != NULL))
+            printf("Arbiter state: %s\n", arbiter_state_string[state_index]);
+        else
+            printf("Arbiter state: Unknown (0x%x)\n", state_index);
     }
 
     printf("Advertising modes:\n");
@@ -1329,7 +1335,8 @@ void set_port_enable_state(const char *device, int port_number, int mode)
         ioctl(fd, SIOCGIFFLAGS, &ifr) == -1)
     {
         fprintf(stderr, "%s:%d: %s\n", device, port_number, strerror(errno));
-        close(fd);
+        if (fd != -1)
+            close(fd);
         exit(1);
     }
 

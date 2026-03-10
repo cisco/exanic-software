@@ -1929,6 +1929,7 @@ exanic_tcp_send_ctrl(struct exa_socket * restrict sock)
     size_t hdr_len = 0;
 
     assert(ctx != NULL);
+    assert(ctx->exanic_ctx != NULL);
 
     /* Clear ack_pending flag because an ACK is about to be sent */
     exa_tcp_clear_ack_pending(&ctx->tcp);
