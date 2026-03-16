@@ -31,7 +31,7 @@ typedef struct
 {
     double                       temp;      /* degrees C */
     unsigned                     num_lanes;
-    struct exanic_port_xcvr_diag lanes[0];  /* per lane diagnostics */
+    struct exanic_port_xcvr_diag lanes[];  /* per lane diagnostics */
 } exanic_xcvr_diag_info_t;
 
 /* port_number: ethernet interface number */
