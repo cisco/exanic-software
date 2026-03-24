@@ -3817,7 +3817,8 @@ static void exasock_tcp_send_ack(struct exasock_tcp *tcp, bool dup)
         struct exa_socket_state *state = tcp->user_page;
         uint32_t seq = state->p.tcp.send_seq;
         if (state->p.tcp.state == EXA_TCP_TIME_WAIT ||
-            state->p.tcp.state == EXA_TCP_CLOSING)
+            state->p.tcp.state == EXA_TCP_CLOSING ||
+            state->p.tcp.state == EXA_TCP_FIN_WAIT_2)
         {
             seq++;
         }

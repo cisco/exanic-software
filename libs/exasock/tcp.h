@@ -478,7 +478,7 @@ exa_tcp_build_ctrl(struct exa_tcp_conn * restrict ctx, char ** restrict hdr,
 
     case EXA_TCP_FIN_WAIT_2:
         /* Send ACK */
-        h->th_seq = htonl(state->send_seq);
+        h->th_seq = htonl(state->send_seq + 1);
         h->th_ack = htonl(recv_seq);
         h->th_flags = TH_ACK;
         PROFILE_INFO_TCP_TX_RX_EVENT(false, ctx, EXA_TCP_FIN_WAIT_2, 0, 1, state->send_seq, recv_seq);
