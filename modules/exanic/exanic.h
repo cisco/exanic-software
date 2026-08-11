@@ -6,6 +6,8 @@
 #ifndef _EXANIC_H_
 #define _EXANIC_H_
 
+#include <linux/mm.h>
+
 #include "../../include/exanic_version.h"
 
 #define DRV_VERSION EXANIC_VERSION_TEXT
@@ -68,6 +70,12 @@ struct exanic_ate_regdump
 
 /* exanic.c */
 struct exanic;
+
+/* dma_alloc_coherent() may return an address in vmalloc space. */
+static inline struct page *exanic_virt_to_page(const void *addr)
+{
+    return is_vmalloc_addr(addr) ? vmalloc_to_page(addr) : virt_to_page(addr);
+}
 
 struct exanic *exanic_find_by_minor(unsigned minor);
 

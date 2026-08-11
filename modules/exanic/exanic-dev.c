@@ -350,7 +350,7 @@ static int exanic_map_tx_feedback(struct exanic *exanic,
     for (off = 0; off < map_size; off += PAGE_SIZE)
     {
         err = vm_insert_page(vma, vma->vm_start + off,
-                virt_to_page(exanic->tx_feedback_virt + off));
+                exanic_virt_to_page(exanic->tx_feedback_virt + off));
         if (err)
         {
             phys_addr = virt_to_phys(exanic->tx_feedback_virt + off);
@@ -488,7 +488,7 @@ static int exanic_map_rx_region(struct exanic *exanic, struct vm_area_struct *vm
     for (off = 0; off < map_size; off += PAGE_SIZE)
     {
         err = vm_insert_page(vma, vma->vm_start + off,
-                virt_to_page(rx_region_virt + off));
+                exanic_virt_to_page(rx_region_virt + off));
         if (err)
         {
             phys_addr = virt_to_phys(rx_region_virt + off);
