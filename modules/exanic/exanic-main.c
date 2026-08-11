@@ -132,7 +132,8 @@ bool exanic_rx_in_use(struct exanic *exanic, unsigned port_num)
     if (exanic->port[port_num].rx_region_virt)
     {
         /* Check if the region is mapped */
-        if (page_count(virt_to_page(exanic->port[port_num].rx_region_virt)) > 1)
+        if (page_count(exanic_virt_to_page(
+                exanic->port[port_num].rx_region_virt)) > 1)
             return true;
     }
 
@@ -158,7 +159,8 @@ int exanic_count_tx_feedback_users(struct exanic *exanic)
     {
         for (i = 0; i < EXANIC_TX_FEEDBACK_NUM_PAGES; i++)
             /* subtract 1 since we have a mapping */
-            count += page_count(virt_to_page(exanic->tx_feedback_virt + i * PAGE_SIZE)) - 1;
+            count += page_count(exanic_virt_to_page(
+                    exanic->tx_feedback_virt + i * PAGE_SIZE)) - 1;
 
         return count;
     }
@@ -178,7 +180,8 @@ int exanic_count_rx_users(struct exanic *exanic)
     {
         if (exanic->port[i].rx_region_virt)
             /* subtract 1 since we have a mapping */
-            count += page_count(virt_to_page(exanic->port[i].rx_region_virt)) - 1;
+            count += page_count(exanic_virt_to_page(
+                    exanic->port[i].rx_region_virt)) - 1;
 
         for (buf = 0; buf < exanic->max_filter_buffers; buf++)
             count += exanic->port[i].filter_buffers[buf].refcount;
