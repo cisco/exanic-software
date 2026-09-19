@@ -1214,7 +1214,9 @@ static int exanic_netdev_ioctl(struct net_device *ndev, struct ifreq *ifr,
             return exanic_ioctl_set_hw_timestamp(ndev, ifr, cmd);
         }
     case SIOCGHWTSTAMP:
+#if __HAS_KERNEL_NDO_ETH_IOCTL == 0
     case EXAIOCGHWTSTAMP:
+#endif
         {
             return exanic_ioctl_get_hw_timestamp(ndev, ifr, cmd);
         }
@@ -1237,6 +1239,8 @@ static int exanic_netdev_siocdevprivate(struct net_device *ndev, struct ifreq *i
 {
     if (cmd == EXAIOCGIFINFO)
         return exanic_ioctl_get_ifinfo(ndev, ifr, cmd);
+    if (cmd == EXAIOCGHWTSTAMP)
+        return exanic_ioctl_get_hw_timestamp(ndev, ifr, cmd);
     else
         return -EOPNOTSUPP;
 }
