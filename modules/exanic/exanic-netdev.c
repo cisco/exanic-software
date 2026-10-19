@@ -1051,6 +1051,17 @@ static void exanic_netdev_set_rx_mode(struct net_device *ndev)
     uint32_t reg;
 
     reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_FLAGS)]);
+    if (unlikely(reg == 0xFFFFFFFFu))
+    {
+        reg = readl(&priv->registers[REG_PORT_INDEX(priv->port, REG_PORT_FLAGS)]);
+        netdev_err(ndev, "set_rx_mode: readl returned 0xFFFFFFFF,"
+                   " reread=0x%08x\n", reg);
+        if (reg == 0xFFFFFFFFu) {
+            netdev_err(ndev, "set_rx_mode: failed to read port flags\n");
+            return;
+        }
+    }
+    
     if (ndev->flags & IFF_PROMISC)
         reg |= EXANIC_PORT_FLAG_PROMISCUOUS;
     else
