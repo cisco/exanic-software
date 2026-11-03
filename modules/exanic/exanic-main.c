@@ -1016,9 +1016,10 @@ static int exanic_probe(struct pci_dev *pdev,
     uint32_t dma_cfg;
     u8 mac_addr[ETH_ALEN];
 
-    exanic = devm_kzalloc(dev, sizeof(struct exanic), GFP_KERNEL);
+    exanic = kzalloc(sizeof(struct exanic), GFP_KERNEL);
     if (exanic == NULL)
         return -ENOMEM;
+    kref_init(&exanic->ref);
 
     /* misc_dev.minor should be initialized before exanic device gets added
      * to the exanic_devices list to avoid unexpected results of
@@ -1897,6 +1898,7 @@ err_pci_enable_dev:
     spin_lock(&exanic_devices_lock);
     list_del(&exanic->node);
     spin_unlock(&exanic_devices_lock);
+    kfree(exanic);
     return err;
 }
 
@@ -1910,6 +1912,11 @@ err_pci_enable_dev:
  * Bridging and mirroring settings persist after the unload, and ports are not
  * powered down if bridging or mirroring requires them.
  */
+void exanic_destroy(struct kref *ref)
+{
+    kfree(container_of(ref, struct exanic, ref));
+}
+
 static void exanic_remove(struct pci_dev *pdev)
 {
     struct exanic *exanic = pci_get_drvdata(pdev);
@@ -1917,6 +1924,10 @@ static void exanic_remove(struct pci_dev *pdev)
     int i, j;
 
     dev_info(dev, "Removing exanic%u.\n", exanic->id);
+
+    mutex_lock(&exanic->mutex);
+    exanic->removed = true;
+    mutex_unlock(&exanic->mutex);
 
     spin_lock(&exanic_devices_lock);
     list_del(&exanic->node);
@@ -2017,6 +2028,8 @@ static void exanic_remove(struct pci_dev *pdev)
 #endif
     pci_release_regions(pdev);
     pci_disable_device(pdev);
+
+    kref_put(&exanic->ref, exanic_destroy);
 }
 
 /**

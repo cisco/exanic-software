@@ -125,6 +125,7 @@ struct exanic_ctx;
 
 struct exanic_ctx *exanic_alloc_ctx(struct exanic *exanic);
 void exanic_free_ctx(struct exanic_ctx *ctx);
+void exanic_destroy(struct kref *ref);
 void exanic_rx_get(struct exanic_ctx *ctx, unsigned port_num);
 void exanic_rx_put(struct exanic_ctx *ctx, unsigned port_num);
 int exanic_alloc_tx_region(struct exanic_ctx *ctx, unsigned port_num,

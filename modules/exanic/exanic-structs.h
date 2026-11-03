@@ -10,6 +10,8 @@
 #include <linux/ptp_clock_kernel.h>
 #endif
 
+#include <linux/kref.h>
+
 #include "exanic-phyops.h"
 
 #include "../../libs/exanic/const.h"
@@ -81,6 +83,9 @@ enum per_out_mode
 
 struct exanic
 {
+    struct kref ref;
+    bool removed;
+
     struct miscdevice misc_dev;
     struct pci_dev *pci_dev;
 

@@ -37,7 +37,14 @@ static int exanic_open(struct inode *inode, struct file *filp)
     }
 
     mutex_lock(&exanic->mutex);
+    if (exanic->removed)
+    {
+        mutex_unlock(&exanic->mutex);
+        return -ENODEV;
+    }
     ctx = exanic_alloc_ctx(exanic);
+    if (ctx != NULL)
+        kref_get(&exanic->ref);
     mutex_unlock(&exanic->mutex);
     if (ctx == NULL)
     {
@@ -59,8 +66,21 @@ static int exanic_release(struct inode *inode, struct file *filp)
     struct exanic *exanic = ctx->exanic;
 
     mutex_lock(&exanic->mutex);
+    if (exanic->removed)
+    {
+        struct list_head *pos, *pos_next;
+        list_for_each_safe(pos, pos_next, &ctx->filter_buffer_ref_list)
+        {
+            kfree(list_entry(pos, struct exanic_filter_buffer_ref, list)); 
+        }
+        mutex_unlock(&exanic->mutex);
+        kfree(ctx);
+        kref_put(&exanic->ref, exanic_destroy);
+        return 0;
+    }
     exanic_free_ctx(ctx);
     mutex_unlock(&exanic->mutex);
+    kref_put(&exanic->ref, exanic_destroy);
 
     return 0;
 }
@@ -522,6 +542,12 @@ static int exanic_mmap(struct file *filp, struct vm_area_struct *vma)
 
     mutex_lock(&exanic->mutex);
 
+    if (exanic->removed)
+    {
+        mutex_unlock(&exanic->mutex);
+        return -ENODEV;
+    }
+
     if (vma->vm_pgoff == EXANIC_PGOFF_REGISTERS)
         ret = exanic_map_registers(exanic, vma);
     else if (vma->vm_pgoff == EXANIC_PGOFF_INFO)
@@ -625,6 +651,14 @@ static long exanic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
     if (_IOC_TYPE(cmd) != EXANICCTL_TYPE)
         return -ENOTTY;
+
+    mutex_lock(&exanic->mutex);
+    if (exanic->removed)
+    {
+        mutex_unlock(&exanic->mutex);
+        return -ENODEV;
+    }
+    mutex_unlock(&exanic->mutex);
 
     switch (cmd)
     {
