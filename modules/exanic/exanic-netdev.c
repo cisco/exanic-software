@@ -867,6 +867,7 @@ static int exanic_netdev_open(struct net_device *ndev)
         err = -ENOMEM;
         goto err_alloc_ctx;
     }
+    kref_get(&priv->exanic->ref);
 
     /* Allocate buffers before enabling the port.
      * This will work even if the buffers are already allocated. */
@@ -912,6 +913,7 @@ err_alloc_rx_dma:
     /* This will free the RX buffers */
     exanic_free_ctx(priv->ctx);
     priv->ctx = NULL;
+    kref_put(&priv->exanic->ref, exanic_destroy);
 err_alloc_ctx:
 err_rx_in_use:
     mutex_unlock(mutex);
@@ -949,6 +951,8 @@ static int exanic_netdev_stop(struct net_device *ndev)
     priv->ctx = NULL;
 
     mutex_unlock(mutex);
+
+    kref_put(&priv->exanic->ref, exanic_destroy);
 
     netdev_info(ndev, "interface closed\n");
     return 0;
